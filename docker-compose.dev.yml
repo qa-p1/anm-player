@@ -1,0 +1,21 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: docker/web.Dockerfile
+      target: development
+    command: npm run dev -- --host 0.0.0.0
+    ports:
+      - "${WEB_PORT:-5173}:5173"
+    volumes:
+      - ./apps/web:/app/apps/web
+      - /app/node_modules
+      - /app/apps/web/node_modules
+    environment:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000/api/v1}
+      VITE_API_ACCESS_TOKEN: ${VITE_API_ACCESS_TOKEN:-}
+
+  api:
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ./apps/api:/app/apps/api

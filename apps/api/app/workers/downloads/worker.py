@@ -1,0 +1,494 @@
+import logging
+import shutil
+import threading
+import time
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+from yt_dlp import YoutubeDL
+
+from app.core.config import settings
+from app.core.enums import DownloadStage, DownloadStatus
+from app.database.session import SessionLocal
+from app.models import AlbumDownloadItem, DownloadJob, LibraryAlbum, Song
+from app.repositories.music import AlbumRepository, ArtistRepository, DownloadJobRepository, QueueItemRepository, SongRepository
+from app.services.file_paths import library_storage_path
+from app.services.naming import NamingService
+from app.services.artwork_cache import ArtworkCacheService
+from app.services.lyrics_service import LyricsService
+from app.services.tagging import AudioTagData, AudioTaggingService
+from app.services.websocket_manager import download_progress_hub
+from app.services.settings import SettingsService
+from app.services.metadata.service import MetadataEnrichmentService
+from app.storage import storage_manager
+from app.storage.coordinator import storage_coordinator
+
+logger = logging.getLogger(__name__)
+
+
+class DownloadWorker:
+    def __init__(self) -> None:
+        self._stop_event = threading.Event()
+        self._claim_lock = threading.Lock()
+        self._threads: list[threading.Thread] = []
+        self.naming = NamingService()
+        self.tagging = AudioTaggingService()
+
+    def start(self) -> None:
+        if any(thread.is_alive() for thread in self._threads):
+            return
+        worker_count = 8
+        self._stop_event.clear()
+        self._threads = [
+            threading.Thread(target=self._run, name=f"aura-download-worker-{index + 1}", daemon=True)
+            for index in range(worker_count)
+        ]
+        for thread in self._threads:
+            thread.start()
+        logger.info("download worker started")
+
+    def stop(self) -> None:
+        self._stop_event.set()
+        for thread in self._threads:
+            thread.join(timeout=5)
+        logger.info("download worker stopped")
+
+    def _run(self) -> None:
+        while not self._stop_event.is_set():
+            try:
+                self._work_once()
+            except Exception:
+                logger.exception("download worker cycle failed")
+            self._stop_event.wait(settings.download_worker_poll_interval_seconds)
+
+    def _work_once(self) -> None:
+        job_id = self._claim_next_job()
+        if job_id is None:
+            return
+
+        try:
+            with storage_coordinator.filesystem_write():
+                self._download_job(job_id)
+        except Exception as exc:
+            logger.exception("download failed", extra={"job_id": job_id})
+            self._mark_failed(job_id, exc)
+        finally:
+            shutil.rmtree(self._download_jobs_dir() / str(job_id), ignore_errors=True)
+
+    def _claim_next_job(self) -> int | None:
+        with self._claim_lock:
+            return self._claim_next_job_locked()
+
+    def _claim_next_job_locked(self) -> int | None:
+        if storage_coordinator.stop_claiming.is_set():
+            return None
+        with SessionLocal() as session:
+            runtime = SettingsService(session)
+            maximum = runtime.get_int("max_concurrent_downloads", 8)
+            active = session.query(DownloadJob).filter(
+                DownloadJob.status.in_([
+                    DownloadStatus.PREPARING,
+                    DownloadStatus.DOWNLOADING,
+                    DownloadStatus.PROCESSING,
+                ])
+            ).count()
+            if active >= maximum:
+                return None
+            downloads = DownloadJobRepository(session)
+            job_id = downloads.claim_next_queued()
+            if job_id is None:
+                return None
+            job = downloads.get(job_id)
+            if job and job.queue_item:
+                job.queue_item.status = DownloadStatus.PREPARING
+                session.commit()
+        self._publish(job_id)
+        return job_id
+
+    def _mark_failed(self, job_id: int, exc: Exception) -> None:
+        with SessionLocal() as session:
+            downloads = DownloadJobRepository(session)
+            fresh_job = downloads.get(job_id)
+            if fresh_job and fresh_job.status != DownloadStatus.CANCELLED:
+                if storage_coordinator.cancel_work.is_set() or fresh_job.status == DownloadStatus.QUEUED:
+                    fresh_job.status = DownloadStatus.QUEUED
+                    fresh_job.stage = DownloadStage.QUEUED
+                    if fresh_job.queue_item:
+                        fresh_job.queue_item.status = DownloadStatus.QUEUED
+                    session.commit()
+                    return
+                fresh_job.status = DownloadStatus.FAILED
+                fresh_job.stage = DownloadStage.FAILED
+                fresh_job.error_message = self._friendly_error(exc)
+                if fresh_job.queue_item:
+                    fresh_job.queue_item.status = DownloadStatus.FAILED
+                album_item = session.query(AlbumDownloadItem).filter(
+                    AlbumDownloadItem.download_job_id == fresh_job.id
+                ).first()
+                if album_item:
+                    album_item.status = DownloadStatus.FAILED
+                    album_item.error_message = fresh_job.error_message
+                    album_job = album_item.album_job
+                    album_job.failed_tracks = sum(1 for item in album_job.items if item.status == DownloadStatus.FAILED)
+                    album_job.completed_tracks = sum(1 for item in album_job.items if item.status == DownloadStatus.COMPLETED)
+                    finished = album_job.failed_tracks + album_job.completed_tracks
+                    album_job.progress = int((finished / album_job.total_tracks) * 100) if album_job.total_tracks else 100
+                    if finished >= album_job.total_tracks:
+                        album_job.status = DownloadStatus.FAILED
+                        album_job.completed_at = datetime.now(UTC)
+                session.commit()
+                self._publish(fresh_job.id)
+
+    def _download_job(self, job_id: int) -> None:
+        with SessionLocal() as session:
+            job = DownloadJobRepository(session).get(job_id)
+            if not job or not job.source_url:
+                return
+            source_url = job.source_url
+            audio_format = job.audio_format
+
+        work_dir = self._download_jobs_dir() / str(job_id)
+        work_dir.mkdir(parents=True, exist_ok=True)
+
+        def progress_hook(payload: dict[str, Any]) -> None:
+            with SessionLocal() as hook_session:
+                hook_job = DownloadJobRepository(hook_session).get(job_id)
+                if not hook_job:
+                    return
+                if storage_coordinator.cancel_work.is_set():
+                    hook_job.status = DownloadStatus.QUEUED
+                    hook_job.stage = DownloadStage.QUEUED
+                    if hook_job.queue_item:
+                        hook_job.queue_item.status = DownloadStatus.QUEUED
+                    hook_session.commit()
+                    raise RuntimeError("Download returned to queue for storage migration")
+                if hook_job.status == DownloadStatus.CANCELLED:
+                    raise RuntimeError("Download cancelled")
+                while hook_job.status == DownloadStatus.PAUSED:
+                    hook_session.commit()
+                    time.sleep(0.25)
+                    hook_session.refresh(hook_job)
+                    if hook_job.status == DownloadStatus.CANCELLED:
+                        raise RuntimeError("Download cancelled")
+
+                status = payload.get("status")
+                if status == "downloading":
+                    hook_job.status = DownloadStatus.DOWNLOADING
+                    hook_job.stage = DownloadStage.DOWNLOADING
+                    hook_job.progress = self._percent(payload)
+                    hook_job.speed = self._format_speed(payload.get("speed"))
+                    hook_job.eta = self._format_eta(payload.get("eta"))
+                elif status == "finished":
+                    hook_job.status = DownloadStatus.PROCESSING
+                    hook_job.stage = DownloadStage.EXTRACTING
+                    hook_job.progress = max(hook_job.progress, 92)
+                album_item = hook_session.query(AlbumDownloadItem).filter(
+                    AlbumDownloadItem.download_job_id == hook_job.id
+                ).first()
+                if album_item:
+                    album_item.status = hook_job.status
+                    album_item.progress = hook_job.progress
+                    album_job = album_item.album_job
+                    album_job.status = hook_job.status
+                    album_job.progress = int(
+                        sum(item.progress for item in album_job.items) / max(album_job.total_tracks, 1)
+                    )
+                hook_session.commit()
+                self._publish(job_id)
+
+        options = {
+            "format": "bestaudio/best",
+            "outtmpl": str(work_dir / "%(title).200B.%(ext)s"),
+            "noplaylist": True,
+            "quiet": True,
+            "no_warnings": True,
+            "progress_hooks": [progress_hook],
+            "postprocessors": [
+                {
+                    "key": "FFmpegExtractAudio",
+                    "preferredcodec": audio_format,
+                    "preferredquality": "0",
+                }
+            ],
+        }
+
+        with YoutubeDL(options) as ydl:
+            info = ydl.extract_info(source_url, download=True)
+
+        mp3_file = self._find_output_file(work_dir, audio_format)
+        with SessionLocal() as session:
+            downloads = DownloadJobRepository(session)
+            songs = SongRepository(session)
+            artists = ArtistRepository(session)
+            albums = AlbumRepository(session)
+            fresh_job = downloads.get(job_id)
+            if not fresh_job:
+                return
+            while fresh_job.status == DownloadStatus.PAUSED:
+                session.commit()
+                time.sleep(0.25)
+                session.refresh(fresh_job)
+            if fresh_job.status == DownloadStatus.CANCELLED:
+                return
+
+            fresh_job.stage = DownloadStage.SAVING
+            session.commit()
+            self._publish(job_id)
+
+            title = fresh_job.title or info.get("title") or "Song"
+            artist_name = fresh_job.artist or info.get("artist") or info.get("creator") or info.get("uploader") or "Unknown Artist"
+            # Only persist album metadata supplied by Aura's provider/library
+            # context. yt-dlp frequently reports a standalone release's title as
+            # its album, which used to create a fake one-song album in Library.
+            album_name = _download_album_name(fresh_job.album)
+            storage_album_name = album_name or "Singles"
+            target_path = self.naming.build_target_path(
+                music_directory=storage_manager.paths.music,
+                artist=artist_name,
+                album=storage_album_name,
+                title=title,
+                extension=fresh_job.audio_format,
+            )
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            if target_path.exists() and not fresh_job.overwrite_existing:
+                raise RuntimeError("A file already exists at the destination.")
+            shutil.move(str(mp3_file), target_path)
+            self.tagging.write_tags(
+                target_path,
+                AudioTagData(
+                    title=title,
+                    artist=artist_name,
+                    album=album_name,
+                    album_artist=artist_name,
+                    clear_album=album_name is None,
+                    year=info.get("release_year") or self._year_from_date(info.get("release_date") or info.get("upload_date")),
+                ),
+            )
+
+            artist = artists.get_or_create(artist_name)
+            album = albums.get_or_create(album_name, artist.id) if album_name else None
+            artwork_url = fresh_job.thumbnail_url or info.get("thumbnail")
+            runtime = SettingsService(session)
+            cached_artwork = self._cache_artwork(artwork_url) if artwork_url and runtime.get_bool("download_artwork", True) else None
+            artwork_path = cached_artwork
+            if artwork_url and album:
+                album.artwork_url = artwork_url
+            if artwork_url:
+                artist.artwork_url = artwork_url
+            if artwork_path and album:
+                album.artwork_path = artwork_path
+            if artwork_path:
+                artist.artwork_path = artwork_path
+            
+            # Store library files relative to music_directory when possible.
+            file_path_to_save = library_storage_path(target_path)
+            
+            logger.info(f"Saving song with file_path: {file_path_to_save}")
+
+            album_item = session.query(AlbumDownloadItem).filter(
+                AlbumDownloadItem.download_job_id == fresh_job.id
+            ).first()
+            existing_song = songs.find_by_source_url(fresh_job.source_url)
+            if existing_song:
+                existing_song.relative_path = file_path_to_save
+                existing_song.is_downloaded = True
+                if artwork_url:
+                    existing_song.artwork_url = artwork_url
+                if artwork_path:
+                    existing_song.artwork_path = artwork_path
+                song_for_enrichment = existing_song
+            else:
+                new_song = Song(
+                    title=title,
+                    artist_id=artist.id,
+                    album_id=album.id if album else None,
+                    duration_seconds=info.get("duration"),
+                    source_url=fresh_job.source_url,
+                    relative_path=file_path_to_save,
+                    artwork_path=artwork_path,
+                    artwork_url=artwork_url,
+                    is_downloaded=True,
+                )
+                songs.add(new_song)
+                song_for_enrichment = new_song
+
+            if album_item and album_item.track:
+                if album and album_item.album_job.album.local_album_id is None:
+                    represented = session.query(LibraryAlbum).filter(LibraryAlbum.local_album_id == album.id).first()
+                    if represented is None or represented.id == album_item.album_job.album.id:
+                        album_item.album_job.album.local_album_id = album.id
+                album_item.track.song = song_for_enrichment
+                album_item.track.relative_path = file_path_to_save
+                album_item.track.is_downloaded = True
+                album_item.track.duration_seconds = album_item.track.duration_seconds or info.get("duration")
+                album_item.track.artwork_path = artwork_path
+                if artwork_url:
+                    album_item.track.artwork_url = artwork_url
+                    album_item.album_job.album.artwork_url = artwork_url
+                if artwork_path:
+                    album_item.album_job.album.artwork_path = artwork_path
+                album_item.status = DownloadStatus.COMPLETED
+                album_item.progress = 100
+                album_job = album_item.album_job
+                completed = sum(1 for item in album_job.items if item.status == DownloadStatus.COMPLETED)
+                failed = sum(1 for item in album_job.items if item.status == DownloadStatus.FAILED)
+                album_job.completed_tracks = completed
+                album_job.failed_tracks = failed
+                album_job.progress = int((completed / album_job.total_tracks) * 100) if album_job.total_tracks else 100
+                if completed + failed >= album_job.total_tracks:
+                    album_job.status = DownloadStatus.COMPLETED if failed == 0 else DownloadStatus.FAILED
+                    album_job.completed_at = datetime.now(UTC)
+
+            fresh_job.status = DownloadStatus.COMPLETED
+            fresh_job.stage = DownloadStage.COMPLETED
+            fresh_job.progress = 100
+            fresh_job.output_relative_path = file_path_to_save
+            fresh_job.completed_at = datetime.now(UTC)
+            if fresh_job.queue_item:
+                fresh_job.queue_item.status = DownloadStatus.COMPLETED
+            session.commit()
+            
+            if runtime.get_bool("auto_fetch_lyrics", True):
+                try:
+                    self._fetch_lyrics(session, song_for_enrichment.id)
+                except Exception as exc:
+                    logger.warning(f"Failed to fetch lyrics for song {song_for_enrichment.id}: {exc}")
+            if runtime.get_bool("auto_enrich_downloads", True):
+                try:
+                    self._enrich_song(session, song_for_enrichment.id)
+                except Exception as exc:
+                    logger.warning("Metadata enrichment failed for completed song %s: %s", song_for_enrichment.id, exc)
+            self._publish(job_id)
+
+
+    def _publish(self, job_id: int) -> None:
+        with SessionLocal() as session:
+            job = DownloadJobRepository(session).get(job_id)
+            if not job:
+                return
+            from app.schemas.music import DownloadGroupRef, DownloadJobResponse
+
+            response = DownloadJobResponse.model_validate(job, from_attributes=True)
+            if job.search_query and job.search_query.startswith("album:"):
+                public_id = job.search_query.removeprefix("album:")
+                response.group = DownloadGroupRef(
+                    album_id=public_id,
+                    title=job.album or "Album download",
+                    canonical_url=f"/albums/{public_id}",
+                )
+            download_progress_hub.publish_threadsafe(job_id, response.model_dump(mode="json"))
+
+    def _find_output_file(self, work_dir: Path, audio_format: str) -> Path:
+        for file_path in work_dir.glob(f"*.{audio_format}"):
+            return file_path
+        files = [path for path in work_dir.iterdir() if path.is_file()]
+        if files:
+            return files[0]
+        raise RuntimeError("Downloaded audio file was not found.")
+
+    def _percent(self, payload: dict[str, Any]) -> int:
+        total = payload.get("total_bytes") or payload.get("total_bytes_estimate")
+        downloaded = payload.get("downloaded_bytes")
+        if not total or not downloaded:
+            return 0
+        return min(90, max(0, int((downloaded / total) * 90)))
+
+    def _format_speed(self, speed: Any) -> str | None:
+        if not speed:
+            return None
+        value = float(speed)
+        if value > 1_000_000:
+            return f"{value / 1_000_000:.1f} MB/s"
+        return f"{value / 1_000:.0f} KB/s"
+
+    def _format_eta(self, eta: Any) -> str | None:
+        if eta is None:
+            return None
+        seconds = int(eta)
+        minutes, remaining = divmod(seconds, 60)
+        return f"{minutes}:{remaining:02d}"
+
+    def _year_from_date(self, value: Any) -> int | None:
+        if not value:
+            return None
+        text = str(value)
+        if len(text) < 4:
+            return None
+        try:
+            return int(text[:4])
+        except ValueError:
+            return None
+
+    def _friendly_error(self, exc: Exception) -> str:
+        message = str(exc)
+        if "ffmpeg" in message.lower():
+            return "Audio conversion failed. Confirm FFmpeg is installed and available."
+        if "permission" in message.lower():
+            return "Aura could not write to the configured music directory."
+        if "cancelled" in message.lower():
+            return "Download was cancelled."
+        return "Download failed. The video may be unavailable or unsupported."
+    
+    def _cache_artwork(self, artwork_url: str | None) -> str | None:
+        if not artwork_url:
+            return None
+        try:
+            import asyncio
+
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                artwork_cache = ArtworkCacheService(storage_manager.paths.artwork_cache)
+                cached_path = loop.run_until_complete(artwork_cache.download_and_cache(artwork_url))
+                if not cached_path:
+                    return None
+                persistent_dir = storage_manager.paths.download_thumbnails
+                persistent_dir.mkdir(parents=True, exist_ok=True)
+                persistent_path = persistent_dir / cached_path.name
+                if not persistent_path.is_file():
+                    shutil.copyfile(cached_path, persistent_path)
+                return f"/media/artwork/downloads/{persistent_path.name}"
+            finally:
+                loop.close()
+        except Exception as exc:
+            logger.warning(f"Failed to cache artwork: {exc}")
+            return None
+
+    def _fetch_lyrics(self, session, song_id: int) -> None:
+        """Fetch and save lyrics from YouTube Music/LRCLIB after download."""
+        try:
+            import asyncio
+
+            lyrics_service = LyricsService(session)
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(lyrics_service.fetch_and_save_lyrics(song_id, embed=False))
+                logger.info(f"Finished lyrics lookup for song {song_id}")
+            finally:
+                loop.close()
+        except Exception as exc:
+            logger.error(f"Lyrics lookup failed for song {song_id}: {exc}")
+
+    def _enrich_song(self, session, song_id: int) -> None:
+        import asyncio
+
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(MetadataEnrichmentService(session).enrich_song(song_id))
+        finally:
+            loop.close()
+
+    def _download_jobs_dir(self) -> Path:
+        if settings.download_directory is not None:
+            return Path(settings.download_directory) / "jobs"
+        return storage_manager.paths.download_jobs
+
+
+download_worker = DownloadWorker()
+
+
+def _download_album_name(requested_album: str | None) -> str | None:
+    value = requested_album.strip() if requested_album else ""
+    return value or None

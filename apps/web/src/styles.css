@@ -1,0 +1,177 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 98%;
+    --foreground: 240 8% 9%;
+    --card: 0 0% 100%;
+    --card-foreground: 240 8% 9%;
+    --primary: 346 88% 56%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 32 36% 92%;
+    --secondary-foreground: 240 8% 12%;
+    --muted: 240 8% 94%;
+    --muted-foreground: 240 5% 40%;
+    --accent: 174 52% 42%;
+    --accent-foreground: 0 0% 100%;
+    --border: 240 7% 86%;
+    --input: 240 7% 88%;
+    --ring: 346 88% 56%;
+    --radius: 1rem;
+  }
+
+  .dark {
+    --background: 240 8% 5%;
+    --foreground: 0 0% 96%;
+    --card: 240 7% 9%;
+    --card-foreground: 0 0% 96%;
+    --primary: 346 89% 58%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 30 16% 16%;
+    --secondary-foreground: 32 34% 88%;
+    --muted: 240 6% 15%;
+    --muted-foreground: 240 6% 68%;
+    --accent: 174 58% 42%;
+    --accent-foreground: 0 0% 100%;
+    --border: 240 6% 18%;
+    --input: 240 6% 18%;
+    --ring: 346 89% 58%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html {
+    color-scheme: dark;
+  }
+
+  html.light {
+    color-scheme: light;
+  }
+
+  body {
+    @apply min-h-screen bg-background text-foreground antialiased;
+    background-image:
+      radial-gradient(circle at 12% 4%, hsl(var(--primary) / 0.16), transparent 30rem),
+      radial-gradient(circle at 88% 10%, hsl(var(--accent) / 0.11), transparent 28rem),
+      linear-gradient(180deg, hsl(var(--background)), hsl(var(--background)));
+  }
+
+  button,
+  input {
+    font: inherit;
+  }
+}
+
+@layer utilities {
+  .glass-panel {
+    @apply border border-white/10 bg-card/70 shadow-glass backdrop-blur-2xl;
+  }
+
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .apple-player-range {
+    --range-progress: 0%;
+    height: 1rem;
+    cursor: pointer;
+    appearance: none;
+    background: transparent;
+  }
+
+  .apple-player-range::-webkit-slider-runnable-track {
+    height: 0.25rem;
+    border-radius: 9999px;
+    background: linear-gradient(to right, rgb(255 255 255 / 0.9) var(--range-progress), rgb(255 255 255 / 0.24) var(--range-progress));
+  }
+
+  .apple-player-range::-webkit-slider-thumb {
+    width: 0.75rem;
+    height: 0.75rem;
+    margin-top: -0.25rem;
+    appearance: none;
+    border: 0;
+    border-radius: 9999px;
+    background: white;
+    box-shadow: 0 1px 5px rgb(0 0 0 / 0.35);
+    opacity: 0;
+    transition: opacity 150ms ease;
+  }
+
+  .apple-player-range:hover::-webkit-slider-thumb,
+  .apple-player-range:focus-visible::-webkit-slider-thumb {
+    opacity: 1;
+  }
+
+  .apple-player-range::-moz-range-track {
+    height: 0.25rem;
+    border-radius: 9999px;
+    background: rgb(255 255 255 / 0.24);
+  }
+
+  .apple-player-range::-moz-range-progress {
+    height: 0.25rem;
+    border-radius: 9999px;
+    background: rgb(255 255 255 / 0.9);
+  }
+
+  .apple-player-range::-moz-range-thumb {
+    width: 0.75rem;
+    height: 0.75rem;
+    border: 0;
+    border-radius: 9999px;
+    background: white;
+    opacity: 0;
+  }
+
+  .apple-player-range:hover::-moz-range-thumb,
+  .apple-player-range:focus-visible::-moz-range-thumb {
+    opacity: 1;
+  }
+
+  .lyrics-active-glow {
+    text-shadow:
+      0 0 10px rgb(255 255 255 / 0.34),
+      0 0 28px rgb(255 255 255 / 0.24),
+      0 0 64px rgb(255 255 255 / 0.14);
+    filter: drop-shadow(0 8px 24px rgb(0 0 0 / 0.18));
+  }
+
+  .track-actions-menu-content[data-state="open"] {
+    transform-origin: var(--radix-dropdown-menu-content-transform-origin);
+    animation: track-menu-bounce-in 420ms cubic-bezier(0.22, 1.35, 0.36, 1) both;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .track-actions-menu-content[data-state="open"] {
+      animation: none;
+    }
+  }
+}
+
+@keyframes track-menu-bounce-in {
+  0% {
+    opacity: 0;
+    transform: translateY(-0.45rem) scale(0.86);
+  }
+  62% {
+    opacity: 1;
+    transform: translateY(0.12rem) scale(1.035);
+  }
+  82% {
+    transform: translateY(-0.04rem) scale(0.992);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
