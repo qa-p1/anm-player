@@ -1,6 +1,6 @@
 import { motion } from "framer-motion";
-import { Database, Download, Folder, FolderPlus, HardDrive, Info, Palette, RefreshCw, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { Bomb, Database, Download, Folder, FolderPlus, HardDrive, Info, Palette, RefreshCw, Trash2 } from "lucide-react";
+import { useEffect, useId, useMemo, useState } from "react";
 
 import { pageTransition } from "@/animations/page-motion";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,7 @@ import { applyAccent, accentValues, useThemeStore, type AccentTheme, type ThemeM
 
 type AudioFormat = "mp3" | "m4a" | "flac" | "opus" | "ogg";
 type StreamQuality = "low" | "auto" | "high";
+type BrowserPurpose = "migration" | "reset";
 
 interface SettingsSummary {
   startup_scan_enabled: boolean;
@@ -76,6 +77,11 @@ export function SettingsPage() {
   const [newFolder, setNewFolder] = useState("");
   const [selected, setSelected] = useState<DirectoryEntry | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+  const [resetConfirmation, setResetConfirmation] = useState("");
+  const [resetting, setResetting] = useState(false);
+  const [browserPurpose, setBrowserPurpose] = useState<BrowserPurpose>("migration");
+  const [syncingLibrary, setSyncingLibrary] = useState(false);
   const { setMode } = useThemeStore();
 
   async function refresh() {
@@ -94,11 +100,26 @@ export function SettingsPage() {
     return () => window.removeEventListener("aura-storage-ready", handleStorageReady);
   }, []);
 
-  async function save(next: Partial<SettingsSummary> = {}) {
+  async function save() {
     if (!settings) return;
     setSaving(true);
     try {
-      const updated = await apiPatch<SettingsSummary, Partial<SettingsSummary>>("/settings", { ...settings, ...next });
+      const writableSettings = {
+        startup_scan_enabled: settings.startup_scan_enabled,
+        download_audio_format: settings.download_audio_format,
+        download_overwrite_existing: settings.download_overwrite_existing,
+        max_concurrent_downloads: settings.max_concurrent_downloads,
+        album_download_max_parallel: settings.album_download_max_parallel,
+        auto_enrich_downloads: settings.auto_enrich_downloads,
+        download_artwork: settings.download_artwork,
+        auto_fetch_lyrics: settings.auto_fetch_lyrics,
+        stream_quality: settings.stream_quality,
+        stream_cache_retention_days: settings.stream_cache_retention_days,
+        artwork_cache_limit_mb: settings.artwork_cache_limit_mb,
+        theme_mode: settings.theme_mode,
+        accent_theme: settings.accent_theme,
+      };
+      const updated = await apiPatch<SettingsSummary, typeof writableSettings>("/settings", writableSettings);
       setSettings(updated);
       setMode(updated.theme_mode);
       applyAccent(updated.accent_theme);
@@ -126,9 +147,11 @@ export function SettingsPage() {
     }
   }
 
-  async function openBrowser() {
+  async function openBrowser(purpose: BrowserPurpose = "migration") {
+    setBrowserPurpose(purpose);
     setBrowserOpen(true);
     setSelected(null);
+    setResetConfirmation("");
     await browse();
   }
 
@@ -152,7 +175,8 @@ export function SettingsPage() {
     if (!listing?.current?.empty) return;
     setSelected(listing.current);
     setBrowserOpen(false);
-    setConfirmOpen(true);
+    if (browserPurpose === "reset") setResetConfirmOpen(true);
+    else setConfirmOpen(true);
   }
 
   async function migrate() {
@@ -167,6 +191,27 @@ export function SettingsPage() {
     }
   }
 
+  async function resetAura() {
+    if (!selected?.directory_id || resetConfirmation !== "RESET AURA") return;
+    setResetting(true);
+    try {
+      await apiPost<
+        { operation_id: string },
+        { directory_id: string; confirmation: string }
+      >("/settings/storage/reset", {
+        directory_id: selected.directory_id,
+        confirmation: resetConfirmation,
+      });
+      setResetConfirmOpen(false);
+      window.dispatchEvent(new CustomEvent("aura-storage-migration-started", {
+        detail: { operation_kind: "reset" },
+      }));
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Could not start fresh", "error");
+      setResetting(false);
+    }
+  }
+
   async function clearCache(category: "artwork" | "streams" | "lyrics" | "all") {
     try {
       const result = await apiPost<{ files_removed: number; bytes_removed: number }, { category: typeof category }>("/settings/cache/clear", { category });
@@ -174,6 +219,33 @@ export function SettingsPage() {
       await refresh();
     } catch (error) {
       toast(error instanceof Error ? error.message : "Could not clear cache", "error");
+    }
+  }
+
+  async function syncLibrary() {
+    setSyncingLibrary(true);
+    try {
+      const result = await apiPost<{
+        added: number;
+        updated: number;
+        removed: number;
+        reconciled: number;
+        errors: number;
+      }, undefined>("/library/sync");
+      const changed = result.added + result.updated + result.removed + result.reconciled;
+      toast(
+        result.errors
+          ? `Library synced with ${result.errors} file error${result.errors === 1 ? "" : "s"}`
+          : changed
+            ? `Library synced: ${changed} change${changed === 1 ? "" : "s"}`
+            : "Library is already in sync",
+        result.errors ? "error" : "success",
+      );
+      await refresh();
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Could not sync the library", "error");
+    } finally {
+      setSyncingLibrary(false);
     }
   }
 
@@ -188,7 +260,7 @@ export function SettingsPage() {
 
       <SettingsSection icon={<HardDrive />} title="Storage">
         <div className="rounded-2xl bg-muted/40 p-4">
-          <Label>The directory where your data should be stored</Label>
+          <p className="text-sm font-medium">The directory where your data should be stored</p>
           <p className="mt-2 break-all font-mono text-sm">{storage?.data_root ?? "Loading…"}</p>
           <div className="mt-4 h-2 overflow-hidden rounded-full bg-muted"><div className="h-full bg-primary" style={{ width: storage ? `${Math.min(100, storage.used_bytes * 100 / Math.max(storage.used_bytes + storage.free_bytes, 1))}%` : "0%" }} /></div>
           <p className="mt-2 text-sm text-muted-foreground">{storage ? `${formatBytes(storage.used_bytes)} used · ${formatBytes(storage.free_bytes)} free` : "Calculating usage…"}</p>
@@ -198,11 +270,15 @@ export function SettingsPage() {
           <Usage label="Database" value={storage?.categories.database} />
           <Usage label="Downloads" value={storage?.categories.downloads} />
         </div>
-        <Button onClick={() => void openBrowser()}><Folder className="h-4 w-4" />Change Data Location</Button>
+        <Button onClick={() => void openBrowser("migration")}><Folder className="h-4 w-4" />Change Data Location</Button>
       </SettingsSection>
 
       <SettingsSection icon={<RefreshCw />} title="Library">
         <Toggle label="Scan library on startup" description="Scan the managed music folder in the background whenever Aura starts." checked={settings?.startup_scan_enabled ?? true} onChange={(value) => update("startup_scan_enabled", value)} />
+        <Button variant="glass" disabled={syncingLibrary} onClick={() => void syncLibrary()}>
+          <RefreshCw className={`h-4 w-4 ${syncingLibrary ? "animate-spin" : ""}`} />
+          {syncingLibrary ? "Syncing library…" : "Sync library now"}
+        </Button>
       </SettingsSection>
 
       <SettingsSection icon={<Download />} title="Downloads and metadata">
@@ -231,7 +307,7 @@ export function SettingsPage() {
 
       <SettingsSection icon={<Palette />} title="Appearance">
         <SelectSetting label="Theme" value={settings?.theme_mode ?? "dark"} onChange={(value) => { update("theme_mode", value as ThemeMode); setMode(value as ThemeMode); }} options={["dark", "light", "system"]} />
-        <div><Label>Accent</Label><div className="mt-2 flex gap-3">{(Object.keys(accentValues) as AccentTheme[]).map((accent) => <button key={accent} aria-label={`Use ${accent} accent`} onClick={() => { update("accent_theme", accent); applyAccent(accent); }} className={`h-10 w-10 rounded-full border-2 transition ${settings?.accent_theme === accent ? "scale-110 border-foreground" : "border-transparent"}`} style={{ backgroundColor: `hsl(${accentValues[accent]})` }} />)}</div></div>
+        <fieldset><legend className="text-sm font-medium">Accent</legend><div className="mt-2 flex gap-3">{(Object.keys(accentValues) as AccentTheme[]).map((accent) => <button type="button" key={accent} aria-label={`Use ${accent} accent`} onClick={() => { update("accent_theme", accent); applyAccent(accent); }} className={`h-10 w-10 rounded-full border-2 transition ${settings?.accent_theme === accent ? "scale-110 border-foreground" : "border-transparent"}`} style={{ backgroundColor: `hsl(${accentValues[accent]})` }} />)}</div></fieldset>
       </SettingsSection>
 
       <Button size="lg" disabled={!settings || saving} onClick={() => void save()}>{saving ? "Saving…" : "Save settings"}</Button>
@@ -245,8 +321,23 @@ export function SettingsPage() {
         </div>
       </SettingsSection>
 
+      <section className="space-y-5 rounded-3xl border border-red-500/35 bg-red-500/[0.07] p-6">
+        <div className="flex items-center gap-3 text-red-400"><Bomb className="h-6 w-6" /><h2 className="text-xl font-bold">Danger zone</h2></div>
+        <div>
+          <p className="font-semibold">Start Aura completely fresh</p>
+          <p className="mt-1 text-sm text-muted-foreground">Deletes the current Aura database, downloaded music, artwork, lyrics, caches, playlists, favorites, history, and settings. You will choose a new empty data folder before anything is removed.</p>
+        </div>
+        <Button
+          variant="outline"
+          className="border-red-500/50 text-red-300 hover:bg-red-500/15 hover:text-red-200"
+          onClick={() => void openBrowser("reset")}
+        >
+          <Bomb className="h-4 w-4" />Erase all Aura data and start fresh
+        </Button>
+      </section>
+
       <Dialog open={browserOpen} onOpenChange={setBrowserOpen}>
-        <DialogContent className="max-w-2xl"><DialogHeader><DialogTitle>Choose an empty server folder</DialogTitle><DialogDescription>Aura can see directories mounted on the API host. Only the exact empty folder you choose becomes the data root.</DialogDescription></DialogHeader>
+        <DialogContent className="max-w-2xl"><DialogHeader><DialogTitle>Choose an empty server folder</DialogTitle><DialogDescription>{browserPurpose === "reset" ? "This will become a completely new Aura data root. It must be empty and cannot overlap the current location." : "Aura can see directories mounted on the API host. Only the exact empty folder you choose becomes the data root."}</DialogDescription></DialogHeader>
           <div className="rounded-xl bg-muted/50 p-3 font-mono text-xs">{listing?.current?.display_path ?? "Filesystem roots"}</div>
           <div className="max-h-72 space-y-1 overflow-y-auto">
             {listing?.parent?.directory_id && <FolderRow entry={{ ...listing.parent, name: ".." }} onOpen={() => void browse(listing.parent?.directory_id)} />}
@@ -254,7 +345,7 @@ export function SettingsPage() {
             {!browserBusy && listing?.directories.length === 0 && <p className="py-8 text-center text-sm text-muted-foreground">This folder has no child directories.</p>}
           </div>
           {listing?.current && <div className="flex gap-2"><Input value={newFolder} onChange={(event) => setNewFolder(event.target.value)} placeholder="New folder name" /><Button variant="glass" disabled={!newFolder.trim() || browserBusy} onClick={() => void createFolder()}><FolderPlus className="h-4 w-4" />Create</Button></div>}
-          <DialogFooter><Button variant="ghost" onClick={() => setBrowserOpen(false)}>Cancel</Button><Button disabled={!listing?.current?.empty || browserBusy} onClick={chooseCurrent}>Select this empty folder</Button></DialogFooter>
+          <DialogFooter><Button variant="ghost" onClick={() => setBrowserOpen(false)}>Cancel</Button><Button disabled={!listing?.current?.empty || browserBusy} onClick={chooseCurrent}>{browserPurpose === "reset" ? "Use for fresh start" : "Select this empty folder"}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -262,6 +353,43 @@ export function SettingsPage() {
         <DialogContent><DialogHeader><DialogTitle>Move Aura data?</DialogTitle><DialogDescription>This operation pauses playback and downloads until the managed root is verified.</DialogDescription></DialogHeader>
           <div className="space-y-3 rounded-xl bg-muted/40 p-4 text-sm"><p><strong>Source:</strong> <span className="break-all">{storage?.data_root}</span></p><p><strong>Target:</strong> <span className="break-all">{selected?.display_path}</span></p><p><strong>Data:</strong> {formatBytes(storage?.used_bytes ?? 0)}</p><p><strong>Method:</strong> {selected?.same_device ? "Same-drive atomic move" : "Copy, hash, verify, then switch"}</p></div>
           <DialogFooter><Button variant="ghost" onClick={() => setConfirmOpen(false)}>Cancel</Button><Button onClick={() => void migrate()}>Move and verify</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={resetConfirmOpen} onOpenChange={(open) => { if (!resetting) setResetConfirmOpen(open); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Erase all Aura data?</DialogTitle>
+            <DialogDescription>This cannot be undone. Aura will verify the new empty location before deleting all Aura-managed data from the current location.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm">
+              <p><strong>Delete:</strong> <span className="break-all">{storage?.data_root}</span></p>
+              <p><strong>Fresh location:</strong> <span className="break-all">{selected?.display_path}</span></p>
+              <p><strong>Managed data:</strong> {formatBytes(storage?.used_bytes ?? 0)}</p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="reset-aura-confirmation">Type <strong>RESET AURA</strong> to continue</Label>
+              <Input
+                id="reset-aura-confirmation"
+                autoComplete="off"
+                value={resetConfirmation}
+                onChange={(event) => setResetConfirmation(event.target.value)}
+                placeholder="RESET AURA"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" disabled={resetting} onClick={() => setResetConfirmOpen(false)}>Cancel</Button>
+            <Button
+              variant="outline"
+              className="border-red-500/50 text-red-300 hover:bg-red-500/15 hover:text-red-200"
+              disabled={resetConfirmation !== "RESET AURA" || resetting}
+              onClick={() => void resetAura()}
+            >
+              <Bomb className="h-4 w-4" />{resetting ? "Starting…" : "Erase everything"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </motion.div>
@@ -273,15 +401,18 @@ function SettingsSection({ icon, title, children }: { icon: React.ReactNode; tit
 }
 
 function Toggle({ label, description, checked, onChange }: { label: string; description: string; checked: boolean; onChange: (checked: boolean) => void }) {
-  return <label className="flex cursor-pointer items-center justify-between gap-4 rounded-2xl bg-muted/30 p-4"><span><span className="font-semibold">{label}</span><span className="mt-1 block text-sm text-muted-foreground">{description}</span></span><input className="h-5 w-5 accent-[hsl(var(--primary))]" type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} /></label>;
+  const id = useId();
+  return <div className="flex items-center justify-between gap-4 rounded-2xl bg-muted/30 p-4"><span><Label htmlFor={id} className="font-semibold">{label}</Label><span className="mt-1 block text-sm text-muted-foreground">{description}</span></span><input id={id} className="h-5 w-5 accent-[hsl(var(--primary))]" type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} /></div>;
 }
 
 function NumberSetting({ label, value, min, max, onChange }: { label: string; value: number; min: number; max: number; onChange: (value: number) => void }) {
-  return <div className="space-y-2"><Label>{label}</Label><Input type="number" value={value} min={min} max={max} onChange={(event) => onChange(Math.max(min, Math.min(max, Number(event.target.value))))} /></div>;
+  const id = useId();
+  return <div className="space-y-2"><Label htmlFor={id}>{label}</Label><Input id={id} type="number" value={value} min={min} max={max} onChange={(event) => onChange(Math.max(min, Math.min(max, Number(event.target.value))))} /></div>;
 }
 
 function SelectSetting({ label, value, options, onChange }: { label: string; value: string; options: string[]; onChange: (value: string) => void }) {
-  return <div className="space-y-2"><Label>{label}</Label><select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={value} onChange={(event) => onChange(event.target.value)}>{options.map((option) => <option key={option} value={option}>{option[0].toUpperCase() + option.slice(1)}</option>)}</select></div>;
+  const id = useId();
+  return <div className="space-y-2"><Label htmlFor={id}>{label}</Label><select id={id} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={value} onChange={(event) => onChange(event.target.value)}>{options.map((option) => <option key={option} value={option}>{option[0].toUpperCase() + option.slice(1)}</option>)}</select></div>;
 }
 
 function Usage({ label, value = 0 }: { label: string; value?: number }) { return <div className="rounded-2xl bg-muted/30 p-4"><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1 font-semibold">{formatBytes(value)}</p></div>; }

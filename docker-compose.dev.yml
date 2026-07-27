@@ -5,17 +5,56 @@ services:
       dockerfile: docker/web.Dockerfile
       target: development
     command: npm run dev -- --host 0.0.0.0
-    ports:
-      - "${WEB_PORT:-5173}:5173"
+    environment:
+      API_ACCESS_TOKEN: ${API_ACCESS_TOKEN:-}
+      AURA_API_PROXY_TARGET: http://api:8000
+    ports: !override
+      - "127.0.0.1:${WEB_PORT:-5173}:5173"
     volumes:
       - ./apps/web:/app/apps/web
-      - /app/node_modules
-      - /app/apps/web/node_modules
-    environment:
-      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000/api/v1}
-      VITE_API_ACCESS_TOKEN: ${VITE_API_ACCESS_TOKEN:-}
+      - ./VERSION:/app/VERSION:ro
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:5173/"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
 
   api:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+      target: runtime
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    environment:
+      API_ENV: development
+      API_ACCESS_TOKEN: ${API_ACCESS_TOKEN:-}
+      API_TRUSTED_HOSTS: ${API_TRUSTED_HOSTS:-localhost,127.0.0.1,api}
+      AURA_DATA_ROOT: /data
+      AURA_STATE_FILE: /aura-state/storage-state.json
+      DOWNLOAD_WORKER_POLL_INTERVAL_SECONDS: ${DOWNLOAD_WORKER_POLL_INTERVAL_SECONDS:-1}
+      STREAM_FETCH_MAX_CONCURRENCY: ${STREAM_FETCH_MAX_CONCURRENCY:-2}
+      STREAM_MAX_FILE_MB: ${STREAM_MAX_FILE_MB:-256}
+      STREAM_CACHE_BUDGET_MB: ${STREAM_CACHE_BUDGET_MB:-2048}
+      ARTWORK_MAX_RESPONSE_MB: ${ARTWORK_MAX_RESPONSE_MB:-12}
+      ARTWORK_MAX_PIXELS: ${ARTWORK_MAX_PIXELS:-40000000}
+      ARTWORK_MAX_CONCURRENCY: ${ARTWORK_MAX_CONCURRENCY:-4}
+    ports:
+      - "127.0.0.1:8000:8000"
     volumes:
       - ./apps/api:/app/apps/api
+      - aura-dev-data:/data
+      - aura-dev-state:/aura-state
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=2).read()"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+
+volumes:
+  aura-dev-data:
+  aura-dev-state:

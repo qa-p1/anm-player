@@ -2,6 +2,7 @@ import { motion } from "framer-motion";
 import { Pause, Play } from "lucide-react";
 import type { KeyboardEvent } from "react";
 
+import { ArtworkImage } from "@/components/cards/artwork-image";
 import { Button } from "@/components/ui/button";
 import { usePlayerStore } from "@/stores/player-store";
 
@@ -54,16 +55,12 @@ export function MiniPlayer({ onOpen }: MiniPlayerProps) {
 
       <div className="flex cursor-pointer items-center justify-between gap-3 p-3">
         <div className="flex min-w-0 items-center gap-3">
-          <div className="h-12 w-12 shrink-0 overflow-hidden rounded-xl shadow-glow">
-            {artworkUrl ? (
-              <img
-                src={artworkUrl}
-                alt={currentSong.title}
-                className="h-full w-full object-cover"
-              />
-            ) : (
-              <div className="h-full w-full bg-[linear-gradient(135deg,#f43f5e,#14b8a6_52%,#f59e0b)]" />
-            )}
+          <div className="h-12 w-12 shrink-0 overflow-hidden rounded-xl bg-[linear-gradient(135deg,#f43f5e,#14b8a6_52%,#f59e0b)] shadow-glow">
+            <ArtworkImage
+              src={artworkUrl}
+              alt={currentSong.title}
+              className="h-full w-full object-cover"
+            />
           </div>
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold">

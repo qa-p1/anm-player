@@ -197,6 +197,7 @@ class AlbumDownloadItem(TimestampMixin, Base):
 class PlaylistLibraryTrack(TimestampMixin, Base):
     __tablename__ = "playlist_library_tracks"
     __table_args__ = (
+        UniqueConstraint("playlist_id", "track_id", name="uq_playlist_library_tracks_playlist_id_track_id"),
         UniqueConstraint("playlist_id", "position", name="uq_playlist_library_tracks_playlist_id_position"),
         Index("ix_playlist_library_tracks_playlist_id", "playlist_id"),
         Index("ix_playlist_library_tracks_track_id", "track_id"),

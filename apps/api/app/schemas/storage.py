@@ -44,17 +44,22 @@ class DirectoryListing(BaseModel):
 
 
 class CreateDirectoryRequest(BaseModel):
-    parent_id: str
+    parent_id: str = Field(min_length=1, max_length=4096)
     name: str = Field(min_length=1, max_length=120, pattern=r"^[^<>:\"/\\|?*]+$")
 
 
 class StartMigrationRequest(BaseModel):
-    directory_id: str
+    directory_id: str = Field(min_length=1, max_length=4096)
 
 
 class StartMigrationResponse(BaseModel):
     operation_id: str
     status: Literal["accepted"] = "accepted"
+
+
+class StartResetRequest(BaseModel):
+    directory_id: str = Field(min_length=1, max_length=4096)
+    confirmation: str = Field(min_length=1, max_length=32)
 
 
 class CacheClearRequest(BaseModel):

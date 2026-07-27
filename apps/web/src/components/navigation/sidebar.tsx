@@ -1,6 +1,6 @@
 import { motion } from "framer-motion";
 import { Disc3 } from "lucide-react";
-import { NavLink, useLocation } from "react-router-dom";
+import { NavLink, useLocation } from "react-router";
 
 import { navItems } from "@/components/navigation/nav-items";
 import { DownloadQueueTrigger } from "@/components/download-queue";

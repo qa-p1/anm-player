@@ -1,6 +1,5 @@
 from app.core.config import settings
-from app.schemas.health import AppInfoResponse, HealthResponse, StorageInfo, VersionResponse
-from app.storage import storage_manager
+from app.schemas.health import AppInfoResponse, HealthResponse, VersionResponse
 
 
 class HealthService:
@@ -20,6 +19,5 @@ class HealthService:
             version=settings.app_version,
             environment=settings.api_env,
             api_prefix=settings.api_prefix,
-            database="sqlite" if settings.is_sqlite else "external",
-            storage=StorageInfo(data_root=str(storage_manager.paths.root)),
+            database="sqlite",
         )

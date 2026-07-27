@@ -1,12 +1,12 @@
 import { motion } from "framer-motion";
 import { Check, Disc, Download, Heart, LoaderCircle, Play, Plus, Shuffle, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams } from "react-router";
 
 import { pageTransition } from "@/animations/page-motion";
 import { TrackRow } from "@/components/cards/track-row";
 import { ArtworkImage } from "@/components/cards/artwork-image";
-import { openDownloadQueue } from "@/components/download-queue";
+import { openDownloadQueue } from "@/components/download-queue-state";
 import { BackButton } from "@/components/navigation/back-button";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -36,6 +36,7 @@ export function AlbumDetailPage() {
   const { albumId = "" } = useParams<{ albumId: string }>();
   const albumQuery = useUnifiedAlbum(albumId, { enabled: Boolean(albumId) });
   const album = albumQuery.data;
+  const refetchAlbum = albumQuery.refetch;
   const [mutation, setMutation] = useState<MutationName>(null);
   const [showRemoveDialog, setShowRemoveDialog] = useState(false);
   const [showDeleteDownloadDialog, setShowDeleteDownloadDialog] = useState(false);
@@ -43,9 +44,9 @@ export function AlbumDetailPage() {
 
   useEffect(() => {
     if (!album?.capabilities.can_cancel_download) return;
-    const timer = window.setInterval(() => void albumQuery.refetch(), 2000);
+    const timer = window.setInterval(() => void refetchAlbum(), 2000);
     return () => window.clearInterval(timer);
-  }, [album?.capabilities.can_cancel_download, albumId]);
+  }, [album?.capabilities.can_cancel_download, refetchAlbum]);
 
   const artworkUrl = cachedArtworkUrl(album?.artwork_url);
   const playerTracks = useMemo(
@@ -189,7 +190,7 @@ export function AlbumDetailPage() {
               status={track.is_downloaded ? "Downloaded" : null}
               isDownloaded={track.is_downloaded}
               onRemoveDownload={track.is_downloaded && track.library_track_id ? async () => {
-                await removeLibraryTrackDownload(track.library_track_id!, true);
+                await removeLibraryTrackDownload(track.library_track_id!);
                 await albumQuery.refetch();
               } : undefined}
             />
@@ -213,6 +214,8 @@ function unifiedTrackToPlayerTrack(track: UnifiedAlbumTrack, album: UnifiedAlbum
   if (track.playback_source === "downloaded" && track.library_track_id) {
     const raw: LibraryTrack = {
       id: track.library_track_id,
+      song_id: track.song_id,
+      artist_id: track.artist_id,
       source: album.source,
       external_id: track.provider_track_id || track.id,
       title: track.title,

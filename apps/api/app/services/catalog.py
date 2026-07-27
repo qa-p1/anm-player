@@ -1,7 +1,19 @@
-from app.core.exceptions import ResourceNotFoundError
+from app.core.exceptions import ConflictError, ResourceNotFoundError
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import joinedload, selectinload
 
-from app.models import Favorite, LibraryAlbum, LibraryTrack, Playlist, PlaylistLibraryTrack, PlaylistSong
+from app.models import (
+    Album,
+    Artist,
+    Favorite,
+    LibraryAlbum,
+    LibraryTrack,
+    Playlist,
+    PlaylistLibraryTrack,
+    PlaylistSong,
+    Song,
+)
 from app.repositories.music import (
     AlbumRepository,
     ArtistRepository,
@@ -24,15 +36,10 @@ from app.schemas.music import (
     PlaylistCreateRequest,
     PlaylistDetailResponse,
     PlaylistItemResponse,
-    PlaylistReorderRequest,
     PlaylistResponse,
-    PlaylistUpdateRequest,
-    RecommendationRequest,
-    RecommendationResponse,
     SongResponse,
 )
 from app.schemas.library import MixedPlaylistTrackResponse
-from app.services.recommendations import RecommendationService
 from app.services.file_paths import resolve_library_path
 
 
@@ -55,21 +62,15 @@ class CatalogService:
 
     def list_songs(self, *, limit: int = 50, offset: int = 0) -> list[SongResponse]:
         songs = self.songs.list_with_details(limit=limit, offset=offset)
-        return [self._song_to_response(song) for song in songs]
-
-    def get_song(self, song_id: int) -> SongResponse:
-        song = self.songs.get(song_id)
-        if not song:
-            raise ResourceNotFoundError("Song not found", details={"song_id": song_id})
-        return self._song_to_response(song)
-
-    def search_songs(self, query: str, *, limit: int = 50) -> list[SongResponse]:
-        songs = self.songs.search_local(query, limit=limit)
-        return [self._song_to_response(song) for song in songs]
+        return self._songs_to_response(songs)
 
     def list_artists(self, *, limit: int = 50, offset: int = 0) -> list[ArtistResponse]:
         results = self.artists.list_with_counts(limit=limit, offset=offset)
-        return [self._artist_to_response(artist, song_count, album_count) for artist, song_count, album_count in results]
+        favorite_ids = self._favorite_ids(Favorite.artist_id, [artist.id for artist, _, _ in results])
+        return [
+            self._artist_to_response(artist, song_count, album_count, favorite_ids=favorite_ids)
+            for artist, song_count, album_count in results
+        ]
 
     def get_artist(self, artist_id: int) -> ArtistDetailResponse:
         artist = self.artists.get_with_details(artist_id)
@@ -78,27 +79,29 @@ class CatalogService:
 
         is_favorited = self.favorites.is_favorited("artist", artist_id)
         available_songs = [song for song in artist.songs if self._downloaded_song_file_exists(song)]
-        albums = [self._album_to_response_simple(album) for album in artist.albums]
-        top_songs = [self._song_to_response(song) for song in available_songs[:10]]
+        available_albums = [
+            album
+            for album in artist.albums
+            if any(self._downloaded_song_file_exists(song) for song in album.songs)
+        ]
+        albums = self._simple_albums_to_response(available_albums)
+        top_songs = self._songs_to_response(available_songs[:10])
+        artwork_path, artwork_url = self._artist_artwork(artist)
 
         return ArtistDetailResponse(
             id=artist.id,
             name=artist.name,
             sort_name=artist.sort_name,
-            artwork_path=artist.artwork_path,
-            artwork_url=artist.artwork_url,
+            artwork_path=artwork_path,
+            artwork_url=artwork_url,
             song_count=len(available_songs),
-            album_count=len(artist.albums),
+            album_count=len(available_albums),
             is_favorited=is_favorited,
             created_at=artist.created_at,
             updated_at=artist.updated_at,
             albums=albums,
             top_songs=top_songs,
         )
-
-    def list_albums(self, *, limit: int = 50, offset: int = 0) -> list[AlbumResponse]:
-        results = self.albums.list_with_counts(limit=limit, offset=offset)
-        return [self._album_to_response(album, song_count, duration) for album, song_count, duration in results]
 
     def get_album(self, album_id: int) -> AlbumDetailResponse:
         album = self.albums.get_with_details(album_id)
@@ -107,8 +110,9 @@ class CatalogService:
 
         is_favorited = self.favorites.is_favorited("album", album_id)
         available_songs = [song for song in album.songs if self._downloaded_song_file_exists(song)]
-        songs = [self._song_to_response(song) for song in available_songs]
+        songs = self._songs_to_response(available_songs)
         duration_seconds = sum(song.duration_seconds or 0 for song in available_songs)
+        artwork_path, artwork_url = self._album_artwork(album)
 
         return AlbumDetailResponse(
             id=album.id,
@@ -117,8 +121,8 @@ class CatalogService:
             artist_id=album.artist_id,
             artist_name=album.artist.name if album.artist else None,
             year=album.year,
-            artwork_path=album.artwork_path,
-            artwork_url=album.artwork_url,
+            artwork_path=artwork_path,
+            artwork_url=artwork_url,
             song_count=len(songs),
             duration_seconds=duration_seconds,
             is_favorited=is_favorited,
@@ -128,28 +132,33 @@ class CatalogService:
         )
 
     def list_playlists(self, *, limit: int = 50, offset: int = 0) -> list[PlaylistResponse]:
-        playlists = self.playlists.list(limit=limit, offset=offset)
-        return [self._playlist_to_response(playlist) for playlist in playlists]
+        playlists = list(
+            self.playlists.session.scalars(
+                select(Playlist)
+                .options(
+                    selectinload(Playlist.songs).joinedload(PlaylistSong.song).joinedload(Song.artist),
+                    selectinload(Playlist.songs).joinedload(PlaylistSong.song).joinedload(Song.album),
+                )
+                .order_by(Playlist.created_at.desc(), Playlist.id.desc())
+                .offset(offset)
+                .limit(limit)
+            )
+        )
+        online_by_playlist = self._online_playlist_links([playlist.id for playlist in playlists])
+        return [
+            self._playlist_to_response(playlist, online_links=online_by_playlist.get(playlist.id, []))
+            for playlist in playlists
+        ]
 
     def get_playlist(self, playlist_id: int) -> PlaylistDetailResponse:
         playlist = self.playlists.get_with_songs(playlist_id)
         if not playlist:
             raise ResourceNotFoundError("Playlist not found", details={"playlist_id": playlist_id})
 
-        for link in playlist.songs:
-            song = link.song
-            if song and song.is_downloaded and song.relative_path and not resolve_library_path(song.relative_path).is_file():
-                song.is_downloaded = False
-                song.relative_path = None
-        self.playlists.session.commit()
-        songs = [self._song_to_response(ps.song) for ps in playlist.songs if ps.song]
-        online_links = list(
-            self.playlists.session.scalars(
-                select(PlaylistLibraryTrack)
-                .where(PlaylistLibraryTrack.playlist_id == playlist_id)
-                .order_by(PlaylistLibraryTrack.position.asc())
-            )
-        )
+        song_links = [link for link in playlist.songs if link.song]
+        songs = self._songs_to_response([link.song for link in song_links])
+        songs_by_id = {song.id: song for song in songs}
+        online_links = self._online_playlist_links([playlist_id]).get(playlist_id, [])
         library_tracks = [
             MixedPlaylistTrackResponse(
                 item_type="library_track",
@@ -160,9 +169,8 @@ class CatalogService:
             if link.track
         ]
         items = [
-            PlaylistItemResponse(item_type="song", position=link.position, song=self._song_to_response(link.song))
-            for link in playlist.songs
-            if link.song
+            PlaylistItemResponse(item_type="song", position=link.position, song=songs_by_id[link.song.id])
+            for link in song_links
         ]
         items.extend(
             PlaylistItemResponse(
@@ -193,21 +201,12 @@ class CatalogService:
 
     def create_playlist(self, request: PlaylistCreateRequest) -> PlaylistResponse:
         playlist = Playlist(name=request.name, description=request.description)
-        self.playlists.add(playlist)
-        self.playlists.session.commit()
-        return self._playlist_to_response(playlist)
-
-    def update_playlist(self, playlist_id: int, request: PlaylistUpdateRequest) -> PlaylistResponse:
-        playlist = self.playlists.get(playlist_id)
-        if not playlist:
-            raise ResourceNotFoundError("Playlist not found", details={"playlist_id": playlist_id})
-
-        if request.name is not None:
-            playlist.name = request.name
-        if request.description is not None:
-            playlist.description = request.description
-
-        self.playlists.session.commit()
+        try:
+            self.playlists.add(playlist)
+            self.playlists.session.commit()
+        except IntegrityError as exc:
+            self.playlists.session.rollback()
+            raise ConflictError("A playlist with that name already exists.") from exc
         return self._playlist_to_response(playlist)
 
     def delete_playlist(self, playlist_id: int) -> None:
@@ -218,9 +217,28 @@ class CatalogService:
         self.playlists.session.commit()
 
     def add_songs_to_playlist(self, playlist_id: int, request: PlaylistAddSongsRequest) -> PlaylistDetailResponse:
-        for song_id in request.song_ids:
+        if not self.playlists.get(playlist_id):
+            raise ResourceNotFoundError("Playlist not found", details={"playlist_id": playlist_id})
+        song_ids = list(dict.fromkeys(request.song_ids))
+        found_ids = set(self.playlists.session.scalars(select(self.songs.model.id).where(self.songs.model.id.in_(song_ids))))
+        missing_ids = [song_id for song_id in song_ids if song_id not in found_ids]
+        if missing_ids:
+            raise ResourceNotFoundError("One or more songs were not found", details={"song_ids": missing_ids})
+        existing_ids = set(self.playlists.session.scalars(
+            select(PlaylistSong.song_id).where(
+                PlaylistSong.playlist_id == playlist_id,
+                PlaylistSong.song_id.in_(song_ids),
+            )
+        ))
+        if existing_ids:
+            raise ConflictError("One or more songs are already in the playlist.", details={"song_ids": sorted(existing_ids)})
+        for song_id in song_ids:
             self.playlists.add_song(playlist_id, song_id)
-        self.playlists.session.commit()
+        try:
+            self.playlists.session.commit()
+        except IntegrityError as exc:
+            self.playlists.session.rollback()
+            raise ConflictError("The playlist changed while songs were being added. Refresh it and try again.") from exc
         return self.get_playlist(playlist_id)
 
     def add_online_track_to_playlist(self, playlist_id: int, request: PlaylistAddOnlineTrackRequest) -> PlaylistDetailResponse:
@@ -276,33 +294,64 @@ class CatalogService:
                     position=max_position + 1,
                 )
             )
-        self.playlists.session.commit()
+        try:
+            self.playlists.session.commit()
+        except IntegrityError as exc:
+            self.playlists.session.rollback()
+            raise ConflictError("The playlist changed while the track was being added. Refresh it and try again.") from exc
         return self.get_playlist(playlist_id)
 
-    def remove_song_from_playlist(self, playlist_id: int, song_id: int, *, delete_file: bool = False) -> PlaylistDetailResponse:
+    def remove_song_from_playlist(self, playlist_id: int, song_id: int) -> PlaylistDetailResponse:
+        if not self.playlists.get(playlist_id):
+            raise ResourceNotFoundError("Playlist not found", details={"playlist_id": playlist_id})
         song = self.songs.get(song_id)
         if not song:
             raise ResourceNotFoundError("Song not found", details={"song_id": song_id})
-        self.playlists.remove_song(playlist_id, song_id)
-        if delete_file and song.is_downloaded and song.relative_path:
-            file_path = song.relative_path
-            resolve_library_path(file_path).unlink(missing_ok=True)
-            song.relative_path = None
-            song.is_downloaded = False
-            linked_tracks = self.playlists.session.scalars(select(LibraryTrack).where(LibraryTrack.relative_path == file_path)).all()
-            for track in linked_tracks:
-                track.relative_path = None
-                track.is_downloaded = False
+        if not self.playlists.remove_song(playlist_id, song_id):
+            raise ResourceNotFoundError(
+                "Song is not in this playlist.",
+                details={"playlist_id": playlist_id, "song_id": song_id},
+            )
+        self.playlists.session.commit()
+        return self.get_playlist(playlist_id)
+
+    def remove_library_track_from_playlist(
+        self,
+        playlist_id: int,
+        track_id: int,
+    ) -> PlaylistDetailResponse:
+        if not self.playlists.get(playlist_id):
+            raise ResourceNotFoundError(
+                "Playlist not found",
+                details={"playlist_id": playlist_id},
+            )
+        if not self.playlists.session.get(LibraryTrack, track_id):
+            raise ResourceNotFoundError(
+                "Library track not found",
+                details={"track_id": track_id},
+            )
+        link = self.playlists.session.scalars(
+            select(PlaylistLibraryTrack).where(
+                PlaylistLibraryTrack.playlist_id == playlist_id,
+                PlaylistLibraryTrack.track_id == track_id,
+            )
+        ).first()
+        if link is None:
+            raise ResourceNotFoundError(
+                "Track is not in this playlist.",
+                details={"playlist_id": playlist_id, "track_id": track_id},
+            )
+        self.playlists.session.delete(link)
         self.playlists.session.commit()
         return self.get_playlist(playlist_id)
 
     def _downloaded_song_file_exists(self, song) -> bool:
-        return bool(song.is_downloaded and song.relative_path and resolve_library_path(song.relative_path).is_file())
-
-    def reorder_playlist_song(self, playlist_id: int, request: PlaylistReorderRequest) -> PlaylistDetailResponse:
-        self.playlists.reorder_song(playlist_id, request.song_id, request.new_position)
-        self.playlists.session.commit()
-        return self.get_playlist(playlist_id)
+        if not song.is_downloaded or not song.relative_path:
+            return False
+        try:
+            return resolve_library_path(song.relative_path).is_file()
+        except (OSError, ValueError):
+            return False
 
     def toggle_favorite(self, request: FavoriteToggleRequest) -> bool:
         targets = {
@@ -323,30 +372,115 @@ class CatalogService:
         self.favorites.session.commit()
         return is_favorited
 
-    def list_favorite_songs(self, *, limit: int = 50, offset: int = 0) -> list[SongResponse]:
-        songs = self.favorites.list_songs(limit=limit, offset=offset)
-        return [self._song_to_response(song) for song in songs]
-
     def list_favorites(self) -> FavoritesResponse:
         from app.services.library_albums import LibraryAlbumService
 
         response = FavoritesResponse()
         library_service = LibraryAlbumService(self.favorites.session)
-        for favorite in self.favorites.list_all():
-            if favorite.song_id and (song := self.songs.get(favorite.song_id)):
-                response.songs.append(self._song_to_response(song))
-            elif favorite.artist_id and (artist := self.artists.get(favorite.artist_id)):
-                downloaded = [song for song in artist.songs if song.is_downloaded]
-                response.artists.append(self._artist_to_response(artist, len(downloaded), len(artist.albums)))
-            elif favorite.album_id and (album := self.albums.get(favorite.album_id)):
-                downloaded = [song for song in album.songs if song.is_downloaded]
-                response.albums.append(self._album_to_response(album, len(downloaded), sum(song.duration_seconds or 0 for song in downloaded)))
-            elif favorite.playlist_id and (playlist := self.playlists.get(favorite.playlist_id)):
-                response.playlists.append(self._playlist_to_response(playlist))
-            elif favorite.library_album_id and (album := self.favorites.session.get(LibraryAlbum, favorite.library_album_id)):
-                response.library_albums.append(library_service._album_to_response(album))
-            elif favorite.library_track_id and (track := self.favorites.session.get(LibraryTrack, favorite.library_track_id)):
-                response.library_tracks.append(library_service._track_to_response(track))
+        favorites = self.favorites.list_all()
+        song_ids = {favorite.song_id for favorite in favorites if favorite.song_id}
+        artist_ids = {favorite.artist_id for favorite in favorites if favorite.artist_id}
+        album_ids = {favorite.album_id for favorite in favorites if favorite.album_id}
+        playlist_ids = {favorite.playlist_id for favorite in favorites if favorite.playlist_id}
+        library_album_ids = {favorite.library_album_id for favorite in favorites if favorite.library_album_id}
+        library_track_ids = {favorite.library_track_id for favorite in favorites if favorite.library_track_id}
+
+        songs = list(
+            self.favorites.session.scalars(
+                select(Song)
+                .options(joinedload(Song.artist), joinedload(Song.album))
+                .where(Song.id.in_(song_ids))
+            )
+        ) if song_ids else []
+        artists = list(
+            self.favorites.session.scalars(
+                select(Artist)
+                .options(
+                    selectinload(Artist.songs),
+                    selectinload(Artist.albums).selectinload(Album.songs),
+                )
+                .where(Artist.id.in_(artist_ids))
+            )
+        ) if artist_ids else []
+        albums = list(
+            self.favorites.session.scalars(
+                select(Album)
+                .options(joinedload(Album.artist), selectinload(Album.songs))
+                .where(Album.id.in_(album_ids))
+            )
+        ) if album_ids else []
+        playlists = list(
+            self.favorites.session.scalars(
+                select(Playlist)
+                .options(selectinload(Playlist.songs).joinedload(PlaylistSong.song))
+                .where(Playlist.id.in_(playlist_ids))
+            )
+        ) if playlist_ids else []
+        library_albums = list(
+            self.favorites.session.scalars(
+                select(LibraryAlbum)
+                .options(selectinload(LibraryAlbum.tracks).joinedload(LibraryTrack.song))
+                .where(LibraryAlbum.id.in_(library_album_ids))
+            )
+        ) if library_album_ids else []
+        library_tracks = list(
+            self.favorites.session.scalars(
+                select(LibraryTrack)
+                .options(joinedload(LibraryTrack.album), joinedload(LibraryTrack.song))
+                .where(LibraryTrack.id.in_(library_track_ids))
+            )
+        ) if library_track_ids else []
+
+        song_responses = {
+            song.id: song
+            for song in self._songs_to_response(songs, favorite_ids=song_ids)
+        }
+        artists_by_id = {artist.id: artist for artist in artists}
+        albums_by_id = {album.id: album for album in albums}
+        playlists_by_id = {playlist.id: playlist for playlist in playlists}
+        library_albums_by_id = {album.id: album for album in library_albums}
+        library_tracks_by_id = {track.id: track for track in library_tracks}
+        public_ids = self._album_public_ids([album.id for album in albums])
+        online_by_playlist = self._online_playlist_links([playlist.id for playlist in playlists])
+        for favorite in favorites:
+            if favorite.song_id and (song := song_responses.get(favorite.song_id)):
+                response.songs.append(song)
+            elif favorite.artist_id and (artist := artists_by_id.get(favorite.artist_id)):
+                response.artists.append(
+                    self._artist_to_response(
+                        artist,
+                        len([song for song in artist.songs if song.is_downloaded]),
+                        len(artist.albums),
+                        favorite_ids=artist_ids,
+                    )
+                )
+            elif favorite.album_id and (album := albums_by_id.get(favorite.album_id)):
+                response.albums.append(
+                    self._album_to_response_simple(
+                        album,
+                        favorite_ids=album_ids,
+                        public_ids=public_ids,
+                    )
+                )
+            elif favorite.playlist_id and (playlist := playlists_by_id.get(favorite.playlist_id)):
+                response.playlists.append(
+                    self._playlist_to_response(
+                        playlist,
+                        online_links=online_by_playlist.get(playlist.id, []),
+                    )
+                )
+            elif favorite.library_album_id and (
+                album := library_albums_by_id.get(favorite.library_album_id)
+            ):
+                response.library_albums.append(
+                    library_service._album_to_response(album, is_favorited=True)
+                )
+            elif favorite.library_track_id and (
+                track := library_tracks_by_id.get(favorite.library_track_id)
+            ):
+                response.library_tracks.append(
+                    library_service._track_to_response(track, is_favorited=True)
+                )
         return response
 
     def add_history(self, request: HistoryCreateRequest) -> HistoryResponse:
@@ -375,7 +509,7 @@ class CatalogService:
             title=request.title or (song.title if song else None),
             artist_name=request.artist_name or (song.artist.name if song and song.artist else None),
             album_title=request.album_title or (song.album.title if song and song.album else None),
-            artwork_url=request.artwork_url or (song.artwork_path if song else None),
+            artwork_url=request.artwork_url or (song.artwork_path or song.artwork_url if song else None),
             duration_seconds=request.duration_seconds
             or (song.duration_seconds if song else None)
             or (library_track.duration_seconds if library_track else None),
@@ -389,122 +523,109 @@ class CatalogService:
 
     def list_history(self, *, limit: int = 50, offset: int = 0) -> list[HistoryResponse]:
         entries = self.history.list_with_songs(limit=limit, offset=offset)
-        return [self._history_to_response(entry) for entry in entries]
+        return self._history_entries_to_response(entries)
 
     def get_recent_history(self, *, limit: int = 50) -> list[HistoryResponse]:
         entries = self.history.get_recent_history(limit=limit)
-        return [self._history_to_response(entry) for entry in entries]
+        return self._history_entries_to_response(entries)
 
     def get_most_played_history(self, *, limit: int = 50) -> list[HistoryResponse]:
         entries = self.history.get_most_played_history(limit=limit)
-        return [self._history_to_response(entry) for entry in entries]
+        return self._history_entries_to_response(entries)
 
-    def get_recently_played(self, *, limit: int = 50) -> list[SongResponse]:
-        songs = self.history.get_recently_played_songs(limit=limit)
-        return [self._song_to_response(song) for song in songs]
+    def _favorite_ids(self, field, entity_ids: list[int]) -> set[int]:
+        ids = set(entity_ids)
+        if not ids:
+            return set()
+        return {
+            entity_id
+            for entity_id in self.favorites.session.scalars(select(field).where(field.in_(ids)))
+            if entity_id is not None
+        }
 
-    def get_most_played(self, *, limit: int = 50) -> list[SongResponse]:
-        songs = self.history.get_most_played_songs(limit=limit)
-        return [self._song_to_response(song) for song in songs]
-
-    def get_recently_added(self, *, limit: int = 50) -> list[SongResponse]:
-        songs = self.songs.get_recently_added(limit=limit)
-        return [self._song_to_response(song) for song in songs]
-
-    def get_random_songs(self, *, limit: int = 10) -> list[SongResponse]:
-        songs = self.songs.get_random(limit=limit)
-        return [self._song_to_response(song) for song in songs]
-
-    def list_favorite_artists(self, *, limit: int = 50, offset: int = 0) -> list[ArtistResponse]:
-        results = self.favorites.list_artists_with_counts(limit=limit, offset=offset)
-        return [self._artist_to_response(artist, song_count, album_count) for artist, song_count, album_count in results]
-
-    def get_random_artists(self, *, limit: int = 5) -> list[ArtistResponse]:
-        results = self.artists.get_random_with_counts(limit=limit)
-        return [self._artist_to_response(artist, song_count, album_count) for artist, song_count, album_count in results]
-
-    def list_favorite_albums(self, *, limit: int = 50, offset: int = 0) -> list[AlbumResponse]:
-        results = self.favorites.list_albums_with_counts(limit=limit, offset=offset)
-        return [self._album_to_response(album, song_count, duration) for album, song_count, duration in results]
-
-    def get_recently_added_albums(self, *, limit: int = 10) -> list[AlbumResponse]:
-        results = self.albums.get_recently_added_with_counts(limit=limit)
-        return [self._album_to_response(album, song_count, duration) for album, song_count, duration in results]
-
-    def get_random_albums(self, *, limit: int = 5) -> list[AlbumResponse]:
-        results = self.albums.get_random_with_counts(limit=limit)
-        return [self._album_to_response(album, song_count, duration) for album, song_count, duration in results]
-
-    def get_recommendations(self, request: RecommendationRequest, recommendation_service: RecommendationService) -> RecommendationResponse:
-        """
-        Get personalized recommendations for songs or albums.
-        
-        Args:
-            request: The recommendation request with strategy, limit, and entity_type
-            recommendation_service: The recommendation service instance
-            
-        Returns:
-            RecommendationResponse with songs or albums based on entity_type
-        """
-        if request.entity_type == "album":
-            albums = recommendation_service.get_album_recommendations(limit=request.limit)
-            album_responses = []
-            for album in albums:
-                is_favorited = self.favorites.is_favorited("album", album.id)
-                song_count = len([s for s in album.songs if s.is_downloaded])
-                duration_seconds = sum(s.duration_seconds or 0 for s in album.songs if s.is_downloaded)
-                album_responses.append(
-                    AlbumResponse(
-                        id=album.id,
-                        title=album.title,
-                        artist_id=album.artist_id,
-                        artist_name=album.artist.name if album.artist else None,
-                        year=album.year,
-                        artwork_path=album.artwork_path,
-                        artwork_url=album.artwork_url,
-                        song_count=song_count,
-                        duration_seconds=duration_seconds,
-                        is_favorited=is_favorited,
-                        created_at=album.created_at,
-                        updated_at=album.updated_at,
-                    )
-                )
-            
-            return RecommendationResponse(
-                strategy=request.strategy,
-                entity_type="album",
-                albums=album_responses,
+    def _album_public_ids(self, album_ids: list[int]) -> dict[int, str]:
+        ids = set(album_ids)
+        if not ids:
+            return {}
+        rows = self.favorites.session.execute(
+            select(LibraryAlbum.local_album_id, LibraryAlbum.public_id).where(
+                LibraryAlbum.local_album_id.in_(ids)
             )
-        else:
-            # Song recommendations
-            if request.strategy == "time_based":
-                songs = recommendation_service.get_time_based_recommendations(limit=request.limit)
-            else:
-                songs = recommendation_service.get_song_recommendations(
-                    limit=request.limit,
-                    strategy=request.strategy,
-                )
-            
-            song_responses = [self._song_to_response(song) for song in songs]
-            
-            return RecommendationResponse(
-                strategy=request.strategy,
-                entity_type="song",
-                songs=song_responses,
-            )
+        ).tuples()
+        return {local_id: public_id for local_id, public_id in rows}
 
-    def _song_to_response(self, song) -> SongResponse:
-        is_favorited = self.favorites.is_favorited("song", song.id)
-        canonical_album = self.favorites.session.scalars(
-            select(LibraryAlbum).where(LibraryAlbum.local_album_id == song.album_id)
-        ).first() if song.album_id else None
+    def _songs_to_response(
+        self,
+        songs,
+        *,
+        favorite_ids: set[int] | None = None,
+    ) -> list[SongResponse]:
+        song_list = list(songs)
+        if favorite_ids is None:
+            favorite_ids = self._favorite_ids(Favorite.song_id, [song.id for song in song_list])
+        public_ids = self._album_public_ids([song.album_id for song in song_list if song.album_id])
+        return [
+            self._song_to_response(song, favorite_ids=favorite_ids, public_ids=public_ids)
+            for song in song_list
+        ]
+
+    def _simple_albums_to_response(self, albums) -> list[AlbumResponse]:
+        album_list = list(albums)
+        favorite_ids = self._favorite_ids(Favorite.album_id, [album.id for album in album_list])
+        public_ids = self._album_public_ids([album.id for album in album_list])
+        return [
+            self._album_to_response_simple(album, favorite_ids=favorite_ids, public_ids=public_ids)
+            for album in album_list
+        ]
+
+    def _online_playlist_links(self, playlist_ids: list[int]) -> dict[int, list[PlaylistLibraryTrack]]:
+        ids = set(playlist_ids)
+        if not ids:
+            return {}
+        links = self.playlists.session.scalars(
+            select(PlaylistLibraryTrack)
+            .options(
+                joinedload(PlaylistLibraryTrack.track).joinedload(LibraryTrack.album),
+                joinedload(PlaylistLibraryTrack.track).joinedload(LibraryTrack.song),
+            )
+            .where(PlaylistLibraryTrack.playlist_id.in_(ids))
+            .order_by(PlaylistLibraryTrack.playlist_id, PlaylistLibraryTrack.position)
+        ).unique()
+        grouped = {playlist_id: [] for playlist_id in ids}
+        for link in links:
+            grouped[link.playlist_id].append(link)
+        return grouped
+
+    def _history_entries_to_response(self, entries) -> list[HistoryResponse]:
+        entry_list = list(entries)
+        song_responses = self._songs_to_response([entry.song for entry in entry_list if entry.song])
+        songs_by_id = {song.id: song for song in song_responses}
+        return [self._history_to_response(entry, songs_by_id=songs_by_id) for entry in entry_list]
+
+    def _song_to_response(
+        self,
+        song,
+        *,
+        favorite_ids: set[int] | None = None,
+        public_ids: dict[int, str] | None = None,
+    ) -> SongResponse:
+        is_favorited = (
+            self.favorites.is_favorited("song", song.id)
+            if favorite_ids is None
+            else song.id in favorite_ids
+        )
+        album_public_id = (
+            self._album_public_id(song.album_id)
+            if public_ids is None and song.album_id
+            else (public_ids or {}).get(song.album_id)
+        )
         return SongResponse(
             id=song.id,
             title=song.title,
             artist_id=song.artist_id,
             artist_name=song.artist.name if song.artist else None,
             album_id=song.album_id,
-            album_public_id=canonical_album.public_id if canonical_album else None,
+            album_public_id=album_public_id,
             album_title=song.album.title if song.album else None,
             duration_seconds=song.duration_seconds,
             track_number=song.track_number,
@@ -512,20 +633,32 @@ class CatalogService:
             artwork_path=song.artwork_path or (song.album.artwork_path if song.album else None),
             artwork_url=song.artwork_url or (song.album.artwork_url if song.album else None),
             source_url=song.source_url,
-            is_downloaded=song.is_downloaded,
+            is_downloaded=self._downloaded_song_file_exists(song),
             is_favorited=is_favorited,
             created_at=song.created_at,
             updated_at=song.updated_at,
         )
 
-    def _artist_to_response(self, artist, song_count: int, album_count: int) -> ArtistResponse:
-        is_favorited = self.favorites.is_favorited("artist", artist.id)
+    def _artist_to_response(
+        self,
+        artist,
+        song_count: int,
+        album_count: int,
+        *,
+        favorite_ids: set[int] | None = None,
+    ) -> ArtistResponse:
+        is_favorited = (
+            self.favorites.is_favorited("artist", artist.id)
+            if favorite_ids is None
+            else artist.id in favorite_ids
+        )
+        artwork_path, artwork_url = self._artist_artwork(artist)
         return ArtistResponse(
             id=artist.id,
             name=artist.name,
             sort_name=artist.sort_name,
-            artwork_path=artist.artwork_path,
-            artwork_url=artist.artwork_url,
+            artwork_path=artwork_path,
+            artwork_url=artwork_url,
             song_count=song_count,
             album_count=album_count,
             is_favorited=is_favorited,
@@ -533,37 +666,31 @@ class CatalogService:
             updated_at=artist.updated_at,
         )
 
-    def _album_to_response(self, album, song_count: int, duration_seconds: int | None) -> AlbumResponse:
-        is_favorited = self.favorites.is_favorited("album", album.id)
-        return AlbumResponse(
-            id=album.id,
-            public_id=self._album_public_id(album.id),
-            title=album.title,
-            artist_id=album.artist_id,
-            artist_name=album.artist.name if album.artist else None,
-            year=album.year,
-            artwork_path=album.artwork_path,
-            artwork_url=album.artwork_url,
-            song_count=song_count,
-            duration_seconds=duration_seconds,
-            is_favorited=is_favorited,
-            created_at=album.created_at,
-            updated_at=album.updated_at,
+    def _album_to_response_simple(
+        self,
+        album,
+        *,
+        favorite_ids: set[int] | None = None,
+        public_ids: dict[int, str] | None = None,
+    ) -> AlbumResponse:
+        is_favorited = (
+            self.favorites.is_favorited("album", album.id)
+            if favorite_ids is None
+            else album.id in favorite_ids
         )
-
-    def _album_to_response_simple(self, album) -> AlbumResponse:
-        is_favorited = self.favorites.is_favorited("album", album.id)
-        song_count = len([s for s in album.songs if s.is_downloaded])
-        duration_seconds = sum(s.duration_seconds or 0 for s in album.songs if s.is_downloaded)
+        available_songs = [song for song in album.songs if self._downloaded_song_file_exists(song)]
+        song_count = len(available_songs)
+        duration_seconds = sum(song.duration_seconds or 0 for song in available_songs)
+        artwork_path, artwork_url = self._album_artwork(album)
         return AlbumResponse(
             id=album.id,
-            public_id=self._album_public_id(album.id),
+            public_id=self._album_public_id(album.id) if public_ids is None else public_ids.get(album.id),
             title=album.title,
             artist_id=album.artist_id,
             artist_name=album.artist.name if album.artist else None,
             year=album.year,
-            artwork_path=album.artwork_path,
-            artwork_url=album.artwork_url,
+            artwork_path=artwork_path,
+            artwork_url=artwork_url,
             song_count=song_count,
             duration_seconds=duration_seconds,
             is_favorited=is_favorited,
@@ -576,14 +703,16 @@ class CatalogService:
             select(LibraryAlbum.public_id).where(LibraryAlbum.local_album_id == local_album_id)
         ).first()
 
-    def _playlist_to_response(self, playlist: Playlist) -> PlaylistResponse:
+    def _playlist_to_response(
+        self,
+        playlist: Playlist,
+        *,
+        online_links: list[PlaylistLibraryTrack] | None = None,
+    ) -> PlaylistResponse:
         song_count = len(playlist.songs) if hasattr(playlist, "songs") else 0
         duration_seconds = sum(ps.song.duration_seconds or 0 for ps in playlist.songs if ps.song and ps.song.duration_seconds) if hasattr(playlist, "songs") else 0
-        online_links = list(
-            self.playlists.session.scalars(
-                select(PlaylistLibraryTrack).where(PlaylistLibraryTrack.playlist_id == playlist.id)
-            )
-        )
+        if online_links is None:
+            online_links = self._online_playlist_links([playlist.id]).get(playlist.id, [])
         song_count += len(online_links)
         duration_seconds += sum(link.track.duration_seconds or 0 for link in online_links if link.track and link.track.duration_seconds)
         return PlaylistResponse(
@@ -600,8 +729,15 @@ class CatalogService:
     def _library_track_to_response(self, track):
         from app.schemas.library import LibraryTrackResponse
 
+        artwork_path = track.artwork_path or (track.song.artwork_path if track.song else None)
+        artwork_url = track.artwork_url or (track.song.artwork_url if track.song else None)
+        if track.album:
+            artwork_path = artwork_path or track.album.artwork_path
+            artwork_url = artwork_url or track.album.artwork_url
         return LibraryTrackResponse(
             id=track.id,
+            song_id=track.song_id,
+            artist_id=track.song.artist_id if track.song else None,
             source=track.source,
             external_id=track.external_id,
             title=track.title,
@@ -615,16 +751,36 @@ class CatalogService:
             disc_number=track.disc_number,
             position=track.position,
             source_url=track.source_url,
-            artwork_url=track.artwork_url,
-            artwork_path=track.artwork_path,
+            artwork_url=artwork_url,
+            artwork_path=artwork_path,
             explicit=track.explicit,
-            is_downloaded=track.is_downloaded,
+            is_downloaded=self._downloaded_library_track_file_exists(track),
             created_at=track.created_at,
             updated_at=track.updated_at,
         )
 
-    def _history_to_response(self, entry) -> HistoryResponse:
-        song_response = self._song_to_response(entry.song) if entry.song else None
+    @staticmethod
+    def _downloaded_library_track_file_exists(track) -> bool:
+        if not track.is_downloaded or not track.relative_path:
+            return False
+        try:
+            return resolve_library_path(track.relative_path).is_file()
+        except (OSError, ValueError):
+            return False
+
+    def _history_to_response(
+        self,
+        entry,
+        *,
+        songs_by_id: dict[int, SongResponse] | None = None,
+    ) -> HistoryResponse:
+        song_response = None
+        if entry.song:
+            song_response = (
+                self._song_to_response(entry.song)
+                if songs_by_id is None
+                else songs_by_id.get(entry.song.id)
+            )
         return HistoryResponse(
             id=entry.id,
             song_id=entry.song_id,
@@ -634,10 +790,36 @@ class CatalogService:
             title=entry.title or (song_response.title if song_response else None),
             artist_name=entry.artist_name or (song_response.artist_name if song_response else None),
             album_title=entry.album_title or (song_response.album_title if song_response else None),
-            artwork_url=entry.artwork_url or (song_response.artwork_path if song_response else None),
+            artwork_url=(
+                song_response.artwork_path or song_response.artwork_url or entry.artwork_url
+                if song_response
+                else entry.artwork_url
+            ),
             duration_seconds=entry.duration_seconds or (song_response.duration_seconds if song_response else None),
             source_url=entry.source_url or (song_response.source_url if song_response else None),
             event_type=entry.event_type,
             played_at=entry.played_at,
             position_seconds=entry.position_seconds,
         )
+
+    @staticmethod
+    def _album_artwork(album) -> tuple[str | None, str | None]:
+        if album.artwork_path or album.artwork_url:
+            return album.artwork_path, album.artwork_url
+        for song in getattr(album, "songs", ()):
+            if song.artwork_path or song.artwork_url:
+                return song.artwork_path, song.artwork_url
+        return None, None
+
+    @classmethod
+    def _artist_artwork(cls, artist) -> tuple[str | None, str | None]:
+        if artist.artwork_path or artist.artwork_url:
+            return artist.artwork_path, artist.artwork_url
+        for album in getattr(artist, "albums", ()):
+            artwork = cls._album_artwork(album)
+            if any(artwork):
+                return artwork
+        for song in getattr(artist, "songs", ()):
+            if song.artwork_path or song.artwork_url:
+                return song.artwork_path, song.artwork_url
+        return None, None

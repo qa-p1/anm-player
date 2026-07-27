@@ -7,9 +7,10 @@ import type { PlayerTrack } from "@/types/player";
 
 type AudioEventCallback = () => void;
 
-export class AudioService {
+class AudioService {
   private audio: HTMLAudioElement;
   private mediaSession: MediaSession | null = null;
+  private cancelPendingPositionRestore: (() => void) | null = null;
 
   constructor() {
     this.audio = new Audio();
@@ -27,21 +28,31 @@ export class AudioService {
     }
     const source = await this.resolvePlaybackSource(song);
     const url = source.url;
+    const absoluteUrl = new URL(url, window.location.href).toString();
     
-    if (this.audio.src !== url) {
+    if (this.audio.src !== absoluteUrl) {
       console.info(`Aura playback source: ${source.kind}`);
+      this.cancelPendingPositionRestore?.();
       this.audio.src = url;
       this.audio.load();
     }
 
     // Update media session metadata
-    if (this.mediaSession) {
-      this.mediaSession.metadata = new MediaMetadata({
-        title: song.title,
-        artist: song.artistName || "Unknown Artist",
-        album: song.albumTitle || "Unknown Album",
-        artwork: song.artworkUrl ? [{ src: song.artworkUrl }] : [],
-      });
+    if (this.mediaSession && "MediaMetadata" in window) {
+      try {
+        this.mediaSession.metadata = new MediaMetadata({
+          title: song.title,
+          artist: song.artistName || "Unknown Artist",
+          album: song.albumTitle || "Unknown Album",
+          artwork: song.artworkUrl ? [{ src: song.artworkUrl }] : [],
+        });
+      } catch {
+        try {
+          this.mediaSession.metadata = null;
+        } catch {
+          // Partial Media Session implementations can reject metadata entirely.
+        }
+      }
     }
   }
 
@@ -117,18 +128,40 @@ export class AudioService {
   }
 
   restorePosition(time: number): void {
-    if (time <= 0) return;
+    if (!Number.isFinite(time) || time < 0) return;
+    this.cancelPendingPositionRestore?.();
+    if (time === 0) {
+      this.audio.currentTime = 0;
+      return;
+    }
+    const source = this.audio.src;
     const apply = () => {
-      if (Number.isFinite(this.audio.duration) && time < this.audio.duration) {
+      this.cancelPendingPositionRestore = null;
+      if (
+        this.audio.src === source
+        && Number.isFinite(this.audio.duration)
+        && time < this.audio.duration
+      ) {
         this.audio.currentTime = time;
       }
     };
     if (this.audio.readyState >= HTMLMediaElement.HAVE_METADATA) apply();
-    else this.audio.addEventListener("loadedmetadata", apply, { once: true });
+    else {
+      this.audio.addEventListener("loadedmetadata", apply, { once: true });
+      this.cancelPendingPositionRestore = () => {
+        this.audio.removeEventListener("loadedmetadata", apply);
+        this.cancelPendingPositionRestore = null;
+      };
+    }
   }
 
   updateMediaSessionPlaybackState(playing: boolean): void {
-    if (this.mediaSession) this.mediaSession.playbackState = playing ? "playing" : "paused";
+    if (!this.mediaSession) return;
+    try {
+      this.mediaSession.playbackState = playing ? "playing" : "paused";
+    } catch {
+      // Playback state is optional in older Media Session implementations.
+    }
   }
 
   updateMediaSessionPosition(): void {
@@ -216,8 +249,20 @@ export class AudioService {
     });
   }
 
+  clearMediaSessionHandlers(): void {
+    if (!this.mediaSession) return;
+    for (const action of ["play", "pause", "seekbackward", "seekforward", "previoustrack", "nexttrack"] as const) {
+      try {
+        this.mediaSession.setActionHandler(action, null);
+      } catch {
+        // Some browsers implement only a subset of Media Session actions.
+      }
+    }
+  }
+
   // Cleanup
   destroy(): void {
+    this.cancelPendingPositionRestore?.();
     this.audio.pause();
     this.audio.src = "";
     this.audio.load();

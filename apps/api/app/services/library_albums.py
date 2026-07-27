@@ -2,13 +2,18 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime
+import logging
+import os
+from pathlib import Path, PurePosixPath
+import re
 from urllib.parse import parse_qs, urlparse
+from uuid import uuid4
 
 from sqlalchemy import func, or_, select
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.core.enums import DownloadStatus
-from app.core.exceptions import ResourceNotFoundError
+from app.core.exceptions import ConflictError, ResourceNotFoundError
 from app.models import (
     AlbumDownloadItem,
     AlbumDownloadJob,
@@ -25,14 +30,12 @@ from app.models import (
     Song,
 )
 from app.schemas.library import (
-    AlbumFavoriteRequest,
     AlbumStatusItem,
     AlbumStatusResponse,
     AlbumDownloadJobResponse,
     LibraryAlbumDetailResponse,
     LibraryAlbumResponse,
     LibraryArtistDetailResponse,
-    LibraryArtistResponse,
     LibraryRemoveResponse,
     LibrarySearchResponse,
     LibrarySearchResult,
@@ -51,7 +54,11 @@ from app.schemas.library import (
 )
 from app.services.ytmusic_service import ytmusic_service
 from app.services.file_paths import resolve_library_path
+from app.services.library_scanner import library_sync_guard
 from app.services.settings import SettingsService
+from app.storage import storage_manager
+
+logger = logging.getLogger(__name__)
 
 
 class LibraryAlbumService:
@@ -60,20 +67,20 @@ class LibraryAlbumService:
 
     def list_albums(self, *, query: str | None = None, limit: int = 50, offset: int = 0) -> list[LibraryAlbumResponse]:
         albums = self._list_album_models(query=query, limit=limit, offset=offset)
-        return [self._album_to_response(album) for album in albums]
+        return self._albums_to_response(albums)
 
     async def list_albums_refreshed(self, *, query: str | None = None, limit: int = 50, offset: int = 0) -> list[LibraryAlbumResponse]:
         """List albums after repairing durations saved by older Innertube parsers."""
         albums = self._list_album_models(query=query, limit=limit, offset=offset)
         await self._refresh_missing_album_durations(albums)
-        return [self._album_to_response(album) for album in albums]
+        return self._albums_to_response(albums)
 
     def _list_album_models(self, *, query: str | None, limit: int, offset: int) -> list[LibraryAlbum]:
         statement = (
             select(LibraryAlbum)
             .options(joinedload(LibraryAlbum.tracks).joinedload(LibraryTrack.song))
-            .where(LibraryAlbum.is_in_library == True)
-            .order_by(LibraryAlbum.added_at.desc())
+            .where(LibraryAlbum.is_in_library.is_(True))
+            .order_by(LibraryAlbum.added_at.desc(), LibraryAlbum.id.desc())
             .offset(offset)
             .limit(limit)
         )
@@ -91,11 +98,10 @@ class LibraryAlbumService:
         album = self.session.scalars(
             select(LibraryAlbum)
             .options(joinedload(LibraryAlbum.tracks))
-            .where(LibraryAlbum.id == album_id, LibraryAlbum.is_in_library == True)
+            .where(LibraryAlbum.id == album_id, LibraryAlbum.is_in_library.is_(True))
         ).unique().first()
         if not album:
             raise ResourceNotFoundError("Library album not found", details={"album_id": album_id})
-        self._validate_album_downloads(album)
         return self._album_detail_to_response(album)
 
     def search(self, query: str, *, limit: int = 50) -> LibrarySearchResponse:
@@ -105,7 +111,7 @@ class LibraryAlbumService:
         albums = self.session.scalars(
             select(LibraryAlbum)
             .where(
-                LibraryAlbum.is_in_library == True,
+                LibraryAlbum.is_in_library.is_(True),
                 or_(LibraryAlbum.title.ilike(pattern), LibraryAlbum.artist_name.ilike(pattern)),
             )
             .order_by(LibraryAlbum.added_at.desc())
@@ -127,7 +133,7 @@ class LibraryAlbumService:
         tracks = self.session.scalars(
             select(LibraryTrack)
             .where(
-                LibraryTrack.is_in_library == True,
+                LibraryTrack.is_in_library.is_(True),
                 or_(LibraryTrack.title.ilike(pattern), LibraryTrack.artist_name.ilike(pattern), LibraryTrack.album_title.ilike(pattern)),
             )
             .order_by(LibraryTrack.created_at.desc())
@@ -236,8 +242,7 @@ class LibraryAlbumService:
         if self._active_album_job(album.id):
             self.cancel_album_download(album.id)
         else:
-            self._delete_track_downloads(list(album.tracks))
-            self.session.commit()
+            self._delete_track_downloads_and_commit(list(album.tracks))
         return await self.get_unified_album(public_id)
 
     def _get_library_album_by_public_id(self, public_id: str) -> LibraryAlbum:
@@ -267,10 +272,10 @@ class LibraryAlbumService:
         ).first()
 
     def _stored_unified_album(self, album: LibraryAlbum) -> UnifiedAlbumResponse:
-        self._validate_album_downloads(album)
         tracks = list(album.tracks)
+        artwork_path, artwork_url = self._album_artwork(album, tracks)
         active_job = self._active_album_job(album.id)
-        downloaded_count = sum(1 for track in tracks if track.is_downloaded and track.relative_path)
+        downloaded_count = sum(1 for track in tracks if self._track_download_available(track))
         track_responses = [self._unified_stored_track(track) for track in tracks]
         playable_count = sum(1 for track in track_responses if track.is_available)
         if active_job:
@@ -299,7 +304,7 @@ class LibraryAlbumService:
                 href=f"/library/artists/online/{album.artist_external_id}" if album.artist_external_id else None,
             ),
             year=album.year,
-            artwork_url=album.artwork_path or album.artwork_url,
+            artwork_url=self._preferred_artwork(artwork_path, artwork_url),
             description=album.description,
             track_count=len(tracks),
             duration_seconds=sum(track.duration_seconds or (track.song.duration_seconds if track.song else 0) or 0 for track in tracks) or None,
@@ -379,7 +384,7 @@ class LibraryAlbumService:
         )
 
     def _unified_stored_track(self, track: LibraryTrack) -> UnifiedAlbumTrackResponse:
-        downloaded = bool(track.is_downloaded and track.relative_path)
+        downloaded = self._track_download_available(track)
         can_stream = track.source != "local" and bool(track.external_id)
         available = downloaded or can_stream
         playback_source = "downloaded" if downloaded else "streaming" if can_stream else "unavailable"
@@ -400,6 +405,7 @@ class LibraryAlbumService:
             explicit=track.explicit,
             library_track_id=track.id,
             song_id=track.song_id,
+            artist_id=track.song.artist_id if track.song else None,
             provider_track_id=track.external_id if track.source != "local" else None,
             playback_source=playback_source,
             is_downloaded=downloaded,
@@ -559,7 +565,6 @@ class LibraryAlbumService:
                     )
                 )
                 continue
-            self._validate_album_downloads(album)
             statuses.append(
                 AlbumStatusItem(
                     external_id=external_id,
@@ -581,11 +586,11 @@ class LibraryAlbumService:
             select(LibraryTrack).where(
                 LibraryTrack.source == "youtube",
                 LibraryTrack.external_id.in_(requested),
-                LibraryTrack.is_downloaded == True,
+                LibraryTrack.is_downloaded.is_(True),
             )
         ).all()
         for track in tracks:
-            if track.relative_path and resolve_library_path(track.relative_path).is_file():
+            if self._track_download_available(track):
                 downloaded[track.external_id] = ("library_track", track.id)
             else:
                 track.is_downloaded = False
@@ -593,13 +598,17 @@ class LibraryAlbumService:
                 changed = True
 
         songs = self.session.scalars(
-            select(Song).where(Song.is_downloaded == True, Song.source_url.isnot(None))
+            select(Song).where(Song.is_downloaded.is_(True), Song.source_url.isnot(None))
         ).all()
         for song in songs:
             external_id = self._youtube_video_id(song.source_url)
             if external_id not in requested:
                 continue
-            if song.relative_path and resolve_library_path(song.relative_path).is_file():
+            try:
+                available = bool(song.relative_path and resolve_library_path(song.relative_path).is_file())
+            except (OSError, ValueError):
+                available = False
+            if available:
                 downloaded.setdefault(external_id, ("song", song.id))
             else:
                 song.is_downloaded = False
@@ -627,7 +636,7 @@ class LibraryAlbumService:
         host = (parsed.hostname or "").lower()
         if host in {"youtu.be", "www.youtu.be"}:
             return parsed.path.strip("/").split("/")[0] or None
-        if host.endswith("youtube.com"):
+        if host == "youtube.com" or host.endswith(".youtube.com"):
             if parsed.path == "/watch":
                 return (parse_qs(parsed.query).get("v") or [None])[0]
             if parsed.path.startswith(("/shorts/", "/embed/")):
@@ -702,8 +711,8 @@ class LibraryAlbumService:
             album_count=len(albums),
             track_count=len(tracks),
             added_at=artist.added_at,
-            albums=[self._album_to_response(album) for album in albums],
-            top_tracks=[self._track_to_response(track) for track in tracks],
+            albums=self._albums_to_response(albums),
+            top_tracks=self._tracks_to_response(tracks),
         )
 
     def smart_collection(self, collection_id: str, *, limit: int = 50) -> SmartCollectionResponse:
@@ -711,14 +720,14 @@ class LibraryAlbumService:
         if normalized in {"recently-added", "recent"}:
             tracks = self.session.scalars(
                 select(LibraryTrack)
-                .where(LibraryTrack.is_in_library == True)
+                .where(LibraryTrack.is_in_library.is_(True))
                 .order_by(LibraryTrack.created_at.desc())
                 .limit(limit)
             ).all()
             albums = self.session.scalars(
                 select(LibraryAlbum)
                 .options(joinedload(LibraryAlbum.tracks))
-                .where(LibraryAlbum.is_in_library == True)
+                .where(LibraryAlbum.is_in_library.is_(True))
                 .order_by(LibraryAlbum.added_at.desc())
                 .limit(20)
             ).unique().all()
@@ -726,23 +735,23 @@ class LibraryAlbumService:
                 id="recently-added",
                 title="Recently Added",
                 description="Albums and tracks added to your library most recently.",
-                tracks=[self._track_to_response(track) for track in tracks],
-                albums=[self._album_to_response(album) for album in albums],
+                tracks=self._tracks_to_response(tracks),
+                albums=self._albums_to_response(albums),
             )
         if normalized == "downloaded":
             tracks = self.session.scalars(
-                select(LibraryTrack).where(LibraryTrack.is_downloaded == True).order_by(LibraryTrack.updated_at.desc()).limit(limit)
+                select(LibraryTrack).where(LibraryTrack.is_downloaded.is_(True)).order_by(LibraryTrack.updated_at.desc()).limit(limit)
             ).all()
             return SmartCollectionResponse(
                 id="downloaded",
                 title="Downloaded",
                 description="Tracks with local audio files on this server.",
-                tracks=[self._track_to_response(track) for track in tracks],
+                tracks=self._tracks_to_response(tracks),
             )
         if normalized in {"streaming", "not-downloaded"}:
             tracks = self.session.scalars(
                 select(LibraryTrack)
-                .where(LibraryTrack.is_in_library == True, LibraryTrack.is_downloaded == False)
+                .where(LibraryTrack.is_in_library.is_(True), LibraryTrack.is_downloaded.is_(False))
                 .order_by(LibraryTrack.created_at.desc())
                 .limit(limit)
             ).all()
@@ -750,31 +759,7 @@ class LibraryAlbumService:
                 id="streaming",
                 title="Streaming Only",
                 description="Saved tracks that stream and cache on play.",
-                tracks=[self._track_to_response(track) for track in tracks],
-            )
-        if normalized == "cached":
-            return SmartCollectionResponse(
-                id="cached",
-                title="Cached",
-                description="Tracks cached by playback. Cached track listing will be connected to playback cache entries.",
-            )
-        if normalized == "favorites":
-            return SmartCollectionResponse(
-                id="favorites",
-                title="Favorites",
-                description="Favorite online library tracks. Online favorite tracking will be connected in the next favorites migration.",
-            )
-        if normalized == "most-played":
-            return SmartCollectionResponse(
-                id="most-played",
-                title="Most Played",
-                description="Most played online library tracks. Online play counts will be connected to playback history.",
-            )
-        if normalized == "recently-played":
-            return SmartCollectionResponse(
-                id="recently-played",
-                title="Recently Played",
-                description="Recently played online library tracks. Online play history will be connected to playback events.",
+                tracks=self._tracks_to_response(tracks),
             )
         raise ResourceNotFoundError("Smart collection not found", details={"collection_id": collection_id})
 
@@ -783,6 +768,24 @@ class LibraryAlbumService:
         if not playlist:
             raise ResourceNotFoundError("Playlist not found", details={"playlist_id": playlist_id})
 
+        unique_ids = list(dict.fromkeys(track_ids))
+        tracks = list(self.session.scalars(select(LibraryTrack).where(LibraryTrack.id.in_(unique_ids))))
+        found_ids = {track.id for track in tracks}
+        missing_ids = [track_id for track_id in unique_ids if track_id not in found_ids]
+        if missing_ids:
+            raise ResourceNotFoundError("One or more library tracks were not found", details={"track_ids": missing_ids})
+        existing_ids = set(self.session.scalars(
+            select(PlaylistLibraryTrack.track_id).where(
+                PlaylistLibraryTrack.playlist_id == playlist_id,
+                PlaylistLibraryTrack.track_id.in_(unique_ids),
+            )
+        ))
+        if existing_ids and not force:
+            raise ConflictError(
+                "One or more tracks are already in the playlist.",
+                details={"track_ids": sorted(existing_ids)},
+            )
+        pending_ids = [track_id for track_id in unique_ids if track_id not in existing_ids]
         added = 0
         max_position = self.session.execute(
             select(
@@ -794,20 +797,7 @@ class LibraryAlbumService:
         ).scalar()
         next_position = max_position + 1
 
-        for track_id in track_ids:
-            track = self.session.get(LibraryTrack, track_id)
-            if not track:
-                continue
-            exists = self.session.scalars(
-                select(PlaylistLibraryTrack).where(
-                    PlaylistLibraryTrack.playlist_id == playlist_id,
-                    PlaylistLibraryTrack.track_id == track_id,
-                )
-            ).first()
-            if exists and not force:
-                continue
-            if exists and force:
-                pass
+        for track_id in pending_ids:
             self.session.add(PlaylistLibraryTrack(playlist_id=playlist_id, track_id=track_id, position=next_position))
             next_position += 1
             added += 1
@@ -820,12 +810,11 @@ class LibraryAlbumService:
         host = (parsed.hostname or "").lower()
         if "spotify.com" in host:
             raise ResourceNotFoundError(
-                "Spotify playlist import needs Spotify metadata credentials before tracks can be matched to YouTube Music.",
-                details={"url": url},
+                "Spotify playlist import needs Spotify metadata credentials before tracks can be matched to YouTube Music."
             )
         playlist_id = self._youtube_playlist_id(url)
         if not playlist_id:
-            raise ResourceNotFoundError("Could not find a YouTube Music playlist id in the URL.", details={"url": url})
+            raise ResourceNotFoundError("Could not find a YouTube Music playlist id in the URL.")
 
         browse_id = playlist_id if playlist_id.startswith("VL") else f"VL{playlist_id}"
         preview = await ytmusic_service.album(browse_id)
@@ -899,8 +888,18 @@ class LibraryAlbumService:
 
     def _youtube_playlist_id(self, url: str) -> str | None:
         parsed = urlparse(url)
+        host = (parsed.hostname or "").casefold().rstrip(".")
+        if parsed.scheme != "https" or not (
+            host == "youtube.com"
+            or host.endswith(".youtube.com")
+            or host == "youtu.be"
+        ):
+            return None
         query = parse_qs(parsed.query)
-        return (query.get("list") or [None])[0]
+        playlist_id = (query.get("list") or [None])[0]
+        if not playlist_id or not re.fullmatch(r"[A-Za-z0-9_-]{1,255}", playlist_id):
+            return None
+        return playlist_id
 
     def _ensure_import_album(self, preview: OnlineAlbumPreview) -> LibraryAlbum:
         album = self.session.scalars(
@@ -930,7 +929,7 @@ class LibraryAlbumService:
         album = self.session.scalars(
             select(LibraryAlbum)
             .options(joinedload(LibraryAlbum.tracks))
-            .where(LibraryAlbum.id == album_id, LibraryAlbum.is_in_library == True)
+            .where(LibraryAlbum.id == album_id, LibraryAlbum.is_in_library.is_(True))
         ).unique().first()
         if not album:
             raise ResourceNotFoundError("Library album not found", details={"album_id": album_id})
@@ -1038,13 +1037,12 @@ class LibraryAlbumService:
                 if child.queue_item:
                     child.queue_item.status = DownloadStatus.CANCELLED
 
-        self._delete_track_downloads(tracks)
         album_job.status = DownloadStatus.CANCELLED
         album_job.progress = 0
         album_job.completed_tracks = 0
         album_job.completed_at = now
         album_job.error_message = "Album download cancelled"
-        self.session.commit()
+        self._delete_track_downloads_and_commit(tracks)
         return self._album_download_to_response(album_job)
 
     def remove_album(self, album_id: int, *, delete_downloads: bool = False) -> LibraryRemoveResponse:
@@ -1062,8 +1060,11 @@ class LibraryAlbumService:
         for track in tracks:
             track.is_in_library = False
             track.removed_at = now
-        deleted_files = self._delete_track_downloads(tracks) if delete_downloads else 0
-        self.session.commit()
+        if delete_downloads:
+            deleted_files = self._delete_track_downloads_and_commit(tracks)
+        else:
+            deleted_files = 0
+            self.session.commit()
         return LibraryRemoveResponse(deleted_files=deleted_files)
 
     def remove_track(self, track_id: int, *, delete_downloads: bool = False) -> LibraryRemoveResponse:
@@ -1072,33 +1073,75 @@ class LibraryAlbumService:
             raise ResourceNotFoundError("Library track not found", details={"track_id": track_id})
         track.is_in_library = False
         track.removed_at = datetime.now(UTC)
-        deleted_files = self._delete_track_downloads([track]) if delete_downloads else 0
-        self.session.commit()
+        if delete_downloads:
+            deleted_files = self._delete_track_downloads_and_commit([track])
+        else:
+            deleted_files = 0
+            self.session.commit()
         return LibraryRemoveResponse(deleted_files=deleted_files)
 
-    def remove_track_download(self, track_id: int, *, delete_file: bool = True) -> LibraryTrackDownloadRemoveResponse:
+    def remove_track_download(self, track_id: int) -> LibraryTrackDownloadRemoveResponse:
         track = self.session.get(LibraryTrack, track_id)
         if not track:
             raise ResourceNotFoundError("Library track not found", details={"track_id": track_id})
-        file_deleted = False
-        if delete_file and track.relative_path:
-            file_path = track.relative_path
-            self._release_linked_song_reference(file_path, {track.id})
-            if not self._has_other_file_reference(file_path, {track.id}):
-                resolved_path = resolve_library_path(file_path)
-                resolved_path.unlink(missing_ok=True)
-                file_deleted = not resolved_path.exists()
-        track.relative_path = None
-        track.is_downloaded = False
-        self.session.commit()
+        file_deleted = self._delete_track_downloads_and_commit([track]) > 0
         return LibraryTrackDownloadRemoveResponse(
             track=self._track_to_response(track),
             file_deleted=file_deleted,
         )
 
-    def _album_to_response(self, album: LibraryAlbum) -> LibraryAlbumResponse:
+    def _favorited_ids(self, field, entity_ids: list[int]) -> set[int]:
+        ids = set(entity_ids)
+        if not ids:
+            return set()
+        return {
+            entity_id
+            for entity_id in self.session.scalars(select(field).where(field.in_(ids)))
+            if entity_id is not None
+        }
+
+    def _albums_to_response(self, albums) -> list[LibraryAlbumResponse]:
+        album_list = list(albums)
+        album_ids = [album.id for album in album_list if album.id]
+        if album_ids:
+            loaded = self.session.scalars(
+                select(LibraryAlbum)
+                .options(selectinload(LibraryAlbum.tracks).joinedload(LibraryTrack.song))
+                .where(LibraryAlbum.id.in_(album_ids))
+            ).unique()
+            loaded_by_id = {album.id: album for album in loaded}
+            album_list = [loaded_by_id.get(album.id, album) for album in album_list]
+        favorite_ids = self._favorited_ids(Favorite.library_album_id, [album.id for album in album_list])
+        return [
+            self._album_to_response(album, is_favorited=album.id in favorite_ids)
+            for album in album_list
+        ]
+
+    def _tracks_to_response(self, tracks) -> list[LibraryTrackResponse]:
+        track_list = list(tracks)
+        track_ids = [track.id for track in track_list if track.id]
+        if track_ids:
+            loaded = self.session.scalars(
+                select(LibraryTrack)
+                .options(joinedload(LibraryTrack.album), joinedload(LibraryTrack.song))
+                .where(LibraryTrack.id.in_(track_ids))
+            )
+            loaded_by_id = {track.id: track for track in loaded}
+            track_list = [loaded_by_id.get(track.id, track) for track in track_list]
+        favorite_ids = self._favorited_ids(Favorite.library_track_id, [track.id for track in track_list])
+        return [
+            self._track_to_response(track, is_favorited=track.id in favorite_ids)
+            for track in track_list
+        ]
+
+    def _album_to_response(
+        self,
+        album: LibraryAlbum,
+        *,
+        is_favorited: bool | None = None,
+    ) -> LibraryAlbumResponse:
         tracks = list(album.tracks)
-        self._validate_album_downloads(album)
+        artwork_path, artwork_url = self._album_artwork(album, tracks)
         download_state, downloaded_count = self._download_state(tracks)
         duration = sum(track.duration_seconds or (track.song.duration_seconds if track.song else 0) or 0 for track in tracks) or None
         return LibraryAlbumResponse(
@@ -1111,12 +1154,16 @@ class LibraryAlbumService:
             artist_name=album.artist_name,
             artist_external_id=album.artist_external_id,
             year=album.year,
-            artwork_url=album.artwork_url,
-            artwork_path=album.artwork_path,
+            artwork_url=artwork_url,
+            artwork_path=artwork_path,
             description=album.description,
             track_count=len(tracks),
             duration_seconds=duration,
-            is_favorited=self._is_favorited("library_album", album.id),
+            is_favorited=(
+                self._is_favorited("library_album", album.id)
+                if is_favorited is None
+                else is_favorited
+            ),
             download_state=download_state,
             downloaded_track_count=downloaded_count,
             is_in_library=album.is_in_library,
@@ -1126,15 +1173,28 @@ class LibraryAlbumService:
         )
 
     def _album_detail_to_response(self, album: LibraryAlbum) -> LibraryAlbumDetailResponse:
-        base = self._album_to_response(album)
+        base = self._albums_to_response([album])[0]
         return LibraryAlbumDetailResponse(
             **base.model_dump(),
-            tracks=[self._track_to_response(track) for track in album.tracks],
+            tracks=self._tracks_to_response(album.tracks),
         )
 
-    def _track_to_response(self, track: LibraryTrack) -> LibraryTrackResponse:
+    def _track_to_response(
+        self,
+        track: LibraryTrack,
+        *,
+        is_favorited: bool | None = None,
+    ) -> LibraryTrackResponse:
+        artwork_path = track.artwork_path or (track.song.artwork_path if track.song else None)
+        artwork_url = track.artwork_url or (track.song.artwork_url if track.song else None)
+        if not artwork_path and track.album:
+            artwork_path = track.album.artwork_path
+        if not artwork_url and track.album:
+            artwork_url = track.album.artwork_url
         return LibraryTrackResponse(
             id=track.id,
+            song_id=track.song_id,
+            artist_id=track.song.artist_id if track.song else None,
             source=track.source,
             external_id=track.external_id,
             title=track.title,
@@ -1148,15 +1208,51 @@ class LibraryAlbumService:
             disc_number=track.disc_number,
             position=track.position,
             source_url=track.source_url,
-            artwork_url=track.artwork_url,
-            artwork_path=track.artwork_path,
+            artwork_url=artwork_url,
+            artwork_path=artwork_path,
             explicit=track.explicit,
-            is_downloaded=track.is_downloaded,
-            is_favorited=self._is_favorited("library_track", track.id),
+            is_downloaded=self._track_download_available(track),
+            is_favorited=(
+                self._is_favorited("library_track", track.id)
+                if is_favorited is None
+                else is_favorited
+            ),
             is_in_library=track.is_in_library,
             created_at=track.created_at,
             updated_at=track.updated_at,
         )
+
+    @staticmethod
+    def _album_artwork(
+        album: LibraryAlbum,
+        tracks: list[LibraryTrack] | None = None,
+    ) -> tuple[str | None, str | None]:
+        if album.artwork_path or album.artwork_url:
+            return album.artwork_path, album.artwork_url
+        for track in tracks if tracks is not None else album.tracks:
+            artwork_path = track.artwork_path or (track.song.artwork_path if track.song else None)
+            artwork_url = track.artwork_url or (track.song.artwork_url if track.song else None)
+            if artwork_path or artwork_url:
+                return artwork_path, artwork_url
+        return None, None
+
+    @staticmethod
+    def _preferred_artwork(artwork_path: str | None, artwork_url: str | None) -> str | None:
+        if not artwork_path:
+            return artwork_url
+        normalized = artwork_path.split("?", 1)[0]
+        for prefix in ("/api/v1/media/artwork/", "/media/artwork/"):
+            if not normalized.startswith(prefix):
+                continue
+            parts = PurePosixPath(normalized.removeprefix(prefix)).parts
+            valid_filename = bool(parts and re.fullmatch(r"[a-f0-9]{32}(?:[a-f0-9]{32})?\.jpg", parts[-1]))
+            if len(parts) == 3 and parts[0] == "cache" and parts[1] in {"thumb", "small", "medium", "large", "original"} and valid_filename:
+                candidate = storage_manager.paths.artwork_cache / parts[1] / parts[2]
+                return artwork_path if candidate.is_file() else artwork_url or artwork_path
+            if len(parts) == 2 and parts[0] == "downloads" and valid_filename:
+                candidate = storage_manager.paths.download_thumbnails / parts[1]
+                return artwork_path if candidate.is_file() else artwork_url or artwork_path
+        return artwork_url or artwork_path
 
     def _album_download_to_response(self, job: AlbumDownloadJob) -> AlbumDownloadJobResponse:
         return AlbumDownloadJobResponse(
@@ -1206,10 +1302,10 @@ class LibraryAlbumService:
             track.is_downloaded = False
             track.relative_path = None
             return True
-        path = resolve_library_path(track.relative_path)
         try:
+            path = resolve_library_path(track.relative_path)
             valid = path.exists() and path.is_file() and path.stat().st_size > 0
-        except OSError:
+        except (OSError, ValueError):
             valid = False
         if valid:
             return False
@@ -1218,40 +1314,97 @@ class LibraryAlbumService:
         return True
 
     def _download_state(self, tracks: list[LibraryTrack]) -> tuple[str, int]:
-        downloaded = sum(1 for track in tracks if track.is_downloaded and track.relative_path)
+        downloaded = sum(1 for track in tracks if self._track_download_available(track))
         if not tracks or downloaded == 0:
             return "none", downloaded
         if downloaded == len(tracks):
             return "downloaded", downloaded
         return "partial", downloaded
 
+    @staticmethod
+    def _track_download_available(track: LibraryTrack) -> bool:
+        if not track.is_downloaded or not track.relative_path:
+            return False
+        try:
+            path = resolve_library_path(track.relative_path)
+            return path.is_file() and path.stat().st_size > 0
+        except (OSError, ValueError):
+            return False
+
     def _is_favorited(self, entity_type: str, entity_id: int) -> bool:
         field = Favorite.library_album_id if entity_type == "library_album" else Favorite.library_track_id
         return self.session.scalars(select(Favorite).where(field == entity_id)).first() is not None
 
-    def _delete_track_downloads(self, tracks: list[LibraryTrack]) -> int:
-        deleted = 0
+    def _delete_track_downloads_and_commit(self, tracks: list[LibraryTrack]) -> int:
+        """Atomically detach managed downloads, restoring files if the DB commit fails."""
+        detached = 0
         selected_ids = {track.id for track in tracks}
         seen_paths: set[str] = set()
-        for track in tracks:
-            file_path = track.relative_path
-            if not file_path:
-                track.is_downloaded = False
-                continue
-            track.relative_path = None
-            track.is_downloaded = False
-            if file_path in seen_paths:
-                continue
-            seen_paths.add(file_path)
-            self._release_linked_song_reference(file_path, selected_ids)
-            if self._has_other_file_reference(file_path, selected_ids):
-                continue
+        staged: list[tuple[Path, Path]] = []
+        with library_sync_guard():
             try:
-                resolve_library_path(file_path).unlink(missing_ok=True)
-                deleted += 1
-            except OSError:
-                pass
-        return deleted
+                for track in tracks:
+                    file_path = track.relative_path
+                    if not file_path:
+                        track.is_downloaded = False
+                        continue
+                    track.relative_path = None
+                    track.is_downloaded = False
+                    if file_path in seen_paths:
+                        continue
+                    seen_paths.add(file_path)
+                    self._release_linked_song_reference(file_path, selected_ids)
+                    if self._has_other_file_reference(file_path, selected_ids):
+                        continue
+                    try:
+                        original = resolve_library_path(file_path)
+                    except (OSError, ValueError):
+                        logger.warning("Clearing an invalid managed download path from the database")
+                        continue
+                    if not original.exists():
+                        detached += 1
+                        continue
+                    if not original.is_file():
+                        raise OSError("The managed download path is not a regular file")
+                    tombstone = original.with_name(f".{original.name}.aura-delete-{uuid4().hex}")
+                    os.replace(original, tombstone)
+                    staged.append((original, tombstone))
+                    detached += 1
+                self.session.commit()
+            except Exception as exc:
+                self.session.rollback()
+                restoration_failed = False
+                for original, tombstone in reversed(staged):
+                    try:
+                        if original.exists():
+                            restoration_failed = True
+                            logger.critical(
+                                "Could not restore a staged music file because its original path was reused"
+                            )
+                        elif tombstone.exists():
+                            os.replace(tombstone, original)
+                        else:
+                            restoration_failed = True
+                            logger.critical("A staged music file disappeared before database rollback completed")
+                    except OSError:
+                        restoration_failed = True
+                        logger.critical("Could not restore a staged music file after database rollback", exc_info=True)
+                if restoration_failed:
+                    raise ConflictError(
+                        "Aura could not safely finish removing the download. Restart Aura before trying again."
+                    ) from exc
+                if isinstance(exc, OSError):
+                    raise ConflictError(
+                        "The download could not be removed because its file is in use or unavailable."
+                    ) from exc
+                raise
+
+            for _original, tombstone in staged:
+                try:
+                    tombstone.unlink(missing_ok=True)
+                except OSError:
+                    logger.warning("A staged download will be cleaned up during the next library scan", exc_info=True)
+        return detached
 
     def _release_linked_song_reference(self, file_path: str, selected_track_ids: set[int]) -> None:
         linked_song_ids = set(

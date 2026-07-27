@@ -1,11 +1,12 @@
 """Lyrics API routes."""
 
 from datetime import datetime
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel
+from fastapi import APIRouter, HTTPException, Path, Query
+from pydantic import BaseModel, Field
 
-from app.api.deps import DbSession
+from app.api.deps import DbSession, ResourceId
 from app.services.lyrics_cache import LyricsCacheResult
 from app.services.lyrics_service import LyricsService
 
@@ -37,7 +38,10 @@ class OnlineLyricsResponse(BaseModel):
 
 
 class LyricsSaveRequest(BaseModel):
-    lyrics: str
+    lyrics: str = Field(min_length=1, max_length=1_000_000)
+
+
+VideoId = Annotated[str, Path(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")]
 
 
 def _song_response(song_id: int, result: LyricsCacheResult) -> LyricsResponse:
@@ -68,7 +72,7 @@ def _youtube_response(video_id: str, result: LyricsCacheResult) -> OnlineLyricsR
 
 @router.get("/songs/{song_id}", response_model=LyricsResponse)
 def get_song_lyrics(
-    song_id: int,
+    song_id: ResourceId,
     session: DbSession,
 ) -> LyricsResponse:
     """Get lyrics for a song."""
@@ -78,7 +82,7 @@ def get_song_lyrics(
 
 @router.post("/songs/{song_id}", response_model=LyricsResponse)
 def save_song_lyrics(
-    song_id: int,
+    song_id: ResourceId,
     request: LyricsSaveRequest,
     session: DbSession,
 ) -> LyricsResponse:
@@ -94,7 +98,7 @@ def save_song_lyrics(
 
 @router.post("/songs/{song_id}/fetch", response_model=LyricsResponse)
 async def fetch_song_lyrics(
-    song_id: int,
+    song_id: ResourceId,
     session: DbSession,
     force: bool = Query(default=False),
 ) -> LyricsResponse:
@@ -105,12 +109,12 @@ async def fetch_song_lyrics(
 
 @router.get("/youtube/{video_id}", response_model=OnlineLyricsResponse)
 async def get_youtube_lyrics(
-    video_id: str,
+    video_id: VideoId,
     session: DbSession,
-    title: str | None = Query(default=None),
-    artist: str | None = Query(default=None),
-    album: str | None = Query(default=None),
-    duration: int | None = Query(default=None),
+    title: str | None = Query(default=None, max_length=255),
+    artist: str | None = Query(default=None, max_length=255),
+    album: str | None = Query(default=None, max_length=255),
+    duration: int | None = Query(default=None, ge=0, le=86400),
 ) -> OnlineLyricsResponse:
     """Get cached lyrics for an online YouTube Music track."""
     service = LyricsService(session)
@@ -119,12 +123,12 @@ async def get_youtube_lyrics(
 
 @router.post("/youtube/{video_id}/fetch", response_model=OnlineLyricsResponse)
 async def fetch_youtube_lyrics(
-    video_id: str,
+    video_id: VideoId,
     session: DbSession,
-    title: str | None = Query(default=None),
-    artist: str | None = Query(default=None),
-    album: str | None = Query(default=None),
-    duration: int | None = Query(default=None),
+    title: str | None = Query(default=None, max_length=255),
+    artist: str | None = Query(default=None, max_length=255),
+    album: str | None = Query(default=None, max_length=255),
+    duration: int | None = Query(default=None, ge=0, le=86400),
     force: bool = Query(default=False),
 ) -> OnlineLyricsResponse:
     """Fetch lyrics for an online YouTube Music track and cache the result."""

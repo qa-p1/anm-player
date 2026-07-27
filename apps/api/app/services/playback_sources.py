@@ -3,6 +3,7 @@ from __future__ import annotations
 import mimetypes
 from dataclasses import dataclass
 from pathlib import Path
+from collections.abc import Callable
 from typing import Literal
 from urllib.parse import parse_qs, urlparse
 
@@ -30,8 +31,14 @@ class ResolvedPlaybackSource:
 class PlaybackSourceService:
     """Single source of truth for online playback-source priority."""
 
-    def __init__(self, session: Session) -> None:
+    def __init__(
+        self,
+        session: Session,
+        *,
+        resolve_music_path: Callable[[str | Path], Path] = resolve_library_path,
+    ) -> None:
         self.session = session
+        self.resolve_music_path = resolve_music_path
 
     def resolve_youtube(self, video_id: str) -> ResolvedPlaybackSource:
         downloaded = self._downloaded_youtube(video_id)
@@ -59,7 +66,7 @@ class PlaybackSourceService:
             select(LibraryTrack).where(
                 LibraryTrack.source == "youtube",
                 LibraryTrack.external_id == video_id,
-                LibraryTrack.is_downloaded == True,
+                LibraryTrack.is_downloaded.is_(True),
             )
         ).all()
         for track in tracks:
@@ -72,7 +79,7 @@ class PlaybackSourceService:
 
         songs = self.session.scalars(
             select(Song).where(
-                Song.is_downloaded == True,
+                Song.is_downloaded.is_(True),
                 Song.source_url.isnot(None),
                 Song.source_url.contains(video_id),
             )
@@ -93,12 +100,15 @@ class PlaybackSourceService:
             self.session.commit()
         return None
 
-    @staticmethod
-    def _validated_file(relative_path: str | None) -> ResolvedPlaybackSource | None:
+    def _validated_file(self, relative_path: str | None) -> ResolvedPlaybackSource | None:
         if not relative_path:
             return None
-        path = resolve_library_path(relative_path)
-        if not path.is_file():
+        try:
+            path = self.resolve_music_path(relative_path)
+            available = path.is_file()
+        except (OSError, ValueError):
+            return None
+        if not available:
             return None
         return ResolvedPlaybackSource(
             kind="downloaded",
@@ -114,7 +124,7 @@ class PlaybackSourceService:
         host = (parsed.hostname or "").lower()
         if host in {"youtu.be", "www.youtu.be"}:
             return parsed.path.strip("/").split("/")[0] or None
-        if host.endswith("youtube.com"):
+        if host == "youtube.com" or host.endswith(".youtube.com"):
             if parsed.path == "/watch":
                 return (parse_qs(parsed.query).get("v") or [None])[0]
             if parsed.path.startswith(("/shorts/", "/embed/")):

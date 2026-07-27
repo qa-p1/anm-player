@@ -13,11 +13,9 @@ from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.request import Request, build_opener
 
 import httpx
-from starlette.concurrency import run_in_threadpool
 
 from app.core.exceptions import AppError
 from app.schemas.library import OnlineAlbumPreview, OnlineAlbumTrackPreview
-from app.schemas.music import SearchResponse, SearchResult
 from app.schemas.ytmusic import (
     OnlineAlbum,
     OnlineArtist,
@@ -250,6 +248,8 @@ class InnerTubeSession:
             sapisid = _parse_cookie(self.cookie).get("SAPISID")
             if sapisid:
                 now = int(time.time())
+                # YouTube's SAPISIDHASH wire protocol requires SHA-1. This is
+                # protocol formatting, not a password or integrity hash.
                 digest = hashlib.sha1(f"{now} {sapisid} {ORIGIN_YOUTUBE_MUSIC}".encode()).hexdigest()
                 headers["Authorization"] = f"SAPISIDHASH {now}_{digest}"
         return headers
@@ -635,7 +635,7 @@ class YouTubeMusicService:
             return cached[1]
 
         try:
-            items = await run_in_threadpool(self._related_sync, video_id)
+            items = await asyncio.to_thread(self._related_sync, video_id)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -643,10 +643,7 @@ class YouTubeMusicService:
                 "YouTube Music related request failed",
                 extra={"source": "Related", "country": "US", "error": str(exc)},
             )
-            raise AppError(
-                "YouTube Music related recommendations failed. Please try again.",
-                details={"video_id": video_id},
-            ) from exc
+            raise AppError("YouTube Music related recommendations failed. Please try again.") from exc
 
         response = OnlineRelatedResponse(seed_video_id=video_id, items=[self._item_to_schema(item) for item in items[:20]])
         logger.info(
@@ -661,7 +658,7 @@ class YouTubeMusicService:
 
     async def _load_home_source(self, source: str, country: str, loader):
         try:
-            return await run_in_threadpool(loader), False
+            return await asyncio.to_thread(loader), False
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -684,7 +681,7 @@ class YouTubeMusicService:
             raise
         except Exception as exc:
             logger.exception("Innertube search failed")
-            raise AppError("YouTube Music search failed. Please try a different query.", details={"query": query}) from exc
+            raise AppError("YouTube Music search failed. Please try a different query.") from exc
         response = OnlineSearchResponse(
             query=query,
             filter=filter_key,
@@ -697,39 +694,19 @@ class YouTubeMusicService:
         return response
 
     async def album(self, browse_id: str) -> OnlineAlbumPreview:
-        return await run_in_threadpool(self._album_sync, browse_id)
+        return await asyncio.to_thread(self._album_sync, browse_id)
 
     async def artist(self, browse_id: str) -> dict[str, Any]:
-        return await run_in_threadpool(self._artist_sync, browse_id)
-
-    async def legacy_search(self, query: str) -> SearchResponse:
-        result = await self.search(query, filter_name="songs")
-        legacy_results = [
-            SearchResult(
-                video_id=item.id,
-                title=item.title,
-                artist=item.artists[0].name if item.artists else item.subtitle,
-                thumbnail=item.thumbnail,
-                duration=item.duration_seconds,
-                upload_date=None,
-                view_count=None,
-                channel=item.artists[0].name if item.artists else None,
-                url=item.url,
-                rank_score=0,
-            )
-            for item in result.items
-            if item.playable
-        ]
-        return SearchResponse(query=query, results=legacy_results)
+        return await asyncio.to_thread(self._artist_sync, browse_id)
 
     def playback(self, video_id: str, *, quality: str = "high") -> PlaybackData:
         return self.client.playback(video_id, quality=quality)
 
     async def lyrics(self, video_id: str) -> str | None:
-        return await run_in_threadpool(self._lyrics_sync, video_id)
+        return await asyncio.to_thread(self._lyrics_sync, video_id)
 
     async def artwork(self, video_id: str) -> str | None:
-        return await run_in_threadpool(self._artwork_sync, video_id)
+        return await asyncio.to_thread(self._artwork_sync, video_id)
 
     def _artwork_sync(self, video_id: str) -> str | None:
         try:
@@ -948,26 +925,12 @@ class YouTubeMusicService:
         for key in expired:
             self._related_cache.pop(key, None)
 
-    def _search_sync(self, query: str, filter_name: str, continuation: str | None) -> OnlineSearchResponse:
-        filter_key = filter_name if filter_name in SEARCH_FILTERS else "all"
-        try:
-            raw = self.client.search(query, params=SEARCH_FILTERS[filter_key], continuation=continuation)
-        except Exception as exc:
-            logger.exception("Innertube search failed")
-            raise AppError("YouTube Music search failed. Please try a different query.", details={"query": query}) from exc
-        return OnlineSearchResponse(
-            query=query,
-            filter=filter_key,
-            items=[self._item_to_schema(item) for item in raw.items],
-            continuation=raw.continuation,
-        )
-
     def _album_sync(self, browse_id: str) -> OnlineAlbumPreview:
         try:
             raw = self.client.session.browse(client=self.client.session.web_remix_client(), browse_id=browse_id)
         except Exception as exc:
             logger.exception("Innertube album browse failed")
-            raise AppError("YouTube Music album failed. Please try again.", details={"browse_id": browse_id}) from exc
+            raise AppError("YouTube Music album failed. Please try again.") from exc
 
         parsed_items: list[YTItem] = []
         seen: set[str] = set()
@@ -1022,7 +985,7 @@ class YouTubeMusicService:
             raw = self.client.session.browse(client=self.client.session.web_remix_client(), browse_id=browse_id)
         except Exception as exc:
             logger.exception("Innertube artist browse failed")
-            raise AppError("YouTube Music artist failed. Please try again.", details={"browse_id": browse_id}) from exc
+            raise AppError("YouTube Music artist failed. Please try again.") from exc
 
         name = self._album_title_from_raw(raw) or "Artist"
         thumbnail = _thumbnail(raw)
@@ -1758,7 +1721,7 @@ def _dedupe_sections(sections: list[HomeSection]) -> list[HomeSection]:
 
 
 def _stable_id(title: str) -> str:
-    return hashlib.sha1(title.encode("utf-8")).hexdigest()[:16]
+    return hashlib.sha256(title.encode("utf-8")).hexdigest()[:16]
 
 
 def select_audio_format(player_response: dict[str, Any], *, quality: str = "auto") -> dict[str, Any] | None:

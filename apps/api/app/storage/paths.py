@@ -106,12 +106,6 @@ class StoragePaths:
     def lyrics_file(self, value: str | Path) -> Path:
         return self._cache_file(value, "lyrics")
 
-    def artwork_file(self, value: str | Path) -> Path:
-        return self._cache_file(value, "artwork")
-
-    def download_output(self, value: str | Path) -> Path:
-        return self.music_file(value)
-
     def store(self, path: str | Path, *, prefix: str) -> str:
         absolute = Path(path).expanduser().resolve(strict=False)
         if not _contained(self.root, absolute):
@@ -159,12 +153,6 @@ class StorageManager:
         paths = self.paths
         paths.ensure()
         return paths
-
-    def switch(self, root: str | Path) -> StoragePaths:
-        with self._lock:
-            self.state_store.switch_root(root)
-            self._paths = StoragePaths(Path(root).expanduser().resolve())
-            return self._paths
 
     def refresh(self) -> StoragePaths:
         with self._lock:

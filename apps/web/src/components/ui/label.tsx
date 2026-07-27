@@ -6,6 +6,9 @@ const Label = React.forwardRef<
   HTMLLabelElement,
   React.LabelHTMLAttributes<HTMLLabelElement>
 >(({ className, ...props }, ref) => (
+  // Association is supplied by each call site's htmlFor/control pair. This
+  // primitive cannot know that id while forwarding generic label props.
+  // eslint-disable-next-line jsx-a11y-x/label-has-associated-control
   <label
     ref={ref}
     className={cn(

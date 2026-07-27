@@ -1,10 +1,7 @@
-from pathlib import Path
-
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from app.core.config import settings
 from app.core.enums import DownloadStatus
 from app.core.exceptions import ConflictError
 from app.models import AlbumDownloadItem, AlbumDownloadJob, Base, DownloadJob, LibraryAlbum, LibraryTrack, QueueItem
@@ -99,13 +96,13 @@ def test_database_claim_transition_prevents_second_claim() -> None:
 
 
 def test_worker_cleans_partial_job_directory_after_failure(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr(settings, "download_directory", tmp_path)
     worker = DownloadWorker()
+    monkeypatch.setattr(worker, "_download_jobs_dir", lambda: tmp_path / "jobs")
     monkeypatch.setattr(worker, "_claim_next_job", lambda: 7)
     monkeypatch.setattr(worker, "_mark_failed", lambda job_id, exc: None)
 
     def fail_download(job_id: int) -> None:
-        job_dir = Path(settings.download_directory) / "jobs" / str(job_id)
+        job_dir = tmp_path / "jobs" / str(job_id)
         job_dir.mkdir(parents=True)
         (job_dir / "partial.webm.part").write_bytes(b"partial")
         raise RuntimeError("Download cancelled")
@@ -160,3 +157,42 @@ def test_album_job_parallelism_limits_worker_claims() -> None:
         active.status = DownloadStatus.COMPLETED
         session.commit()
         assert repository.claim_next_queued() == queued.id
+
+
+def test_batch_enqueue_is_atomic_when_any_item_conflicts() -> None:
+    with make_session() as session:
+        service = make_service(session)
+        service.enqueue(DownloadCreateRequest(source_url="https://example.com/existing"))
+        before = session.query(DownloadJob).count()
+
+        with pytest.raises(ConflictError):
+            service.enqueue_batch([
+                DownloadCreateRequest(source_url="https://example.com/new"),
+                DownloadCreateRequest(source_url="https://example.com/existing"),
+            ])
+
+        assert session.query(DownloadJob).count() == before
+        assert session.query(DownloadJob).filter(DownloadJob.source_url.contains("/new")).count() == 0
+
+
+def test_cancel_updates_queue_and_album_state_together() -> None:
+    with make_session() as session:
+        album = LibraryAlbum(public_id="album", external_id="album", title="Album")
+        track = LibraryTrack(external_id="track", title="Track", position=0)
+        session.add_all([album, track])
+        session.flush()
+        album_job = AlbumDownloadJob(album_id=album.id, status=DownloadStatus.QUEUED, total_tracks=1, max_parallel=1)
+        job = DownloadJob(status=DownloadStatus.QUEUED, source_url="https://example.com/song")
+        session.add_all([album_job, job])
+        session.flush()
+        queue = QueueItem(download_job=job, status=DownloadStatus.QUEUED)
+        item = AlbumDownloadItem(album_job_id=album_job.id, track_id=track.id, download_job_id=job.id)
+        session.add_all([queue, item])
+        session.commit()
+
+        make_service(session).cancel(job.id)
+
+        assert job.status == DownloadStatus.CANCELLED
+        assert queue.status == DownloadStatus.CANCELLED
+        assert item.status == DownloadStatus.CANCELLED
+        assert album_job.status == DownloadStatus.CANCELLED

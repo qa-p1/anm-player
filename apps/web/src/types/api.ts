@@ -1,21 +1,3 @@
-export interface SearchResult {
-  video_id: string;
-  title: string;
-  artist: string | null;
-  thumbnail: string | null;
-  duration: number | null;
-  upload_date: string | null;
-  view_count: number | null;
-  channel: string | null;
-  url: string;
-  rank_score: number;
-}
-
-export interface SearchResponse {
-  query: string;
-  results: SearchResult[];
-}
-
 export interface DownloadCreateRequest {
   source_url: string;
   video_id?: string;
@@ -102,10 +84,6 @@ export interface Album {
   updated_at: string;
 }
 
-export interface AlbumDetail extends Album {
-  songs: Song[];
-}
-
 export interface Playlist {
   id: number;
   name: string;
@@ -135,11 +113,6 @@ export interface PlaylistDetail extends Playlist {
 
 export interface PlaylistCreateRequest {
   name: string;
-  description?: string | null;
-}
-
-export interface PlaylistUpdateRequest {
-  name?: string;
   description?: string | null;
 }
 
@@ -277,6 +250,8 @@ export interface OnlineSearchResponse {
 
 export interface LibraryTrack {
   id: number;
+  song_id: number | null;
+  artist_id: number | null;
   source: "youtube" | "local";
   external_id: string;
   title: string;
@@ -298,6 +273,13 @@ export interface LibraryTrack {
   is_in_library: boolean;
   created_at: string;
   updated_at: string;
+}
+
+export interface LibraryCounts {
+  songs: number;
+  albums: number;
+  artists: number;
+  playlists: number;
 }
 
 export interface LibraryAlbum {
@@ -328,49 +310,6 @@ export interface LibraryAlbumDetail extends LibraryAlbum {
   tracks: LibraryTrack[];
 }
 
-export interface OnlineAlbumTrackPreview {
-  source: "youtube";
-  external_id: string;
-  title: string;
-  artist_name: string | null;
-  artist_external_id: string | null;
-  album_title: string | null;
-  duration_seconds: number | null;
-  track_number: number | null;
-  disc_number: number | null;
-  position: number;
-  source_url: string | null;
-  artwork_url: string | null;
-  explicit: boolean;
-}
-
-export interface OnlineAlbumPreview {
-  source: "youtube";
-  external_id: string;
-  title: string;
-  artist_name: string | null;
-  artist_external_id: string | null;
-  year: number | null;
-  artwork_url: string | null;
-  description: string | null;
-  tracks: OnlineAlbumTrackPreview[];
-}
-
-export interface AlbumDownloadJob {
-  id: number;
-  album_id: number;
-  status: string;
-  progress: number;
-  total_tracks: number;
-  completed_tracks: number;
-  failed_tracks: number;
-  max_parallel: number;
-  error_message: string | null;
-  completed_at: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
 export interface AlbumStatusItem {
   external_id: string;
   public_id: string;
@@ -393,6 +332,7 @@ export interface UnifiedAlbumTrack {
   explicit: boolean;
   library_track_id: number | null;
   song_id: number | null;
+  artist_id: number | null;
   provider_track_id: string | null;
   playback_source: "downloaded" | "streaming" | "unavailable";
   is_downloaded: boolean;
@@ -448,11 +388,6 @@ export interface TrackStatusResponse {
   statuses: TrackStatusItem[];
 }
 
-export interface LibraryRemoveResponse {
-  removed: boolean;
-  deleted_files: number;
-}
-
 export interface LibraryTrackDownloadRemoveResponse {
   track: LibraryTrack;
   file_deleted: boolean;
@@ -472,7 +407,7 @@ export interface LyricsResponse {
   fetched_at?: string | null;
 }
 
-export interface LibraryArtist {
+interface LibraryArtist {
   id: number | null;
   source: "youtube";
   external_id: string;
@@ -510,27 +445,4 @@ export interface SmartCollection {
   description: string;
   tracks: LibraryTrack[];
   albums: LibraryAlbum[];
-}
-
-// Discovery types
-export interface DiscoveryItem {
-  id: string;
-  title: string;
-  artist: string;
-  year: number | null;
-  artwork_url: string | null;
-  genres: string[];
-  type: string;
-}
-
-export interface DiscoverySection {
-  title: string;
-  items: DiscoveryItem[];
-}
-
-export interface HomeDiscovery {
-  featured: DiscoverySection;
-  trending: DiscoverySection;
-  new_releases: DiscoverySection;
-  genres: string[];
 }

@@ -1,14 +1,16 @@
 import { useEffect, useRef } from "react";
 
+import { toast } from "@/components/ui/toast";
 import { audioService } from "@/services/audio-service";
 import { addHistory } from "@/services/music-api";
 import { queryClient } from "@/lib/query-client";
 import { usePlayerStore } from "@/stores/player-store";
+import type { HistoryCreateRequest } from "@/types/api";
 import type { PlayerTrack } from "@/types/player";
 
 export function useAudioPlayer() {
   const isSwitchingSourceRef = useRef(false);
-  const playedTrackIdRef = useRef<string | null>(null);
+  const playedSessionRef = useRef<string | null>(null);
   const {
     currentSong,
     isPlaying,
@@ -44,9 +46,13 @@ export function useAudioPlayer() {
         audioService.restorePosition(usePlayerStore.getState().currentTime);
         isSwitchingSourceRef.current = false;
         await audioService.play();
+        if (!cancelled) {
+          recordPlayedHistory(currentSong, playbackRequestId, playedSessionRef);
+        }
       } catch (error) {
         if (cancelled || isIgnorablePlaybackAbort(error)) return;
         console.error("Failed to load song:", error);
+        toast("Aura couldn't play this track.", "error");
         setIsPlaying(false);
       } finally {
         if (!cancelled) {
@@ -60,7 +66,7 @@ export function useAudioPlayer() {
     return () => {
       cancelled = true;
     };
-  }, [currentSong?.id, isPlaying, playbackRequestId]);
+  }, [currentSong, isPlaying, playbackRequestId, setIsPlaying]);
 
   // Handle volume changes
   useEffect(() => {
@@ -87,22 +93,21 @@ export function useAudioPlayer() {
     const unsubscribeEnded = audioService.onEnded(() => {
       // Track as completed
       if (currentSong) {
-        addHistory({
-          ...historyPayload(currentSong),
-          event_type: "completed",
-          position_seconds: Math.floor(audioService.getDuration()),
-        })
-          .then(invalidatePlaybackHistory)
-          .catch(console.error);
+        const payload = historyPayload(currentSong);
+        if (payload) {
+          addHistory({
+            ...payload,
+            event_type: "completed",
+            position_seconds: Math.floor(audioService.getDuration()),
+          })
+            .then(invalidatePlaybackHistory)
+            .catch(logHistoryFailure);
+        }
       }
 
       // Play next song
       const nextSong = playNextSong();
       if (nextSong) {
-        if (nextSong.id === currentSong?.id) {
-          audioService.seek(0);
-          audioService.play().catch(console.error);
-        }
         setIsPlaying(true);
       }
     });
@@ -110,6 +115,9 @@ export function useAudioPlayer() {
     const unsubscribePlay = audioService.onPlay(() => {
       setIsPlaying(true);
       audioService.updateMediaSessionPlaybackState(true);
+      if (currentSong) {
+        recordPlayedHistory(currentSong, playbackRequestId, playedSessionRef);
+      }
     });
 
     const unsubscribePause = audioService.onPause(() => {
@@ -121,6 +129,7 @@ export function useAudioPlayer() {
     const unsubscribeError = audioService.onError((error) => {
       if (isSwitchingSourceRef.current) return;
       console.error("Audio error:", error, audioService.getError());
+      toast("Playback stopped because the audio could not be loaded.", "error");
       setIsPlaying(false);
     });
 
@@ -132,7 +141,7 @@ export function useAudioPlayer() {
       unsubscribePause();
       unsubscribeError();
     };
-  }, [currentSong?.id]);
+  }, [currentSong, playbackRequestId, playNextSong, setCurrentTime, setDuration, setIsPlaying]);
 
   // Set up Media Session API handlers
   useEffect(() => {
@@ -162,21 +171,8 @@ export function useAudioPlayer() {
         audioService.seek(newTime);
       },
     });
-  }, []);
-
-  // Track playback history
-  useEffect(() => {
-    if (!currentSong || !isPlaying) return;
-    if (playedTrackIdRef.current === currentSong.id) return;
-    playedTrackIdRef.current = currentSong.id;
-
-    addHistory({
-      ...historyPayload(currentSong),
-      event_type: "played",
-    })
-      .then(invalidatePlaybackHistory)
-      .catch(console.error);
-  }, [currentSong?.id, isPlaying]);
+    return () => audioService.clearMediaSessionHandlers();
+  }, [playNextSong, setIsPlaying]);
 
   return {
     seek: (time: number) => audioService.seek(time),
@@ -192,10 +188,10 @@ export function useAudioPlayer() {
 }
 
 function isIgnorablePlaybackAbort(error: unknown): boolean {
-  return error instanceof DOMException && error.name === "AbortError";
+  return error instanceof Error && error.name === "AbortError";
 }
 
-function historyPayload(song: PlayerTrack) {
+function historyPayload(song: PlayerTrack): HistoryCreateRequest | null {
   if (song.source === "local" && song.localKind === "song") {
     return {
       source: "local" as const,
@@ -203,20 +199,21 @@ function historyPayload(song: PlayerTrack) {
       title: song.title,
       artist_name: song.artistName,
       album_title: song.albumTitle,
-      artwork_url: song.artworkUrl,
+      artwork_url: song.rawSong.artwork_path || song.rawSong.artwork_url,
       duration_seconds: song.durationSeconds,
       source_url: song.rawSong.source_url,
     };
   }
 
   if (song.source === "local") {
+    if (!song.rawLibraryTrack.song_id) return null;
     return {
-      source: "youtube" as const,
-      external_id: song.rawLibraryTrack.external_id,
+      source: "local",
+      song_id: song.rawLibraryTrack.song_id,
       title: song.title,
       artist_name: song.artistName,
       album_title: song.albumTitle,
-      artwork_url: song.artworkUrl,
+      artwork_url: song.rawLibraryTrack.artwork_path || song.rawLibraryTrack.artwork_url,
       duration_seconds: song.durationSeconds,
       source_url: song.rawLibraryTrack.source_url,
     };
@@ -228,12 +225,35 @@ function historyPayload(song: PlayerTrack) {
     title: song.title,
     artist_name: song.artistName,
     album_title: song.albumTitle,
-    artwork_url: song.artworkUrl,
+    artwork_url: song.rawItem.thumbnail,
     duration_seconds: song.durationSeconds,
     source_url: song.rawItem.url,
   };
 }
 
 function invalidatePlaybackHistory() {
-  queryClient.invalidateQueries({ queryKey: ["music", "history"] });
+  return queryClient.invalidateQueries({ queryKey: ["music", "history"] });
+}
+
+function recordPlayedHistory(
+  song: PlayerTrack,
+  playbackRequestId: number,
+  playedSessionRef: { current: string | null },
+) {
+  const playbackSession = `${song.id}:${playbackRequestId}`;
+  if (playedSessionRef.current === playbackSession) return;
+
+  playedSessionRef.current = playbackSession;
+  const payload = historyPayload(song);
+  if (!payload) return;
+  addHistory({
+    ...payload,
+    event_type: "played",
+  })
+    .then(invalidatePlaybackHistory)
+    .catch(logHistoryFailure);
+}
+
+function logHistoryFailure(error: unknown) {
+  console.error("Could not record playback history:", error);
 }

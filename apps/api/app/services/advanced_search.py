@@ -6,10 +6,9 @@ for the local music library.
 """
 
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Literal
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.models import Album, Artist, Song
@@ -28,7 +27,6 @@ class SearchFilters:
     # Song filters
     artist_ids: list[int] | None = None
     album_ids: list[int] | None = None
-    genre: str | None = None
     year_min: int | None = None
     year_max: int | None = None
     duration_min: int | None = None  # in seconds
@@ -67,7 +65,7 @@ class AdvancedSearchService:
         statement = (
             select(Song)
             .options(joinedload(Song.artist), joinedload(Song.album))
-            .where(Song.is_downloaded == True)
+            .where(Song.is_downloaded.is_(True))
         )
         has_query = bool(filters.query and filters.query.strip())
         needs_artist_join = has_query or filters.sort_by == "artist"
@@ -290,22 +288,4 @@ class AdvancedSearchService:
             else:
                 statement = statement.order_by(Song.created_at.desc())
         
-        return statement
-    
-    def get_available_years(self) -> list[int]:
-        """Get list of years available in the library for filter dropdown."""
-        statement = (
-            select(Album.year)
-            .where(Album.year.isnot(None))
-            .distinct()
-            .order_by(Album.year.desc())
-        )
-        return list(self.session.scalars(statement))
-    
-    def get_available_genres(self) -> list[str]:
-        """
-        Get list of genres available in the library.
-        Note: Requires genre field in database (part of metadata enrichment).
-        """
-        # TODO: Implement when genre field is added to database
-        return []
+        return statement.order_by(Song.id)

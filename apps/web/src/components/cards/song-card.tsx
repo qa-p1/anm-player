@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 
 import { TrackRow } from "@/components/cards/track-row";
 import { toast } from "@/components/ui/toast";
@@ -51,10 +51,7 @@ export function SongCard({
   async function handleRemoveFromPlaylist() {
     if (!playlistId) return;
     try {
-      const deleteFile = song.is_downloaded
-        ? window.confirm("Delete the downloaded file too? Choose Cancel to keep the file and only remove it from this playlist.")
-        : false;
-      await removeSongMutation.mutateAsync({ playlistId, songId: song.id, deleteFile });
+      await removeSongMutation.mutateAsync({ playlistId, songId: song.id });
       onRemoved?.();
       toast("Removed from playlist", "success");
     } catch (error) {

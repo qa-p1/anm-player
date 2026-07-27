@@ -1,14 +1,14 @@
 import { motion } from "framer-motion";
 import { Mic } from "lucide-react";
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 
 import { pageTransition } from "@/animations/page-motion";
 import { BackButton } from "@/components/navigation/back-button";
 import { ArtworkImage } from "@/components/cards/artwork-image";
 import { EmptyState } from "@/components/empty-states/empty-state";
-import { cachedArtworkUrl } from "@/services/api-client";
-import { listArtists } from "@/services/music-api";
+import { cachedArtworkUrl, isRequestCancelled } from "@/services/api-client";
+import { listAllArtists } from "@/services/music-api";
 import type { Artist } from "@/types/api";
 
 export function ArtistsLibraryPage() {
@@ -18,10 +18,10 @@ export function ArtistsLibraryPage() {
   useEffect(() => {
     const controller = new AbortController();
     
-    listArtists(100, 0, controller.signal)
+    listAllArtists(controller.signal)
       .then(setArtists)
       .catch((error) => {
-        if (error.name !== "AbortError") {
+        if (!isRequestCancelled(error)) {
           console.error("Failed to load artists:", error);
         }
       })

@@ -1,20 +1,22 @@
 import { motion } from "framer-motion";
 import { ListMusic, Plus } from "lucide-react";
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 
 import { pageTransition } from "@/animations/page-motion";
+import { ArtworkImage } from "@/components/cards/artwork-image";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/empty-states/empty-state";
 import { BackButton } from "@/components/navigation/back-button";
 import { Input } from "@/components/ui/input";
-import { usePlaylists, useCreatePlaylist } from "@/hooks/use-music-queries";
+import { toast } from "@/components/ui/toast";
+import { useAllPlaylists, useCreatePlaylist } from "@/hooks/use-music-queries";
+import { cachedArtworkUrl } from "@/services/api-client";
 import { importPlaylistUrl } from "@/services/music-api";
-import { upgradeArtworkUrl } from "@/services/api-client";
 import { formatDuration } from "@/utils/format";
 
 export function PlaylistsPage() {
-  const { data: playlists = [], isLoading } = usePlaylists(100, 0);
+  const { data: playlists = [], isLoading } = useAllPlaylists();
   const createPlaylistMutation = useCreatePlaylist();
   
   const [newPlaylistName, setNewPlaylistName] = useState("");
@@ -28,8 +30,9 @@ export function PlaylistsPage() {
     try {
       await createPlaylistMutation.mutateAsync({ name: newPlaylistName.trim() });
       setNewPlaylistName("");
+      toast("Playlist created", "success");
     } catch (error) {
-      console.error("Failed to create playlist:", error);
+      toast(error instanceof Error ? error.message : "Could not create playlist", "error");
     }
   }
 
@@ -40,9 +43,9 @@ export function PlaylistsPage() {
     try {
       await importPlaylistUrl(importUrl.trim());
       setImportUrl("");
+      toast("Playlist import started", "success");
     } catch (error) {
-      console.error("Failed to import playlist:", error);
-      alert(error instanceof Error ? error.message : "Failed to import playlist");
+      toast(error instanceof Error ? error.message : "Could not import playlist", "error");
     } finally {
       setIsImporting(false);
     }
@@ -66,6 +69,7 @@ export function PlaylistsPage() {
         <form onSubmit={handleCreatePlaylist} className="flex flex-col gap-3 sm:flex-row">
           <Input
             value={newPlaylistName}
+            aria-label="Playlist name"
             onChange={(e) => setNewPlaylistName(e.target.value)}
             placeholder="Playlist name"
             className="flex-1"
@@ -83,6 +87,7 @@ export function PlaylistsPage() {
         <form onSubmit={handleImportPlaylist} className="flex flex-col gap-3 sm:flex-row">
           <Input
             value={importUrl}
+            aria-label="YouTube Music playlist URL"
             onChange={(e) => setImportUrl(e.target.value)}
             placeholder="YouTube Music playlist URL"
             className="flex-1"
@@ -106,7 +111,7 @@ export function PlaylistsPage() {
         ) : (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6">
             {playlists.map((playlist) => {
-              const artworkUrl = upgradeArtworkUrl(playlist.artwork_path);
+              const artworkUrl = cachedArtworkUrl(playlist.artwork_path);
               return (
               <Link
                 key={playlist.id}
@@ -115,7 +120,7 @@ export function PlaylistsPage() {
               >
                 <div className="mb-3 aspect-square overflow-hidden rounded-xl bg-white/10 shadow-glass sm:rounded-2xl">
                   {artworkUrl ? (
-                    <img
+                    <ArtworkImage
                       src={artworkUrl}
                       alt={playlist.name}
                       className="h-full w-full object-cover transition group-hover:scale-105"

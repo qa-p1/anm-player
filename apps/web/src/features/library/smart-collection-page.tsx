@@ -1,14 +1,14 @@
 import { motion } from "framer-motion";
 import { Play } from "lucide-react";
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams } from "react-router";
 
 import { pageTransition } from "@/animations/page-motion";
 import { BackButton } from "@/components/navigation/back-button";
 import { TrackRow } from "@/components/cards/track-row";
 import { ArtworkImage } from "@/components/cards/artwork-image";
 import { Button } from "@/components/ui/button";
-import { cachedArtworkUrl } from "@/services/api-client";
+import { cachedArtworkUrl, isRequestCancelled } from "@/services/api-client";
 import { getMostPlayedHistory, getRecentlyPlayedHistory, getSmartCollection } from "@/services/music-api";
 import { usePlayerStore } from "@/stores/player-store";
 import type { HistoryEntry, LibraryTrack, SmartCollection } from "@/types/api";
@@ -51,7 +51,7 @@ export function SmartCollectionPage() {
 
     request
       .catch((error) => {
-        if (error instanceof DOMException && error.name === "AbortError") return;
+        if (isRequestCancelled(error)) return;
         console.error("Failed to load collection:", error);
       })
       .finally(() => {

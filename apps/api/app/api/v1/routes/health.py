@@ -2,7 +2,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 
-from app.api.deps import get_health_service
+from app.api.deps import get_health_service, require_operator
 from app.schemas.health import AppInfoResponse, HealthResponse, VersionResponse
 from app.services import HealthService
 
@@ -14,11 +14,21 @@ def health_check(service: Annotated[HealthService, Depends(get_health_service)])
     return service.health()
 
 
-@router.get("/version", response_model=VersionResponse, summary="Application version")
+@router.get(
+    "/version",
+    response_model=VersionResponse,
+    summary="Application version",
+    dependencies=[Depends(require_operator)],
+)
 def version(service: Annotated[HealthService, Depends(get_health_service)]) -> VersionResponse:
     return service.version()
 
 
-@router.get("/info", response_model=AppInfoResponse, summary="Application and storage information")
+@router.get(
+    "/info",
+    response_model=AppInfoResponse,
+    summary="Application and storage information",
+    dependencies=[Depends(require_operator)],
+)
 def app_info(service: Annotated[HealthService, Depends(get_health_service)]) -> AppInfoResponse:
     return service.info()

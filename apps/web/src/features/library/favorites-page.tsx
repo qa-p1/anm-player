@@ -1,7 +1,7 @@
 import { motion } from "framer-motion";
 import { Heart } from "lucide-react";
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 
 import { pageTransition } from "@/animations/page-motion";
 import { SongCard } from "@/components/cards/song-card";
@@ -9,7 +9,7 @@ import { ArtworkImage } from "@/components/cards/artwork-image";
 import { TrackRow } from "@/components/cards/track-row";
 import { EmptyState } from "@/components/empty-states/empty-state";
 import { BackButton } from "@/components/navigation/back-button";
-import { cachedArtworkUrl } from "@/services/api-client";
+import { cachedArtworkUrl, isRequestCancelled } from "@/services/api-client";
 import { listFavorites } from "@/services/music-api";
 import type { FavoritesResponse, LibraryTrack } from "@/types/api";
 import { libraryTrackToPlayerTrack } from "@/types/player";
@@ -28,7 +28,7 @@ export function FavoritesPage() {
     listFavorites(controller.signal)
       .then(setFavorites)
       .catch((error) => {
-        if (!(error instanceof DOMException && error.name === "AbortError")) console.error("Failed to load favorites:", error);
+        if (!isRequestCancelled(error)) console.error("Failed to load favorites:", error);
       })
       .finally(() => { if (!controller.signal.aborted) setIsLoading(false); });
     return () => controller.abort();

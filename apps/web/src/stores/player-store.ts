@@ -4,7 +4,7 @@ import { persist } from "zustand/middleware";
 import type { PlayerTrack } from "@/types/player";
 import { normalizeStoredPlayerQueue, normalizeStoredPlayerTrack } from "@/types/player";
 
-export type RepeatMode = "off" | "all" | "one";
+type RepeatMode = "off" | "all" | "one";
 
 interface PlayerState {
   // Current playback
@@ -102,23 +102,32 @@ export const usePlayerStore = create<PlayerState>()(
 
       // Queue management
       setQueue: (songs) => {
-        set({ queue: songs, originalQueue: songs });
+        set((state) => ({
+          queue: state.shuffle ? shuffleTracks(songs) : songs,
+          originalQueue: rebuildOriginalQueue(state.originalQueue, state.queue, songs),
+        }));
       },
 
       addToQueue: (song) => {
         const state = get();
-        set({ queue: [...state.queue, song] });
+        const queue = [...state.queue, song];
+        set({ queue, originalQueue: rebuildOriginalQueue(state.originalQueue, state.queue, queue) });
       },
 
       playNext: (song) => {
         const state = get();
-        set({ queue: [song, ...state.queue] });
+        const queue = [song, ...state.queue];
+        set({ queue, originalQueue: rebuildOriginalQueue(state.originalQueue, state.queue, queue) });
       },
 
       removeFromQueue: (index) => {
         const state = get();
+        if (index < 0 || index >= state.queue.length) return;
         const newQueue = state.queue.filter((_, i) => i !== index);
-        set({ queue: newQueue });
+        set({
+          queue: newQueue,
+          originalQueue: rebuildOriginalQueue(state.originalQueue, state.queue, newQueue),
+        });
       },
 
       reorderQueue: (fromIndex, toIndex) => {
@@ -127,13 +136,16 @@ export const usePlayerStore = create<PlayerState>()(
         const queue = [...state.queue];
         const [moved] = queue.splice(fromIndex, 1);
         queue.splice(toIndex, 0, moved);
-        set({ queue });
+        set({ queue, originalQueue: rebuildOriginalQueue(state.originalQueue, state.queue, queue) });
       },
 
-      setQueueOrder: (queue) => set({ queue }),
+      setQueueOrder: (queue) => set((state) => ({
+        queue,
+        originalQueue: rebuildOriginalQueue(state.originalQueue, state.queue, queue),
+      })),
 
       clearQueue: () => {
-        set({ queue: [], queueHistory: [] });
+        set({ queue: [], originalQueue: [], queueHistory: [] });
       },
 
       moveToHistory: () => {
@@ -151,12 +163,7 @@ export const usePlayerStore = create<PlayerState>()(
         if (newShuffle) {
           set({ shuffle: true, queue: shuffleTracks(state.queue) });
         } else {
-          const currentIndex = state.currentSong
-            ? state.originalQueue.findIndex((track) => track.id === state.currentSong?.id)
-            : -1;
-          const restoredQueue = currentIndex >= 0
-            ? state.originalQueue.slice(currentIndex + 1)
-            : state.originalQueue;
+          const restoredQueue = orderRemainingTracks(state.originalQueue, state.queue);
           set({ shuffle: false, queue: restoredQueue });
         }
       },
@@ -177,7 +184,7 @@ export const usePlayerStore = create<PlayerState>()(
         
         // Repeat one - replay current song
         if (state.repeat === "one" && state.currentSong) {
-          set({ currentTime: 0 });
+          set({ currentTime: 0, playbackRequestId: state.playbackRequestId + 1 });
           return state.currentSong;
         }
 
@@ -269,7 +276,7 @@ export const usePlayerStore = create<PlayerState>()(
           set({
             currentSong: song,
             queue: [],
-            originalQueue: [],
+            originalQueue: [song],
             queueHistory: [],
             currentTime: 0,
             isPlaying: true,
@@ -280,11 +287,11 @@ export const usePlayerStore = create<PlayerState>()(
 
       playAlbum: (songs, startIndex = 0) => {
         if (songs.length === 0) return;
-        
-        const currentSong = songs[startIndex];
+        const safeIndex = normalizedStartIndex(startIndex, songs.length);
+        const currentSong = songs[safeIndex];
         const queueSongs = get().shuffle
-          ? shuffleTracks(songs.filter((_, index) => index !== startIndex))
-          : songs.slice(startIndex + 1);
+          ? shuffleTracks(songs.filter((_, index) => index !== safeIndex))
+          : songs.slice(safeIndex + 1);
         
         set({
           currentSong,
@@ -299,11 +306,11 @@ export const usePlayerStore = create<PlayerState>()(
 
       playPlaylist: (songs, startIndex = 0) => {
         if (songs.length === 0) return;
-        
-        const currentSong = songs[startIndex];
+        const safeIndex = normalizedStartIndex(startIndex, songs.length);
+        const currentSong = songs[safeIndex];
         const queueSongs = get().shuffle
-          ? shuffleTracks(songs.filter((_, index) => index !== startIndex))
-          : songs.slice(startIndex + 1);
+          ? shuffleTracks(songs.filter((_, index) => index !== safeIndex))
+          : songs.slice(safeIndex + 1);
         
         set({
           currentSong,
@@ -337,6 +344,7 @@ export const usePlayerStore = create<PlayerState>()(
         originalQueue: state.originalQueue,
         queueHistory: state.queueHistory,
         volume: state.volume,
+        isMuted: state.isMuted,
         shuffle: state.shuffle,
         repeat: state.repeat,
         currentTime: state.currentTime,
@@ -352,4 +360,44 @@ function shuffleTracks(tracks: PlayerTrack[]): PlayerTrack[] {
     [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
   }
   return shuffled;
+}
+
+function normalizedStartIndex(index: number, length: number): number {
+  if (!Number.isFinite(index)) return 0;
+  return Math.max(0, Math.min(length - 1, Math.trunc(index)));
+}
+
+/**
+ * originalQueue is the canonical full repeat cycle. queue is the unplayed
+ * subset in its current playback order. Any queue edit must update both.
+ */
+function rebuildOriginalQueue(
+  original: PlayerTrack[],
+  previousQueue: PlayerTrack[],
+  nextQueue: PlayerTrack[],
+): PlayerTrack[] {
+  const remainingCounts = trackCounts(previousQueue);
+  const consumed = original.filter((track) => {
+    const count = remainingCounts.get(track.id) ?? 0;
+    if (count === 0) return true;
+    remainingCounts.set(track.id, count - 1);
+    return false;
+  });
+  return [...consumed, ...nextQueue];
+}
+
+function orderRemainingTracks(original: PlayerTrack[], remaining: PlayerTrack[]): PlayerTrack[] {
+  const remainingCounts = trackCounts(remaining);
+  return original.filter((track) => {
+    const count = remainingCounts.get(track.id) ?? 0;
+    if (count === 0) return false;
+    remainingCounts.set(track.id, count - 1);
+    return true;
+  });
+}
+
+function trackCounts(tracks: PlayerTrack[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const track of tracks) counts.set(track.id, (counts.get(track.id) ?? 0) + 1);
+  return counts;
 }

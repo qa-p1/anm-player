@@ -2,6 +2,7 @@ import logging
 from http import HTTPStatus
 
 from fastapi import Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
@@ -19,7 +20,10 @@ def api_error_response(*, status_code: int, code: str, message: str, details: di
             details=details or {},
         ),
     )
-    return JSONResponse(status_code=status_code, content=payload.model_dump())
+    return JSONResponse(
+        status_code=status_code,
+        content=jsonable_encoder(payload),
+    )
 
 
 async def app_error_handler(_: Request, exc: AppError) -> JSONResponse:
@@ -33,11 +37,19 @@ async def app_error_handler(_: Request, exc: AppError) -> JSONResponse:
 
 
 async def validation_error_handler(_: Request, exc: RequestValidationError) -> JSONResponse:
+    errors = [
+        {
+            key: value
+            for key, value in error.items()
+            if key in {"loc", "msg", "type"}
+        }
+        for error in exc.errors()
+    ]
     return api_error_response(
         status_code=HTTPStatus.UNPROCESSABLE_ENTITY,
         code="validation_error",
         message="Request validation failed.",
-        details={"errors": exc.errors()},
+        details={"errors": errors},
     )
 
 

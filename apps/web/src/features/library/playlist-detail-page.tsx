@@ -1,15 +1,21 @@
 import { motion } from "framer-motion";
 import { ListMusic, Play, Shuffle, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router";
 
 import { pageTransition } from "@/animations/page-motion";
 import { BackButton } from "@/components/navigation/back-button";
+import { ArtworkImage } from "@/components/cards/artwork-image";
 import { SongCard } from "@/components/cards/song-card";
 import { TrackRow } from "@/components/cards/track-row";
 import { Button } from "@/components/ui/button";
-import { deletePlaylist, getPlaylist } from "@/services/music-api";
-import { upgradeArtworkUrl } from "@/services/api-client";
+import { toast } from "@/components/ui/toast";
+import {
+  deletePlaylist,
+  getPlaylist,
+  removeLibraryTrackFromPlaylist,
+} from "@/services/music-api";
+import { cachedArtworkUrl, isRequestCancelled } from "@/services/api-client";
 import { usePlayerStore } from "@/stores/player-store";
 import type { LibraryTrack, PlaylistDetail } from "@/types/api";
 import type { PlayerTrack } from "@/types/player";
@@ -22,17 +28,22 @@ export function PlaylistDetailPage() {
   const [playlist, setPlaylist] = useState<PlaylistDetail | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const { playPlaylist } = usePlayerStore();
-  const artworkUrl = upgradeArtworkUrl(playlist?.artwork_path);
+  const artworkUrl = cachedArtworkUrl(playlist?.artwork_path);
 
   useEffect(() => {
-    if (!playlistId) return;
-
+    const resolvedPlaylistId = Number(playlistId);
+    if (!Number.isSafeInteger(resolvedPlaylistId) || resolvedPlaylistId <= 0) {
+      setIsLoading(false);
+      return;
+    }
     const controller = new AbortController();
     
-    getPlaylist(parseInt(playlistId), controller.signal)
-      .then(setPlaylist)
+    getPlaylist(resolvedPlaylistId, controller.signal)
+      .then((result) => {
+        if (!controller.signal.aborted) setPlaylist(result);
+      })
       .catch((error) => {
-        if (error.name !== "AbortError") {
+        if (!isRequestCancelled(error)) {
           console.error("Failed to load playlist:", error);
         }
       })
@@ -44,7 +55,7 @@ export function PlaylistDetailPage() {
   }, [playlistId]);
 
   function handlePlayAll() {
-    if (!playlist || playlist.songs.length === 0) return;
+    if (!playlist) return;
     const tracks = playlistToPlayerTracks(playlist);
     if (tracks.length === 0) return;
     playPlaylist(tracks, 0);
@@ -68,17 +79,30 @@ export function PlaylistDetailPage() {
       await deletePlaylist(playlist.id);
       navigate("/library/playlists");
     } catch (error) {
-      console.error("Failed to delete playlist:", error);
-      alert("Failed to delete playlist");
+      toast(error instanceof Error ? error.message : "Could not delete playlist", "error");
     }
   }
 
   function reloadPlaylist() {
-    if (!playlistId) return;
-    
-    getPlaylist(parseInt(playlistId))
+    const resolvedPlaylistId = Number(playlistId);
+    if (!Number.isSafeInteger(resolvedPlaylistId) || resolvedPlaylistId <= 0) return;
+
+    getPlaylist(resolvedPlaylistId)
       .then(setPlaylist)
-      .catch(console.error);
+      .catch((error: unknown) => {
+        if (!isRequestCancelled(error)) {
+          toast(error instanceof Error ? error.message : "Could not refresh playlist", "error");
+        }
+      });
+  }
+
+  async function removeOnlineTrack(trackId: number) {
+    if (!playlist) return;
+    try {
+      setPlaylist(await removeLibraryTrackFromPlaylist(playlist.id, trackId));
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Could not remove track", "error");
+    }
   }
 
   if (isLoading) {
@@ -101,9 +125,9 @@ export function PlaylistDetailPage() {
     <motion.div {...pageTransition} className="mx-auto max-w-7xl space-y-8 px-3 py-4 sm:px-6 lg:px-8 lg:py-7">
       <BackButton fallback="/library/playlists" />
       <section className="flex flex-col gap-5 md:flex-row md:items-end">
-        <div className="h-40 w-40 shrink-0 overflow-hidden rounded-2xl sm:h-48 sm:w-48 sm:rounded-3xl">
+        <div className="h-40 w-40 shrink-0 overflow-hidden rounded-2xl bg-white/10 sm:h-48 sm:w-48 sm:rounded-3xl">
           {artworkUrl ? (
-            <img src={artworkUrl} alt={playlist.name} className="h-full w-full object-cover" />
+            <ArtworkImage src={artworkUrl} alt={playlist.name} className="h-full w-full object-cover" />
           ) : (
             <div className="flex h-full w-full items-center justify-center bg-white/10">
               <ListMusic className="h-20 w-20 text-muted-foreground" />
@@ -144,7 +168,7 @@ export function PlaylistDetailPage() {
 
       {playlistItems(playlist).length > 0 && (
         <section className="space-y-2">
-          {playlistItems(playlist).map((entry) => {
+          {playlistItems(playlist).map((entry, displayIndex) => {
             if (entry.item_type === "song" && entry.song) {
               return (
                 <SongCard
@@ -159,7 +183,13 @@ export function PlaylistDetailPage() {
               );
             }
             return entry.track ? (
-              <OnlinePlaylistTrack key={`track-${entry.track.id}-${entry.position}`} track={entry.track} index={entry.position} context={playlistToPlayerTracks(playlist)} />
+              <OnlinePlaylistTrack
+                key={`track-${entry.track.id}-${entry.position}`}
+                track={entry.track}
+                index={displayIndex}
+                context={playlistToPlayerTracks(playlist)}
+                onRemove={() => removeOnlineTrack(entry.track!.id)}
+              />
             ) : null;
           })}
         </section>
@@ -177,9 +207,27 @@ export function PlaylistDetailPage() {
   );
 }
 
-function OnlinePlaylistTrack({ track, index, context }: { track: LibraryTrack; index: number; context: PlayerTrack[] }) {
+function OnlinePlaylistTrack({
+  track,
+  index,
+  context,
+  onRemove,
+}: {
+  track: LibraryTrack;
+  index: number;
+  context: PlayerTrack[];
+  onRemove: () => Promise<void>;
+}) {
   const playerTrack = libraryTrackToPlayerTrack(track);
-  return <TrackRow track={playerTrack} context={context} leading={<span className="hidden w-8 shrink-0 text-center text-sm text-muted-foreground sm:block">{index + 1}</span>} isDownloaded={track.is_downloaded} />;
+  return (
+    <TrackRow
+      track={playerTrack}
+      context={context}
+      leading={<span className="hidden w-8 shrink-0 text-center text-sm text-muted-foreground sm:block">{index + 1}</span>}
+      isDownloaded={track.is_downloaded}
+      onRemoveFromPlaylist={onRemove}
+    />
+  );
 }
 
 function playlistToPlayerTracks(playlist: PlaylistDetail): PlayerTrack[] {

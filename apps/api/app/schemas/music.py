@@ -1,48 +1,36 @@
 from datetime import datetime
+from typing import Annotated
+from urllib.parse import urlsplit
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl, field_validator
 
+from app.schemas.artwork import ArtworkResponseModel
 from app.schemas.library import LibraryAlbumResponse, LibraryTrackResponse, MixedPlaylistTrackResponse
-
-
-class SearchRequest(BaseModel):
-    query: str = Field(min_length=1, max_length=200)
-
-
-class SearchResult(BaseModel):
-    video_id: str
-    title: str
-    artist: str | None = None
-    thumbnail: str | None = None
-    duration: int | None = None
-    upload_date: str | None = None
-    view_count: int | None = None
-    channel: str | None = None
-    url: str
-    rank_score: float = 0
-
-
-class SearchResponse(BaseModel):
-    query: str
-    results: list[SearchResult]
 
 
 class DownloadCreateRequest(BaseModel):
     source_url: HttpUrl
-    video_id: str | None = None
-    search_query: str | None = None
-    title: str | None = None
-    artist: str | None = None
-    album: str | None = None
-    thumbnail_url: str | None = None
+    video_id: str | None = Field(default=None, min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")
+    search_query: str | None = Field(default=None, min_length=1, max_length=512)
+    title: str | None = Field(default=None, max_length=255)
+    artist: str | None = Field(default=None, max_length=255)
+    album: str | None = Field(default=None, max_length=255)
+    thumbnail_url: str | None = Field(default=None, max_length=2048)
     overwrite_existing: bool | None = None
+
+    @field_validator("source_url")
+    @classmethod
+    def validate_source_url(cls, value: HttpUrl) -> HttpUrl:
+        if not _is_https_youtube_url(str(value)):
+            raise ValueError("Download source must be an HTTPS YouTube URL")
+        return value
 
 
 class DownloadBatchCreateRequest(BaseModel):
     items: list[DownloadCreateRequest] = Field(min_length=1, max_length=50)
 
 
-class SongResponse(BaseModel):
+class SongResponse(ArtworkResponseModel):
     id: int
     title: str
     artist_id: int | None = None
@@ -62,7 +50,7 @@ class SongResponse(BaseModel):
     updated_at: datetime
 
 
-class ArtistResponse(BaseModel):
+class ArtistResponse(ArtworkResponseModel):
     id: int
     name: str
     sort_name: str | None = None
@@ -75,7 +63,7 @@ class ArtistResponse(BaseModel):
     updated_at: datetime
 
 
-class AlbumResponse(BaseModel):
+class AlbumResponse(ArtworkResponseModel):
     id: int
     public_id: str | None = None
     title: str
@@ -91,7 +79,7 @@ class AlbumResponse(BaseModel):
     updated_at: datetime
 
 
-class PlaylistResponse(BaseModel):
+class PlaylistResponse(ArtworkResponseModel):
     id: int
     name: str
     description: str | None = None
@@ -126,16 +114,14 @@ class AlbumDetailResponse(AlbumResponse):
 
 class PlaylistCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=255)
-    description: str | None = None
+    description: str | None = Field(default=None, max_length=2000)
 
 
-class PlaylistUpdateRequest(BaseModel):
-    name: str | None = Field(None, min_length=1, max_length=255)
-    description: str | None = None
+PositiveId = Annotated[int, Field(gt=0, le=2_147_483_647)]
 
 
 class PlaylistAddSongsRequest(BaseModel):
-    song_ids: list[int] = Field(min_length=1, max_length=100)
+    song_ids: list[PositiveId] = Field(min_length=1, max_length=50)
 
 
 class PlaylistAddOnlineTrackRequest(BaseModel):
@@ -144,20 +130,22 @@ class PlaylistAddOnlineTrackRequest(BaseModel):
     artist_name: str | None = Field(default=None, max_length=255)
     artist_external_id: str | None = Field(default=None, max_length=255)
     album_title: str | None = Field(default=None, max_length=255)
-    duration_seconds: int | None = None
+    duration_seconds: int | None = Field(default=None, ge=0, le=86400)
     source_url: str | None = Field(default=None, max_length=2048)
     artwork_url: str | None = Field(default=None, max_length=2048)
     explicit: bool = False
 
-
-class PlaylistReorderRequest(BaseModel):
-    song_id: int
-    new_position: int = Field(ge=0)
+    @field_validator("source_url")
+    @classmethod
+    def validate_source_url(cls, value: str | None) -> str | None:
+        if value and not _is_https_youtube_url(value):
+            raise ValueError("Track source must be an HTTPS YouTube URL")
+        return value
 
 
 class FavoriteToggleRequest(BaseModel):
     entity_type: str = Field(pattern="^(song|artist|album|playlist|library_album|library_track)$")
-    entity_id: int
+    entity_id: int = Field(gt=0, le=2_147_483_647)
 
 
 class FavoritesResponse(BaseModel):
@@ -170,20 +158,20 @@ class FavoritesResponse(BaseModel):
 
 
 class HistoryCreateRequest(BaseModel):
-    song_id: int | None = None
+    song_id: int | None = Field(default=None, gt=0, le=2_147_483_647)
     source: str = Field(default="local", pattern="^(local|youtube)$")
     external_id: str | None = Field(default=None, max_length=255)
     title: str | None = Field(default=None, max_length=255)
     artist_name: str | None = Field(default=None, max_length=255)
     album_title: str | None = Field(default=None, max_length=255)
     artwork_url: str | None = Field(default=None, max_length=2048)
-    duration_seconds: int | None = None
+    duration_seconds: int | None = Field(default=None, ge=0, le=86400)
     source_url: str | None = Field(default=None, max_length=2048)
-    position_seconds: int | None = None
+    position_seconds: int | None = Field(default=None, ge=0, le=86400)
     event_type: str = Field(default="played", pattern="^(played|skipped|completed)$")
 
 
-class HistoryResponse(BaseModel):
+class HistoryResponse(ArtworkResponseModel):
     id: int
     song_id: int | None = None
     song: SongResponse | None = None
@@ -239,17 +227,14 @@ class QueueItemResponse(BaseModel):
     updated_at: datetime
 
 
-class RecommendationRequest(BaseModel):
-    strategy: str = Field(
-        default="mixed",
-        pattern="^(mixed|similar_artists|popular|discovery|time_based)$",
-    )
-    limit: int = Field(default=20, ge=1, le=100)
-    entity_type: str = Field(default="song", pattern="^(song|album)$")
-
-
-class RecommendationResponse(BaseModel):
-    strategy: str
-    entity_type: str
-    songs: list[SongResponse] = []
-    albums: list[AlbumResponse] = []
+def _is_https_youtube_url(value: str) -> bool:
+    try:
+        parsed = urlsplit(value)
+        host = (parsed.hostname or "").casefold().rstrip(".")
+        if parsed.scheme != "https" or parsed.username or parsed.password:
+            return False
+        if parsed.port not in (None, 443):
+            return False
+    except ValueError:
+        return False
+    return host == "youtu.be" or host == "youtube.com" or host.endswith(".youtube.com")

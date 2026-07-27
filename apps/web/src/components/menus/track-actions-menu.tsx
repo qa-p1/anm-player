@@ -33,8 +33,9 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/toast";
-import { useAddOnlineTrackToPlaylist, useAddSongsToPlaylist, useCreatePlaylist, usePlaylists } from "@/hooks/use-music-queries";
+import { useAddOnlineTrackToPlaylist, useAddSongsToPlaylist, useAllPlaylists, useCreatePlaylist } from "@/hooks/use-music-queries";
 import { cn } from "@/lib/utils";
+import { isRequestCancelled } from "@/services/api-client";
 import { addLibraryTracksToPlaylist, getLibraryTrackStatuses, queueDownload } from "@/services/music-api";
 import { usePlayerStore } from "@/stores/player-store";
 import type { PlayerTrack } from "@/types/player";
@@ -73,7 +74,7 @@ export function TrackActionsMenu({
   const [resolvedDownloaded, setResolvedDownloaded] = useState(isDownloaded ?? false);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [newPlaylistName, setNewPlaylistName] = useState("");
-  const { data: playlists = [] } = usePlaylists(100, 0, { enabled: isOpen });
+  const { data: playlists = [] } = useAllPlaylists({ enabled: isOpen });
   const createPlaylistMutation = useCreatePlaylist();
   const addSongsToPlaylistMutation = useAddSongsToPlaylist();
   const addOnlineTrackMutation = useAddOnlineTrackToPlaylist();
@@ -88,7 +89,7 @@ export function TrackActionsMenu({
     getLibraryTrackStatuses([track.videoId], controller.signal)
       .then((response) => setResolvedDownloaded(response.statuses[0]?.is_downloaded ?? false))
       .catch((error: unknown) => {
-        if (!(error instanceof DOMException && error.name === "AbortError")) console.error("Could not check track download status:", error);
+        if (!isRequestCancelled(error)) console.error("Could not check track download status:", error);
       });
     return () => controller.abort();
   }, [isOpen, isDownloaded, track]);
@@ -105,7 +106,7 @@ export function TrackActionsMenu({
     setIsOpen(false);
   }
 
-  async function addToPlaylist(playlistId: number) {
+  async function addToPlaylist(playlistId: number, reportResult = true): Promise<boolean> {
     try {
       if (track.source === "local" && track.localKind === "song") {
         await addSongsToPlaylistMutation.mutateAsync({ playlistId, songIds: [track.songId] });
@@ -115,9 +116,13 @@ export function TrackActionsMenu({
         await addOnlineTrackMutation.mutateAsync({ playlistId, track: onlineTrackPayload(track) });
       }
       setIsOpen(false);
-      toast("Added to playlist", "success");
+      if (reportResult) toast("Added to playlist", "success");
+      return true;
     } catch (error) {
-      toast(error instanceof Error ? error.message : "Failed to add to playlist", "error");
+      if (reportResult) {
+        toast(error instanceof Error ? error.message : "Failed to add to playlist", "error");
+      }
+      return false;
     }
   }
 
@@ -126,10 +131,13 @@ export function TrackActionsMenu({
     if (!name) return;
     try {
       const playlist = await createPlaylistMutation.mutateAsync({ name });
-      await addToPlaylist(playlist.id);
+      const added = await addToPlaylist(playlist.id, false);
       setShowCreateDialog(false);
       setNewPlaylistName("");
-      toast("Playlist created", "success");
+      toast(
+        added ? "Playlist created and track added" : "Playlist created, but the track could not be added",
+        added ? "success" : "error",
+      );
     } catch (error) {
       toast(error instanceof Error ? error.message : "Failed to create playlist", "error");
     }
@@ -255,7 +263,6 @@ export function TrackActionsMenu({
             onKeyDown={(event) => {
               if (event.key === "Enter") void handleCreatePlaylist();
             }}
-            autoFocus
           />
           <DialogFooter>
             <Button variant="ghost" onClick={() => setShowCreateDialog(false)}>Cancel</Button>

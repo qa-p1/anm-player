@@ -7,6 +7,7 @@ import {
   getYouTubeLyrics,
   saveSongLyrics,
 } from "@/services/music-api";
+import { isRequestCancelled } from "@/services/api-client";
 import type { LyricsResponse } from "@/types/api";
 
 type LyricsTarget =
@@ -63,9 +64,7 @@ export function useLyrics(target: LyricsTarget | null) {
     async (force = false, signal?: AbortSignal) => {
       if (!target || !key) return null;
       const requestKey = `${key}:fetch:${force}`;
-      let promise = inFlight.get(requestKey);
-      if (!promise) {
-        promise =
+      const startRequest = () =>
           target.kind === "local"
             ? fetchSongLyrics(target.songId, signal, force)
             : fetchYouTubeLyrics(
@@ -79,16 +78,35 @@ export function useLyrics(target: LyricsTarget | null) {
                 signal,
                 force,
               );
+
+      // An abort signal belongs to one mounted consumer, so an abortable
+      // request must never be shared with another lyrics panel.
+      let promise = signal ? startRequest() : inFlight.get(requestKey);
+      if (!promise) {
+        promise = startRequest();
         inFlight.set(requestKey, promise);
-        promise.finally(() => inFlight.delete(requestKey));
+        void promise.then(
+          () => inFlight.delete(requestKey),
+          () => inFlight.delete(requestKey),
+        );
       }
       setIsFetching(true);
       try {
         const result = await promise;
-        setData(result);
+        if (!signal?.aborted) setData(result);
         return result;
+      } catch (error: unknown) {
+        if (!signal?.aborted && !isRequestCancelled(error)) {
+          setData({
+            lyrics: null,
+            has_lyrics: false,
+            status: "error",
+            error_code: "request_failed",
+          });
+        }
+        return null;
       } finally {
-        setIsFetching(false);
+        if (!signal?.aborted) setIsFetching(false);
       }
     },
     [key, target],
@@ -128,7 +146,7 @@ export function useLyrics(target: LyricsTarget | null) {
         }
       })
       .catch((error: unknown) => {
-        if (error instanceof DOMException && error.name === "AbortError") return;
+        if (isRequestCancelled(error)) return;
         setData({
           lyrics: null,
           has_lyrics: false,

@@ -1,140 +1,212 @@
-# Aura
+# Aura Music
 
-Aura is a modern self-hosted music application built with React, TypeScript, Vite, TailwindCSS, shadcn/ui patterns, Framer Motion, FastAPI, and Docker Compose.
+Aura Music is a single-user music library and player that I run on a local computer. It can browse YouTube Music, stream a track, save music for offline playback, and keep local albums, playlists, favorites, lyrics, and listening history together.
 
-**Current Phase: 4 (In Progress)** - Music Player, Library Management & Playback Experience
+This is deliberately not a public music service. Aura has one operator token and assumes every person who can reach its web interface is trusted. The default Docker and native setups bind to `127.0.0.1` for that reason.
 
-Aura now includes a complete music playback system with queue management, favorites, playlists, and a beautiful Apple Music-inspired player interface.
+There is no current screenshot in the repository; I would rather leave this section plain than publish an image that no longer matches the interface.
 
-## Features
+## What works today
 
-✅ **Phase 1-3 Complete:**
-- Beautiful UI foundation with glassmorphism and smooth animations
-- Search and download music from YouTube using yt-dlp
-- Live download progress via WebSockets
-- Background download workers
-- Download queue management
+- YouTube Music home, search, album, artist, and related-track browsing
+- Streaming with a persistent queue, shuffle, repeat-one, and repeat-all
+- Media Session controls and keyboard playback shortcuts
+- Background downloads through yt-dlp and FFmpeg, with live progress and retry/cancel controls
+- Local songs, artists, albums, saved online albums, playlists, favorites, and playback history
+- Lyrics lookup and local caching, plus metadata and artwork enrichment
+- Managed SQLite storage with in-app reconciliation, usage reporting, cache cleanup, verified moves, and a guarded fresh start
+- Responsive desktop and narrow layouts with reduced-motion support
 
-✅ **Phase 4 (In Progress):**
-- Complete music player with play/pause/next/previous
-- Playback queue with shuffle and repeat modes
-- Volume control and mute
-- Mini player and full-screen player with smooth transitions
-- Favorites system (songs, artists, albums, playlists)
-- Playback history tracking
-- Playlist creation and management
-- Keyboard shortcuts for playback control
-- Media Session API integration (lock screen controls)
-- Real-time audio streaming from local library
+Provider responses and stream formats can change without notice. Aura also has no accounts, remote synchronization, DRM support, or provider-independent catalog.
 
-## Development
+## Docker quick start
 
-```bash
-npm install
-npm run dev
+Docker Compose is the recommended way to run Aura. It publishes only the Nginx web service on loopback; the API remains on the internal Compose network.
+
+Clone the repository and create the local environment file:
+
+```powershell
+git clone <repository-url> aura-music
+Set-Location aura-music
+Copy-Item .env.example .env
+py -3.13 -c "from pathlib import Path; import secrets; p=Path('.env'); s=p.read_text(); p.write_text(s.replace('API_ACCESS_TOKEN=', 'API_ACCESS_TOKEN='+secrets.token_urlsafe(48), 1))"
+docker compose up --build -d
 ```
 
-Frontend: `http://localhost:5173`
-
-Backend:
+On macOS or Linux:
 
 ```bash
-cd apps/api
-python -m venv .venv
-.venv\Scripts\activate  # Windows
-# source .venv/bin/activate  # Linux/Mac
-pip install -r requirements.txt
-mkdir data
-alembic upgrade head
-uvicorn app.main:app --reload
-```
-
-API docs: `http://localhost:8000/api/v1/docs`
-
-Downloads require FFmpeg to be available on your system. The Docker image installs FFmpeg automatically.
-
-## Docker
-
-```bash
+git clone <repository-url> aura-music
+cd aura-music
 cp .env.example .env
-docker compose up --build
+python3.13 -c "from pathlib import Path; import secrets; p=Path('.env'); s=p.read_text(); p.write_text(s.replace('API_ACCESS_TOKEN=', 'API_ACCESS_TOKEN='+secrets.token_urlsafe(48), 1))"
+docker compose up --build -d
 ```
 
-Aura stores all managed data below one mounted root (`/data`) and keeps the small,
-atomically-written storage pointer on a separate persistent mount (`/aura-state`).
-Changing the location in Settings can only select directories visible inside the
-API container; mount any host destination into the container before selecting it.
+Open <http://127.0.0.1:5173>. Stop the stack with `docker compose down`. Named volumes keep the database and media between starts; `docker compose down --volumes` deletes those volumes and should not be used unless that is intentional.
 
-Existing split-volume installations can be consolidated once without deleting the
-old volumes. Stop Aura, mount the legacy paths and an empty target, then run:
+## Double-click and run
+
+The native launcher is the simplest option when Docker is not wanted. It requires Python 3.13, Node.js 24 LTS, npm, and FFmpeg on `PATH`.
+
+1. Clone the repository or extract a downloaded source archive.
+2. On Windows, double-click `start-aura.cmd`.
+3. On macOS or Linux, run `chmod +x start-aura.sh` once, then run `./start-aura.sh`.
+4. Leave the terminal open. The first run creates `apps/api/.venv`, installs pinned Python and npm dependencies, creates `.env`, generates an API token, applies database migrations, and starts both servers.
+5. The browser opens only after the API and web server are ready. First setup can take several minutes; later starts skip dependency installation while the lockfiles are unchanged.
+
+Press `Ctrl+C` in the launcher terminal to stop both servers. If either child process fails, the launcher stops the other one and prints a recovery message.
+
+Available launcher flags:
+
+```text
+--no-browser
+--setup-only
+--force-install
+--api-port PORT
+--web-port PORT
+```
+
+The Windows first-run and repeat-run paths have been exercised from a repository path containing spaces. The Unix wrapper uses the same Python orchestrator, but still needs a clean-machine acceptance run before the first release.
+
+## Native installation by hand
+
+The launcher is preferred because it handles token generation and coordinated shutdown. For a manual Windows PowerShell setup:
+
+```powershell
+py -3.13 -m venv apps/api/.venv
+apps/api/.venv/Scripts/python.exe -m pip install -r apps/api/requirements.txt
+npm ci
+Copy-Item .env.example .env
+# Set API_ACCESS_TOKEN in .env to a generated URL-safe secret before continuing.
+Set-Location apps/api
+.venv/Scripts/python.exe -m alembic upgrade head
+.venv/Scripts/python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+In a second terminal from the repository root, run `npm run dev`. On Unix, replace the virtual-environment executable with `apps/api/.venv/bin/python` and use `python3.13 -m venv apps/api/.venv`.
+
+The native web interface is <http://127.0.0.1:5173>. Vite proxies same-origin API and WebSocket requests to the backend and adds the operator token server-side.
+
+## Environment
+
+`.env.example` contains only boot and deployment settings. Playback, download format, enrichment, retention, and album parallelism are managed in Aura's Settings page and stored in SQLite.
+
+| Variable | Default/example | Purpose |
+| --- | --- | --- |
+| `COMPOSE_PROJECT_NAME` | `aura` | Stable Compose project and volume prefix |
+| `WEB_BIND_HOST` | `127.0.0.1` | Host interface published by the production web container |
+| `WEB_PORT` | `5173` | Web port |
+| `API_ENV` | `production` | Strict runtime mode: `production`, `development`, or `test` |
+| `API_ACCESS_TOKEN` | blank | Operator token; required in production and generated by the launcher |
+| `API_TRUSTED_HOSTS` | `localhost,127.0.0.1` | Comma-separated accepted Host headers |
+| `AURA_DATA_ROOT` | `./data` | Initial managed data root for native runs |
+| `AURA_STATE_FILE` | `./.aura/storage-state.json` | Durable pointer to the active data root |
+| `DOWNLOAD_WORKER_POLL_INTERVAL_SECONDS` | `1` | Worker polling interval |
+| `STREAM_FETCH_MAX_CONCURRENCY` | `2` | Maximum concurrent stream-cache downloads |
+| `STREAM_MAX_FILE_MB` | `256` | Per-stream cache file limit |
+| `STREAM_CACHE_BUDGET_MB` | `2048` | Total stream-cache budget |
+| `ARTWORK_MAX_RESPONSE_MB` | `12` | Artwork response limit |
+| `ARTWORK_MAX_PIXELS` | `40000000` | Maximum decoded artwork dimensions by pixel count |
+| `ARTWORK_MAX_CONCURRENCY` | `4` | Concurrent artwork cache writes |
+
+Relative storage paths are resolved from the repository, not from the shell's current directory. An existing `.env` is never replaced by the launcher. A blank token is filled once; an explicit placeholder is rejected so it cannot silently reach production.
+
+## Storage and backups
+
+The managed root contains:
+
+```text
+aura.db
+music/
+downloads/jobs/
+cache/artwork/
+cache/lyrics/
+cache/streams/
+config/
+thumbnails/downloads/
+logs/
+```
+
+The small state file at `.aura/storage-state.json` points to the active root. Docker uses the `aura-data` and `aura-state` named volumes under the Compose project prefix.
+
+Stop Aura before a backup. Copy or archive both the complete data root and the state file together. For Docker, stop the stack and back up both named volumes with the volume-backup method used by your Docker installation. Verify that the archive contains `aura.db`, then retain an older known-good backup before testing a restore.
+
+Storage moves started from Settings are gated while active. Same-device moves are renamed and verified; cross-device moves are copied with a full SHA-256 manifest and SQLite `PRAGMA quick_check` before Aura switches roots. The old root is not removed before verification. If cleanup fails, Aura keeps recovery state and leaves both copies in place.
+
+Settings also has **Sync library now** for reconciling database download state with files in the managed music directory. Aura runs a lightweight reconciliation in the background, but the button is useful after manually copying or removing files while Aura was stopped.
+
+The **Fresh start** action in Settings is intentionally destructive. It requires a new, empty, non-overlapping directory and the exact confirmation text `RESET AURA`. Aura creates and verifies a clean database in that directory before deleting its old `aura.db`, music, downloads, artwork, lyrics, streams, thumbnails, configuration, and logs. Browser player/theme state is cleared after the switch. Unrelated files in an accidentally broad old root are never deleted, and a cleanup failure leaves a visible recovery warning.
+
+For an older split-volume installation, stop every Aura API, worker, launcher, and container process, prepare a new absent or empty target, and run:
 
 ```bash
-python docker/consolidate-storage.py --target /new-data --database /legacy-db/aura.db \
+python docker/consolidate-storage.py --confirm-app-stopped \
+  --target /new-data --database /legacy-db/aura.db \
   --music /legacy-music --downloads /legacy-downloads --cache /legacy-cache \
   --config /legacy-config --thumbnails /legacy-thumbnails --logs /legacy-logs
 ```
 
-The helper hashes every copied file and leaves every legacy source untouched. Start
-Aura with `AURA_DATA_ROOT=/new-data` only after the verification succeeds.
+The helper rejects overlapping paths and symbolic links, uses SQLite's backup API, verifies every copied file, stages the result atomically, and never deletes a legacy source. Keep those sources until Aura has started successfully from the new root.
 
-## Architecture
+## Development
 
-- `apps/web`: React application with player system, library management, and playback controls
-- `apps/api`: FastAPI service with music catalog, favorites, playlists, history tracking, and audio streaming
+The repository is split into a React/Vite client and a FastAPI service:
 
-## Backend API
+```text
+apps/web/       React, TypeScript, Vite, Vitest
+apps/api/       FastAPI, SQLAlchemy, Alembic, pytest
+docker/         production images, Nginx, migration helper
+scripts/        launcher and release checks
+.github/        CI and dependency update configuration
+```
 
-Versioned endpoints live under `/api/v1`.
+Install development dependencies:
 
-### Core
-- `/api/v1/health`, `/api/v1/health/version`, `/api/v1/health/info`
+```powershell
+apps/api/.venv/Scripts/python.exe -m pip install -r apps/api/requirements-dev.txt
+npm ci
+```
 
-### Search & Downloads
-- `/api/v1/search`
-- `/api/v1/downloads`, `/api/v1/downloads/{job_id}/cancel`, `/api/v1/downloads/{job_id}/retry`
-- `/api/v1/downloads/{job_id}/events` WebSocket progress stream
+Useful checks from the repository root:
 
-### Library
-- `/api/v1/library`, `/api/v1/library/summary`
-- `/api/v1/songs`, `/api/v1/songs/search`, `/api/v1/songs/favorites`, `/api/v1/songs/recently-played`
-- `/api/v1/artists`, `/api/v1/artists/{artist_id}`
-- `/api/v1/albums`, `/api/v1/albums/{album_id}`
-- `/api/v1/playlists`, `/api/v1/playlists/{playlist_id}`
+```powershell
+Set-Location apps/api
+.venv/Scripts/python.exe -m ruff check app tests ../../scripts
+.venv/Scripts/python.exe -W error -m pytest --cov=app --cov-fail-under=70
+Set-Location ../..
+npm run lint
+npm run typecheck
+npm run test:coverage
+npm run build
+npm run check:bundle
+npm audit --audit-level=high
+docker compose config --quiet
+docker compose -f docker-compose.dev.yml config --quiet
+```
 
-### Player
-- `/api/v1/favorites/toggle`
-- `/api/v1/history`
-- `/api/v1/media/songs/{song_id}/stream`
+Runtime Python dependencies are in `apps/api/requirements.txt`; test, lint, coverage, and audit tools are in `apps/api/requirements-dev.txt`.
 
-### Other
-- `/api/v1/settings`
-- `/api/v1/queue`
+## Troubleshooting
 
-## Keyboard Shortcuts
+- **Port already in use:** stop the stale process or use `start-aura.cmd --api-port 8010 --web-port 5180`. Docker's web port is controlled by `WEB_PORT`.
+- **FFmpeg not found:** install FFmpeg and confirm `ffmpeg -version` works in a new terminal.
+- **Wrong Python or Node version:** use Python 3.13 and Node 24 LTS. The launcher also accepts the tested adjacent Python 3.14 and Node 25/26 runtimes, but the release reference and CI versions are 3.13 and 24.
+- **Migration failed:** stop Aura, preserve the complete data root and state file, then run `apps/api/.venv/Scripts/python.exe -m alembic current` from `apps/api`. Do not delete a source root or migration state to force progress.
+- **Stale native processes:** close old launcher terminals and stop remaining `uvicorn`, `node`, or `npm` processes before restarting.
+- **Docker will not start:** confirm Docker Desktop's Linux engine is running, then rerun `docker compose config` before rebuilding.
+- **Provider request failed:** retry later and check `data/logs`. YouTube Music and yt-dlp changes can temporarily break search, streaming, or downloads even when Aura itself is unchanged.
 
-- `Space` - Play/Pause
-- `Ctrl/Cmd + Left` - Previous track
-- `Ctrl/Cmd + Right` - Next track
-- `Left Arrow` - Seek backward 10s
-- `Right Arrow` - Seek forward 10s
-- `Up Arrow` - Volume up
-- `Down Arrow` - Volume down
-- `M` - Mute/Unmute
+## Security and remote access
 
-## State Management
+Aura's bearer token is intentionally kept out of browser code, URLs, storage, and built assets. Nginx or the Vite development proxy injects it into same-origin upstream requests. The production API port is not published.
 
-Aura uses Zustand for client state with persistence. The player state is saved to localStorage, allowing playback to resume after page refresh.
+This does not make Aura safe to expose directly to a LAN or the internet. Every visitor who reaches the web UI effectively has operator access. Keep `WEB_BIND_HOST=127.0.0.1`; for remote use, add a separately authenticated reverse proxy or a private VPN and restrict it to trusted people. See [SECURITY.md](SECURITY.md) for vulnerability reporting.
 
-## Player Features
+## Provider and legal note
 
-- **Queue Management**: Add songs to queue, play next, reorder queue
-- **Playback Modes**: Shuffle and repeat (off/all/one)
-- **Favorites**: Mark songs, albums, artists, and playlists as favorites
-- **History**: Automatic playback history tracking
-- **Media Session API**: Lock screen and system media controls
-- **Persistent State**: Resume playback after page refresh
+Aura depends on YouTube Music, yt-dlp, and third-party lyrics/metadata behavior. Use it only for media you are entitled to access, follow provider terms, and comply with copyright law in your jurisdiction. The maintainers do not grant rights to music or provider content and cannot determine whether a particular download is lawful for you.
 
-## Future Phases
+Authenticated API documentation is available at <http://127.0.0.1:5173/api/v1/docs> while Aura is running.
 
-- **Phase 5**: Metadata enhancement, lyrics integration, recommendations
-- **Phase 6**: Performance optimization, accessibility improvements, final polish
+Aura Music is released under the [MIT License](LICENSE).

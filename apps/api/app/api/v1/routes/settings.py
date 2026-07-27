@@ -1,10 +1,11 @@
+import logging
 import os
 import shutil
 from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import delete
+from sqlalchemy import select
 
 from app.api.deps import DbSession, get_settings_service, require_operator
 from app.models import LyricsCacheEntry, StreamCacheEntry
@@ -17,15 +18,16 @@ from app.schemas.storage import (
     DirectoryListing,
     StartMigrationRequest,
     StartMigrationResponse,
+    StartResetRequest,
     StorageCategoryUsage,
     StorageSummary,
 )
 from app.services import SettingsService
-from app.services.artwork_cache import ArtworkCacheService
 from app.storage import storage_manager
 from app.storage.coordinator import StorageMigrationError, storage_coordinator
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.get("", response_model=SettingsSummary, summary="Settings summary")
@@ -43,13 +45,13 @@ def update_settings(
 
 def _directory_entry(path: Path) -> DirectoryEntry:
     try:
-        children = list(path.iterdir())
+        first_child = next(path.iterdir(), None)
         disabled = False
         reason = None
-        empty = not children
-    except OSError as exc:
+        empty = first_child is None
+    except OSError:
         disabled = True
-        reason = str(exc)
+        reason = "This directory cannot be read"
         empty = False
     same_device = None
     try:
@@ -83,22 +85,26 @@ def storage_summary() -> StorageSummary:
 
 
 @router.get("/storage/directories", response_model=DirectoryListing, dependencies=[Depends(require_operator)])
-def browse_directories(parent_id: str | None = Query(default=None)) -> DirectoryListing:
+def browse_directories(
+    parent_id: str | None = Query(default=None, min_length=1, max_length=4096),
+) -> DirectoryListing:
     if parent_id is None:
         roots = storage_coordinator.filesystem_roots()
         return DirectoryListing(directories=[_directory_entry(path) for path in roots])
     try:
         current_path = storage_coordinator.resolve_directory(parent_id)
     except StorageMigrationError as exc:
-        raise HTTPException(status_code=status.HTTP_410_GONE, detail=str(exc)) from exc
+        logger.warning("Rejected storage directory identifier: %s", exc)
+        raise HTTPException(status_code=status.HTTP_410_GONE, detail="Directory selection expired or is invalid") from exc
     directories: list[DirectoryEntry] = []
     try:
         candidates = sorted((path for path in current_path.iterdir() if path.is_dir()), key=lambda path: path.name.casefold())
     except OSError as exc:
+        logger.warning("Could not list storage directory %s: %s", current_path, exc)
         candidates = []
         current = _directory_entry(current_path)
         current.disabled = True
-        current.reason = str(exc)
+        current.reason = "This directory cannot be read"
     else:
         current = _directory_entry(current_path)
         directories = [_directory_entry(path) for path in candidates]
@@ -115,11 +121,13 @@ def create_directory(request: CreateDirectoryRequest) -> DirectoryEntry:
         child = parent / request.name
         child.mkdir()
     except StorageMigrationError as exc:
-        raise HTTPException(status_code=status.HTTP_410_GONE, detail=str(exc)) from exc
+        logger.warning("Rejected storage directory identifier: %s", exc)
+        raise HTTPException(status_code=status.HTTP_410_GONE, detail="Directory selection expired or is invalid") from exc
     except FileExistsError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A folder with that name already exists") from exc
     except OSError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Could not create folder: {exc}") from exc
+        logger.warning("Could not create storage directory under %s: %s", parent, exc)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Could not create folder") from exc
     return _directory_entry(child)
 
 
@@ -131,11 +139,38 @@ def create_directory(request: CreateDirectoryRequest) -> DirectoryEntry:
 )
 def start_storage_migration(request: StartMigrationRequest) -> StartMigrationResponse:
     try:
-        target = storage_coordinator.resolve_directory(request.directory_id)
+        target = storage_coordinator.consume_directory(request.directory_id)
         operation_id = storage_coordinator.start_migration(target)
     except StorageMigrationError as exc:
-        code = status.HTTP_409_CONFLICT if "already" in str(exc).casefold() else status.HTTP_422_UNPROCESSABLE_ENTITY
-        raise HTTPException(status_code=code, detail=str(exc)) from exc
+        already_running = "already" in str(exc).casefold()
+        logger.warning("Rejected storage migration request: %s", exc)
+        code = status.HTTP_409_CONFLICT if already_running else status.HTTP_422_UNPROCESSABLE_ENTITY
+        detail = "A storage migration is already running" if already_running else "Storage migration request was rejected"
+        raise HTTPException(status_code=code, detail=detail) from exc
+    return StartMigrationResponse(operation_id=operation_id)
+
+
+@router.post(
+    "/storage/reset",
+    response_model=StartMigrationResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(require_operator)],
+)
+def reset_storage(request: StartResetRequest) -> StartMigrationResponse:
+    if request.confirmation != "RESET AURA":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Type RESET AURA exactly to confirm the fresh start",
+        )
+    try:
+        target = storage_coordinator.consume_directory(request.directory_id)
+        operation_id = storage_coordinator.start_reset(target)
+    except StorageMigrationError as exc:
+        already_running = "already" in str(exc).casefold()
+        logger.warning("Rejected fresh-start request: %s", exc)
+        code = status.HTTP_409_CONFLICT if already_running else status.HTTP_422_UNPROCESSABLE_ENTITY
+        detail = "Another storage operation is already running" if already_running else "Fresh-start request was rejected"
+        raise HTTPException(status_code=code, detail=detail) from exc
     return StartMigrationResponse(operation_id=operation_id)
 
 
@@ -164,9 +199,21 @@ def clear_cache(request: CacheClearRequest, session: DbSession) -> CacheClearRes
             except OSError:
                 continue
     if "streams" in categories:
-        session.execute(delete(StreamCacheEntry))
+        for entry in session.scalars(select(StreamCacheEntry)):
+            try:
+                file_exists = storage_manager.paths.stream_file(entry.relative_path).is_file()
+            except (OSError, ValueError):
+                file_exists = False
+            if not file_exists:
+                session.delete(entry)
     if "lyrics" in categories:
-        session.execute(delete(LyricsCacheEntry))
+        for entry in session.scalars(select(LyricsCacheEntry)):
+            try:
+                file_exists = bool(entry.relative_path) and storage_manager.paths.lyrics_file(entry.relative_path).is_file()
+            except (OSError, ValueError):
+                file_exists = False
+            if not file_exists:
+                session.delete(entry)
     session.commit()
     return CacheClearResponse(files_removed=files_removed, bytes_removed=bytes_removed)
 

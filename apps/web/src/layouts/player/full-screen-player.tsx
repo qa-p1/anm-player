@@ -38,7 +38,7 @@ import {
   VolumeX,
 } from "lucide-react";
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 
 import { TrackActionsMenu } from "@/components/menus/track-actions-menu";
 import { ArtworkImage } from "@/components/cards/artwork-image";
@@ -289,7 +289,9 @@ export function FullScreenPlayer({ onClose }: FullScreenPlayerProps) {
     if (!currentSong || currentSong.source !== "local") return;
     const artistPath = currentSong.localKind === "song"
       ? currentSong.rawSong?.artist_id && `/library/artists/${currentSong.rawSong.artist_id}`
-      : currentSong.rawLibraryTrack?.artist_external_id && `/library/artists/online/${currentSong.rawLibraryTrack.artist_external_id}`;
+      : currentSong.rawLibraryTrack?.artist_id
+        ? `/library/artists/${currentSong.rawLibraryTrack.artist_id}`
+        : currentSong.rawLibraryTrack?.artist_external_id && `/library/artists/online/${currentSong.rawLibraryTrack.artist_external_id}`;
     if (!artistPath) return;
     navigate(artistPath);
     onClose();
@@ -335,8 +337,12 @@ export function FullScreenPlayer({ onClose }: FullScreenPlayerProps) {
             transition={{ duration: 0.2, ease: "easeOut" }}
           >
             <LyricsPanel
-              songId={currentSong.source === "local" && currentSong.localKind === "song" ? currentSong.songId : null}
-              videoId={currentSong.source === "youtube" ? currentSong.videoId : currentSong.localKind === "library_track" ? currentSong.rawLibraryTrack?.external_id ?? null : null}
+              songId={currentSong.source === "local"
+                ? currentSong.localKind === "song"
+                  ? currentSong.songId
+                  : currentSong.rawLibraryTrack?.song_id ?? null
+                : null}
+              videoId={currentSong.source === "youtube" ? currentSong.videoId : null}
               title={currentSong.title}
               artist={currentSong.artistName}
               album={currentSong.albumTitle}
@@ -436,8 +442,16 @@ export function FullScreenPlayer({ onClose }: FullScreenPlayerProps) {
                   track={currentSong}
                   isFavorited={isFavorited}
                   onToggleFavorite={currentSong.source === "local" ? handleToggleFavorite : undefined}
-                  onGoToArtist={currentSong.source === "local" && (currentSong.localKind === "song" ? currentSong.rawSong?.artist_id : currentSong.rawLibraryTrack?.artist_external_id) ? goToArtist : undefined}
-                  onGoToAlbum={currentSong.source === "local" && (currentSong.localKind === "song" ? currentSong.rawSong?.album_id : currentSong.rawLibraryTrack?.album_id) ? goToAlbum : undefined}
+                  onGoToArtist={currentSong.source === "local" && (currentSong.localKind === "song"
+                    ? currentSong.rawSong?.artist_id
+                    : currentSong.rawLibraryTrack?.artist_id || currentSong.rawLibraryTrack?.artist_external_id)
+                    ? goToArtist
+                    : undefined}
+                  onGoToAlbum={currentSong.source === "local" && (currentSong.localKind === "song"
+                    ? currentSong.rawSong?.album_public_id
+                    : currentSong.rawLibraryTrack?.album_public_id)
+                    ? goToAlbum
+                    : undefined}
                   triggerVariant="glass"
                   triggerClassName="border-0 bg-white/10 text-white hover:bg-white/20"
                 />
@@ -586,6 +600,10 @@ function useDominantArtworkPalette(artworkUrl: string | null) {
         const source = [dominant.r / dominant.count, dominant.g / dominant.count, dominant.b / dominant.count];
         const base = boostDominantColor(source);
         const nextPalette = { base: rgb(base) };
+        if (artworkPaletteCache.size >= 128 && !artworkPaletteCache.has(artworkUrl)) {
+          const oldestKey = artworkPaletteCache.keys().next().value;
+          if (oldestKey) artworkPaletteCache.delete(oldestKey);
+        }
         artworkPaletteCache.set(artworkUrl, nextPalette);
         setPalette(nextPalette);
       } catch {

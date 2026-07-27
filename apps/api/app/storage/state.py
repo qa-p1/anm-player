@@ -7,23 +7,18 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+from app.core.config import settings
 
-API_DIR = Path(__file__).resolve().parents[2]
+
 STATE_SCHEMA_VERSION = 1
 
 
 def default_state_file() -> Path:
-    configured = os.getenv("AURA_STATE_FILE")
-    if configured:
-        return Path(configured).expanduser().resolve()
-    return API_DIR / ".aura" / "storage-state.json"
+    return settings.aura_state_file
 
 
 def default_data_root() -> Path:
-    seeded = os.getenv("AURA_DATA_ROOT")
-    if seeded:
-        return Path(seeded).expanduser().resolve()
-    return (API_DIR / "data").resolve()
+    return settings.aura_data_root
 
 
 class StorageStateStore:
@@ -46,6 +41,7 @@ class StorageStateStore:
                 raise RuntimeError(f"Invalid Aura storage state: {self.path}")
             state.setdefault("schema_version", STATE_SCHEMA_VERSION)
             state.setdefault("migration", None)
+            state.setdefault("last_operation", None)
             return deepcopy(state)
 
     def update(self, **changes: Any) -> dict[str, Any]:
@@ -66,6 +62,7 @@ class StorageStateStore:
             "schema_version": STATE_SCHEMA_VERSION,
             "data_root": str(self.initial_root),
             "migration": None,
+            "last_operation": None,
         }
 
     def _write_unlocked(self, state: dict[str, Any]) -> None:

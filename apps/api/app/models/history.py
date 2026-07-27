@@ -1,9 +1,13 @@
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, Index, Integer, String
+from sqlalchemy import CheckConstraint, ForeignKey, Index, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base, TimestampMixin
+
+if TYPE_CHECKING:
+    from app.models.music import Song
 
 
 class History(TimestampMixin, Base):
@@ -34,6 +38,21 @@ class History(TimestampMixin, Base):
 class Favorite(TimestampMixin, Base):
     __tablename__ = "favorites"
     __table_args__ = (
+        CheckConstraint(
+            "(CASE WHEN song_id IS NOT NULL THEN 1 ELSE 0 END + "
+            "CASE WHEN artist_id IS NOT NULL THEN 1 ELSE 0 END + "
+            "CASE WHEN album_id IS NOT NULL THEN 1 ELSE 0 END + "
+            "CASE WHEN playlist_id IS NOT NULL THEN 1 ELSE 0 END + "
+            "CASE WHEN library_album_id IS NOT NULL THEN 1 ELSE 0 END + "
+            "CASE WHEN library_track_id IS NOT NULL THEN 1 ELSE 0 END) = 1",
+            name="exactly_one_target",
+        ),
+        UniqueConstraint("song_id", name="uq_favorites_song_id"),
+        UniqueConstraint("artist_id", name="uq_favorites_artist_id"),
+        UniqueConstraint("album_id", name="uq_favorites_album_id"),
+        UniqueConstraint("playlist_id", name="uq_favorites_playlist_id"),
+        UniqueConstraint("library_album_id", name="uq_favorites_library_album_id"),
+        UniqueConstraint("library_track_id", name="uq_favorites_library_track_id"),
         Index("ix_favorites_song_id", "song_id"),
         Index("ix_favorites_artist_id", "artist_id"),
         Index("ix_favorites_album_id", "album_id"),

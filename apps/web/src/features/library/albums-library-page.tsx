@@ -1,14 +1,14 @@
 import { motion } from "framer-motion";
 import { Disc } from "lucide-react";
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 
 import { pageTransition } from "@/animations/page-motion";
 import { EmptyState } from "@/components/empty-states/empty-state";
 import { BackButton } from "@/components/navigation/back-button";
 import { ArtworkImage } from "@/components/cards/artwork-image";
-import { cachedArtworkUrl } from "@/services/api-client";
-import { listLibraryAlbums } from "@/services/music-api";
+import { cachedArtworkUrl, isRequestCancelled } from "@/services/api-client";
+import { listAllLibraryAlbums } from "@/services/music-api";
 import type { LibraryAlbum } from "@/types/api";
 import { cn } from "@/lib/utils";
 
@@ -18,9 +18,9 @@ export function AlbumsLibraryPage() {
 
   useEffect(() => {
     const controller = new AbortController();
-    listLibraryAlbums(undefined, 100, 0, controller.signal)
+    listAllLibraryAlbums(undefined, controller.signal)
       .then(setAlbums)
-      .catch((error) => error.name !== "AbortError" && console.error("Failed to load albums:", error))
+      .catch((error: unknown) => !isRequestCancelled(error) && console.error("Failed to load albums:", error))
       .finally(() => !controller.signal.aborted && setIsLoading(false));
     return () => controller.abort();
   }, []);
@@ -51,13 +51,13 @@ function AlbumCard({ album }: { album: LibraryAlbum }) {
   const artworkUrl = cachedArtworkUrl(album.artwork_path || album.artwork_url);
   const stateLabel = album.download_state === "downloaded" ? "Downloaded" : album.download_state === "partial" ? "Partially downloaded" : "In library";
   return (
-    <article className="group min-w-0 cursor-pointer" onClick={() => navigate(album.canonical_url)}>
+    <button type="button" className="group min-w-0 text-left" onClick={() => navigate(album.canonical_url)}>
       <div className="relative mb-3 aspect-square overflow-hidden rounded-xl bg-white/10 shadow-glass sm:rounded-2xl">
         {artworkUrl ? <ArtworkImage src={artworkUrl} fallbackSrc={cachedArtworkUrl(album.artwork_url)} alt={album.title} className="h-full w-full object-cover transition group-hover:scale-105" /> : <div className="grid h-full place-items-center"><Disc className="h-12 w-12 text-muted-foreground" /></div>}
       </div>
       <h3 className="truncate text-sm font-bold">{album.title}</h3>
       <p className="mt-1 truncate text-sm text-muted-foreground">{album.artist_name || "Unknown Artist"}</p>
       <p className={cn("mt-1 truncate text-xs", album.download_state === "downloaded" ? "font-semibold text-emerald-400" : "text-muted-foreground")}>{album.year || "Unknown"} · {album.track_count} songs · {stateLabel}</p>
-    </article>
+    </button>
   );
 }

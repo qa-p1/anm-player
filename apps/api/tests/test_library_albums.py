@@ -3,8 +3,7 @@ import asyncio
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
-from app.core.config import settings
-from app.models import AlbumDownloadItem, Base, DownloadJob, History, LibraryTrack, Song
+from app.models import AlbumDownloadItem, Base, DownloadJob, History, LibraryAlbum, LibraryTrack, Song
 from app.schemas.library import OnlineAlbumPreview, OnlineAlbumTrackPreview
 from app.services.library_albums import LibraryAlbumService
 
@@ -137,9 +136,8 @@ def test_save_online_album_reactivates_removed_album() -> None:
     assert reactivated.track_count == 1
 
 
-def test_remove_track_download_releases_linked_song_and_deletes_file(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr(settings, "music_directory", tmp_path)
-    audio_file = tmp_path / "Artist" / "song.mp3"
+def test_remove_track_download_releases_linked_song_and_deletes_file(music_directory) -> None:
+    audio_file = music_directory / "Artist" / "song.mp3"
     audio_file.parent.mkdir(parents=True)
     audio_file.write_bytes(b"audio")
     engine = create_engine("sqlite:///:memory:")
@@ -172,9 +170,8 @@ def test_remove_track_download_releases_linked_song_and_deletes_file(tmp_path, m
     assert song.is_downloaded is False
 
 
-def test_remove_track_download_keeps_file_still_used_by_another_track(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr(settings, "music_directory", tmp_path)
-    audio_file = tmp_path / "shared.mp3"
+def test_remove_track_download_keeps_file_still_used_by_another_track(music_directory) -> None:
+    audio_file = music_directory / "shared.mp3"
     audio_file.write_bytes(b"audio")
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
@@ -302,8 +299,7 @@ def test_concurrent_album_download_request_reuses_active_job() -> None:
     assert len(items) == 1
 
 
-def test_cancel_album_download_cancels_children_and_removes_partial_files(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr(settings, "music_directory", tmp_path)
+def test_cancel_album_download_cancels_children_and_removes_partial_files(music_directory) -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
     Session = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
@@ -328,7 +324,7 @@ def test_cancel_album_download_cancels_children_and_removes_partial_files(tmp_pa
         album = asyncio.run(service.save_online_album("cancel-album"))
         service.create_album_download(album.id)
         track = session.get(LibraryTrack, album.tracks[0].id)
-        audio_file = tmp_path / "Artist" / "partial.mp3"
+        audio_file = music_directory / "Artist" / "partial.mp3"
         audio_file.parent.mkdir(parents=True)
         audio_file.write_bytes(b"audio")
         track.file_path = "Artist/partial.mp3"
@@ -378,8 +374,7 @@ def test_unified_online_album_keeps_public_id_across_library_and_favorite_states
     assert favorited.state.is_favorited is True
 
 
-def test_deleting_unified_album_download_keeps_library_membership(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr(settings, "music_directory", tmp_path)
+def test_deleting_unified_album_download_keeps_library_membership(music_directory) -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
     Session = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
@@ -393,7 +388,7 @@ def test_deleting_unified_album_download_keeps_library_membership(tmp_path, monk
         service = FakeLibraryAlbumService(session, {"downloaded-unified": preview})
         saved = asyncio.run(service.save_online_album("downloaded-unified"))
         track = session.get(LibraryTrack, saved.tracks[0].id)
-        audio_file = tmp_path / "downloaded.mp3"
+        audio_file = music_directory / "downloaded.mp3"
         audio_file.write_bytes(b"audio")
         track.file_path = "downloaded.mp3"
         track.is_downloaded = True
@@ -406,9 +401,8 @@ def test_deleting_unified_album_download_keeps_library_membership(tmp_path, monk
     assert audio_file.exists() is False
 
 
-def test_track_status_detects_standalone_downloaded_youtube_song(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr(settings, "music_directory", tmp_path)
-    audio_file = tmp_path / "downloaded.mp3"
+def test_track_status_detects_standalone_downloaded_youtube_song(music_directory) -> None:
+    audio_file = music_directory / "downloaded.mp3"
     audio_file.write_bytes(b"audio")
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
@@ -428,3 +422,38 @@ def test_track_status_detects_standalone_downloaded_youtube_song(tmp_path, monke
 
     assert statuses.statuses[0].is_downloaded is True
     assert statuses.statuses[1].is_downloaded is False
+
+
+def test_album_read_reports_missing_media_without_mutating_database(music_directory) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
+
+    with Session() as session:
+        album = LibraryAlbum(
+            public_id="missing-media",
+            source="youtube",
+            external_id="missing-media",
+            title="Missing Media",
+            is_in_library=True,
+        )
+        track = LibraryTrack(
+            album=album,
+            source="youtube",
+            external_id="missing-track",
+            title="Missing Track",
+            position=0,
+            file_path="missing.mp3",
+            is_downloaded=True,
+            is_in_library=True,
+        )
+        session.add_all([album, track])
+        session.commit()
+
+        response = LibraryAlbumService(session).get_album(album.id)
+        session.refresh(track)
+
+    assert response.download_state == "none"
+    assert response.tracks[0].is_downloaded is False
+    assert track.is_downloaded is True
+    assert track.file_path == "missing.mp3"

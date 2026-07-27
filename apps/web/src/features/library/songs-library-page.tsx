@@ -8,8 +8,9 @@ import { EmptyState } from "@/components/empty-states/empty-state";
 import { BackButton } from "@/components/navigation/back-button";
 import { Input } from "@/components/ui/input";
 import { FilterPanel, FilterState } from "@/components/filters/filter-panel";
-import { useSongs, useSearchSongs } from "@/hooks/use-music-queries";
-import { advancedSearchSongs } from "@/services/music-api";
+import { useAllSongs, useSearchAllSongs } from "@/hooks/use-music-queries";
+import { isRequestCancelled } from "@/services/api-client";
+import { advancedSearchAllSongs } from "@/services/music-api";
 import type { Song } from "@/types/api";
 
 const EMPTY_SONGS: Song[] = [];
@@ -21,10 +22,10 @@ export function SongsLibraryPage() {
   const [isFiltering, setIsFiltering] = useState(false);
   const [filterError, setFilterError] = useState<string | null>(null);
 
-  const { data: allSongsData, isLoading: isLoadingAllSongs } = useSongs(100, 0, {
+  const { data: allSongsData, isLoading: isLoadingAllSongs } = useAllSongs({
     enabled: !searchQuery,
   });
-  const { data: searchedSongsData, isLoading: isLoadingSearchSongs } = useSearchSongs(searchQuery, 100, {
+  const { data: searchedSongsData, isLoading: isLoadingSearchSongs } = useSearchAllSongs(searchQuery, {
     enabled: Boolean(searchQuery),
   });
   const songs = searchQuery ? searchedSongsData ?? EMPTY_SONGS : allSongsData ?? EMPTY_SONGS;
@@ -43,7 +44,7 @@ export function SongsLibraryPage() {
     setFilterError(null);
     const controller = new AbortController();
 
-    advancedSearchSongs(
+    advancedSearchAllSongs(
       {
         q: searchQuery || undefined,
         year_min: filters.yearMin,
@@ -53,13 +54,12 @@ export function SongsLibraryPage() {
         has_artwork: filters.hasArtwork,
         sort_by: filters.sortBy,
         sort_order: filters.sortOrder,
-        limit: 100,
       },
       controller.signal
     )
       .then(setFilteredSongs)
       .catch((error) => {
-        if (error instanceof DOMException && error.name === "AbortError") return;
+        if (isRequestCancelled(error)) return;
         setFilteredSongs([]);
         setFilterError(error instanceof Error ? error.message : "Could not apply library filters.");
       })

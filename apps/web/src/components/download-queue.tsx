@@ -1,12 +1,13 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, Download, LoaderCircle } from "lucide-react";
-import { create } from "zustand";
 
+import { useDownloadQueueUi } from "@/components/download-queue-state";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DownloadsPanel } from "@/features/search/downloads-panel";
 import { musicKeys, useDownloads } from "@/hooks/use-music-queries";
 import { cn } from "@/lib/utils";
+import { toast } from "@/components/ui/toast";
 import {
   cancelDownload,
   cancelUnifiedAlbumDownload,
@@ -19,20 +20,6 @@ import type { DownloadJob } from "@/types/api";
 
 const ACTIVE_STATUSES = new Set(["queued", "preparing", "downloading", "processing", "paused"]);
 const RECENT_WINDOW_MS = 5 * 60 * 1000;
-
-interface DownloadQueueUiState {
-  open: boolean;
-  setOpen: (open: boolean) => void;
-}
-
-const useDownloadQueueUi = create<DownloadQueueUiState>((set) => ({
-  open: false,
-  setOpen: (open) => set({ open }),
-}));
-
-export function openDownloadQueue() {
-  useDownloadQueueUi.getState().setOpen(true);
-}
 
 function isVisibleJob(job: DownloadJob) {
   if (ACTIVE_STATUSES.has(job.status)) return true;
@@ -103,20 +90,32 @@ export function DownloadQueueDialog() {
   }
 
   async function run(action: (jobId: number) => Promise<DownloadJob>, jobId: number) {
-    upsert(await action(jobId));
+    try {
+      upsert(await action(jobId));
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Download action failed", "error");
+    }
   }
 
   async function removeCompleted() {
-    await removeCompletedDownloads();
-    queryClient.setQueryData<DownloadJob[]>(musicKeys.downloadsList(), (current = []) =>
-      current.filter((job) => job.status !== "completed"),
-    );
+    try {
+      await removeCompletedDownloads();
+      queryClient.setQueryData<DownloadJob[]>(musicKeys.downloadsList(), (current = []) =>
+        current.filter((job) => job.status !== "completed"),
+      );
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Could not clear completed downloads", "error");
+    }
   }
 
   async function cancelAlbum(albumId: string) {
-    const album = await cancelUnifiedAlbumDownload(albumId);
-    queryClient.setQueryData(musicKeys.unifiedAlbum(albumId), album);
-    await queryClient.invalidateQueries({ queryKey: musicKeys.downloadsList() });
+    try {
+      const album = await cancelUnifiedAlbumDownload(albumId);
+      queryClient.setQueryData(musicKeys.unifiedAlbum(albumId), album);
+      await queryClient.invalidateQueries({ queryKey: musicKeys.downloadsList() });
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Could not cancel album download", "error");
+    }
   }
 
   return (

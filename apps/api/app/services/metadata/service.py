@@ -6,7 +6,6 @@ applies enrichment to songs in the library.
 """
 
 import logging
-from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -14,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.models import Album, Artist, Song
 from app.services.artwork_cache import ArtworkCacheService
 from app.services.file_paths import resolve_library_path
+from app.services.library_scanner import library_sync_guard
 from app.services.metadata.base import MetadataProvider, MetadataResult
 from app.services.metadata.youtube_provider import YouTubeMusicMetadataProvider
 from app.services.tagging import AudioTagData, AudioTaggingService
@@ -189,13 +189,13 @@ class MetadataEnrichmentService:
 
         if metadata.artist:
             artist = self._get_or_create_artist(metadata.artist)
-            song.artist_id = artist.id
+            song.artist = artist
 
         # Update album
         if metadata.album:
             album_artist_id = song.artist_id
             album = self._get_or_create_album(metadata.album, album_artist_id)
-            song.album_id = album.id
+            song.album = album
         else:
             album = song.album
 
@@ -207,20 +207,26 @@ class MetadataEnrichmentService:
             await self._fetch_artwork(album, metadata.provider_release_id)
 
         if song.relative_path:
-            self.tagging.write_tags(
-                resolve_library_path(song.relative_path),
-                AudioTagData(
-                    title=song.title,
-                    artist=metadata.artist or (song.artist.name if song.artist else None),
-                    album=metadata.album or (album.title if album else None),
-                    album_artist=metadata.album_artist,
-                    track_number=song.track_number,
-                    disc_number=song.disc_number,
-                    year=metadata.year or (album.year if album else None),
-                    genre=metadata.genre,
-                    isrc=metadata.isrc,
-                ),
-            )
+            try:
+                managed_file = resolve_library_path(song.relative_path)
+            except (OSError, ValueError):
+                logger.warning("Skipping tag update for song %s with an invalid managed path", song.id)
+            else:
+                with library_sync_guard():
+                    self.tagging.write_tags(
+                        managed_file,
+                        AudioTagData(
+                            title=song.title,
+                            artist=metadata.artist or (song.artist.name if song.artist else None),
+                            album=metadata.album or (album.title if album else None),
+                            album_artist=metadata.album_artist,
+                            track_number=song.track_number,
+                            disc_number=song.disc_number,
+                            year=metadata.year or (album.year if album else None),
+                            genre=metadata.genre,
+                            isrc=metadata.isrc,
+                        ),
+                    )
 
         logger.info(f"Applied metadata to song {song.id}")
 

@@ -1,14 +1,18 @@
+from types import SimpleNamespace
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.api.v1.routes.media import stream_library_track
-from app.core.config import settings
 from app.models import Base, LibraryTrack
+from app.storage.paths import StoragePaths
 
 
 def test_stream_library_track_resolves_downloaded_file(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr(settings, "music_directory", tmp_path)
-    audio_file = tmp_path / "Artist" / "song.mp3"
+    paths = StoragePaths(tmp_path)
+    paths.ensure()
+    monkeypatch.setattr("app.services.file_paths.storage_manager", SimpleNamespace(paths=paths))
+    audio_file = paths.music / "Artist" / "song.mp3"
     audio_file.parent.mkdir(parents=True)
     audio_file.write_bytes(b"audio")
     engine = create_engine("sqlite:///:memory:")
