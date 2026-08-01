@@ -1,8 +1,18 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
+from sqlalchemy import func, select
 
-from app.api.deps import LimitQuery, OffsetQuery, get_library_album_service, get_library_service, get_placeholder_service, require_operator
+from app.api.deps import (
+    DbSession,
+    LimitQuery,
+    OffsetQuery,
+    ProviderId,
+    ResourceId,
+    get_library_album_service,
+    require_operator,
+)
+from app.models import Artist, LibraryAlbum, Playlist, Song
 from app.schemas.library import (
     AlbumDownloadCreateRequest,
     AlbumDownloadJobResponse,
@@ -11,36 +21,62 @@ from app.schemas.library import (
     LibraryArtistDetailResponse,
     LibraryAlbumDetailResponse,
     LibraryAlbumResponse,
+    LibraryCountsResponse,
     LibraryRemoveResponse,
     LibrarySearchResponse,
-    LibraryTrackResponse,
+    LibrarySyncResponse,
     LibraryTrackDownloadRemoveResponse,
-    OnlineAlbumPreview,
     PlaylistImportRequest,
     PlaylistLibraryTrackAddRequest,
-    SaveOnlineAlbumRequest,
     SmartCollectionResponse,
     TrackStatusRequest,
     TrackStatusResponse,
 )
-from app.schemas.common import CountSummary, PlaceholderResponse
-from app.services import LibraryAlbumService, LibraryService, PlaceholderService
+from app.services import LibraryAlbumService
+from app.services.library_scanner import LibraryScannerService
+from app.storage import storage_manager
+from app.storage.coordinator import storage_coordinator
 
 router = APIRouter()
 
 
-@router.get("", response_model=PlaceholderResponse, summary="Library placeholder")
-def library_placeholder(service: Annotated[PlaceholderService, Depends(get_placeholder_service)]) -> PlaceholderResponse:
-    return service.response(
-        feature="library",
-        message="Library API foundation is ready. Scanning and import are intentionally not implemented.",
-        extension_points=["LibraryService", "FilesystemService", "library scanner"],
+@router.get("/counts", response_model=LibraryCountsResponse, summary="Count active library records")
+def library_counts(session: DbSession) -> LibraryCountsResponse:
+    return LibraryCountsResponse(
+        songs=int(session.scalar(select(func.count(Song.id)).where(Song.is_downloaded.is_(True))) or 0),
+        albums=int(
+            session.scalar(
+                select(func.count(LibraryAlbum.id)).where(LibraryAlbum.is_in_library.is_(True))
+            )
+            or 0
+        ),
+        artists=int(
+            session.scalar(
+                select(func.count(func.distinct(Artist.id)))
+                .join(Song, Song.artist_id == Artist.id)
+                .where(Song.is_downloaded.is_(True))
+            )
+            or 0
+        ),
+        playlists=int(session.scalar(select(func.count(Playlist.id))) or 0),
     )
 
 
-@router.get("/summary", response_model=CountSummary, summary="Library count summary")
-def library_summary(service: Annotated[LibraryService, Depends(get_library_service)]) -> CountSummary:
-    return service.summary()
+@router.post("/sync", response_model=LibrarySyncResponse, summary="Synchronize the managed library")
+def sync_library(session: DbSession) -> LibrarySyncResponse:
+    with storage_coordinator.filesystem_read():
+        result = LibraryScannerService(
+            session,
+            cancel_event=storage_coordinator.cancel_work,
+        ).scan_directory(storage_manager.paths.music)
+    return LibrarySyncResponse(
+        added=result.added,
+        updated=result.updated,
+        removed=result.removed,
+        reconciled=result.reconciled,
+        errors=result.errors,
+        total_processed=result.total_processed,
+    )
 
 
 @router.get("/search", response_model=LibrarySearchResponse, summary="Unified library search")
@@ -71,22 +107,6 @@ async def list_library_albums(
     return await service.list_albums_refreshed(query=q, limit=limit, offset=offset)
 
 
-@router.get("/albums/online/{external_id}", response_model=OnlineAlbumPreview, summary="Preview online album")
-async def preview_online_album(
-    service: Annotated[LibraryAlbumService, Depends(get_library_album_service)],
-    external_id: str,
-) -> OnlineAlbumPreview:
-    return await service.preview_online_album(external_id)
-
-
-@router.post("/albums/save-online", response_model=LibraryAlbumDetailResponse, status_code=201, summary="Save online album to library")
-async def save_online_album(
-    service: Annotated[LibraryAlbumService, Depends(get_library_album_service)],
-    request: SaveOnlineAlbumRequest,
-) -> LibraryAlbumDetailResponse:
-    return await service.save_online_album(request.external_id)
-
-
 @router.post("/albums/status", response_model=AlbumStatusResponse, summary="Check saved album statuses")
 def library_album_statuses(
     service: Annotated[LibraryAlbumService, Depends(get_library_album_service)],
@@ -106,7 +126,7 @@ def library_track_statuses(
 @router.get("/albums/{album_id}", response_model=LibraryAlbumDetailResponse, summary="Get saved library album")
 def get_library_album(
     service: Annotated[LibraryAlbumService, Depends(get_library_album_service)],
-    album_id: int,
+    album_id: ResourceId,
 ) -> LibraryAlbumDetailResponse:
     return service.get_album(album_id)
 
@@ -114,7 +134,7 @@ def get_library_album(
 @router.delete("/albums/{album_id}", response_model=LibraryRemoveResponse, summary="Remove album from library", dependencies=[Depends(require_operator)])
 def remove_library_album(
     service: Annotated[LibraryAlbumService, Depends(get_library_album_service)],
-    album_id: int,
+    album_id: ResourceId,
     delete_downloads: bool = False,
 ) -> LibraryRemoveResponse:
     return service.remove_album(album_id, delete_downloads=delete_downloads)
@@ -123,7 +143,7 @@ def remove_library_album(
 @router.get("/artists/online/{external_id}", response_model=LibraryArtistDetailResponse, summary="Get online artist library page")
 async def get_online_artist(
     service: Annotated[LibraryAlbumService, Depends(get_library_album_service)],
-    external_id: str,
+    external_id: ProviderId,
 ) -> LibraryArtistDetailResponse:
     return await service.get_online_artist(external_id)
 
@@ -131,7 +151,7 @@ async def get_online_artist(
 @router.post("/albums/{album_id}/download", response_model=AlbumDownloadJobResponse, status_code=201, summary="Download saved album", dependencies=[Depends(require_operator)])
 def download_library_album(
     service: Annotated[LibraryAlbumService, Depends(get_library_album_service)],
-    album_id: int,
+    album_id: ResourceId,
     request: AlbumDownloadCreateRequest | None = None,
 ) -> AlbumDownloadJobResponse:
     return service.create_album_download(album_id, max_parallel=request.max_parallel if request else None)
@@ -140,7 +160,7 @@ def download_library_album(
 @router.delete("/albums/{album_id}/download", response_model=AlbumDownloadJobResponse, summary="Cancel an album download and remove its files", dependencies=[Depends(require_operator)])
 def cancel_library_album_download(
     service: Annotated[LibraryAlbumService, Depends(get_library_album_service)],
-    album_id: int,
+    album_id: ResourceId,
 ) -> AlbumDownloadJobResponse:
     return service.cancel_album_download(album_id)
 
@@ -148,16 +168,15 @@ def cancel_library_album_download(
 @router.delete("/tracks/{track_id}/download", response_model=LibraryTrackDownloadRemoveResponse, summary="Remove a track download but keep it in library", dependencies=[Depends(require_operator)])
 def remove_track_download(
     service: Annotated[LibraryAlbumService, Depends(get_library_album_service)],
-    track_id: int,
-    delete_file: bool = True,
+    track_id: ResourceId,
 ) -> LibraryTrackDownloadRemoveResponse:
-    return service.remove_track_download(track_id, delete_file=delete_file)
+    return service.remove_track_download(track_id)
 
 
 @router.delete("/tracks/{track_id}", response_model=LibraryRemoveResponse, summary="Remove track from library", dependencies=[Depends(require_operator)])
 def remove_library_track(
     service: Annotated[LibraryAlbumService, Depends(get_library_album_service)],
-    track_id: int,
+    track_id: ResourceId,
     delete_downloads: bool = False,
 ) -> LibraryRemoveResponse:
     return service.remove_track(track_id, delete_downloads=delete_downloads)
@@ -166,7 +185,7 @@ def remove_library_track(
 @router.post("/playlists/{playlist_id}/tracks", response_model=dict[str, int], summary="Add saved online tracks to playlist")
 def add_library_tracks_to_playlist(
     service: Annotated[LibraryAlbumService, Depends(get_library_album_service)],
-    playlist_id: int,
+    playlist_id: ResourceId,
     request: PlaylistLibraryTrackAddRequest,
 ) -> dict[str, int]:
     return {"added": service.add_tracks_to_playlist(playlist_id, request.track_ids, force=request.force)}

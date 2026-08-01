@@ -63,13 +63,19 @@ class LyricsService:
         - MP4 ©lyr (M4A)
         """
         song = self.session.get(Song, song_id)
-        if not song or not song.relative_path:
+        if not song:
             return None
 
         if song.lyrics:
             return song.lyrics
+        if not song.relative_path:
+            return None
         
-        file_path = resolve_library_path(song.relative_path)
+        try:
+            file_path = resolve_library_path(song.relative_path)
+        except (OSError, ValueError):
+            logger.warning("Rejected invalid managed lyrics path for song %s", song_id)
+            return None
         if not file_path.exists():
             logger.warning(f"File not found: {file_path}")
             return None
@@ -126,7 +132,11 @@ class LyricsService:
         if not song.relative_path:
             return True
         
-        file_path = resolve_library_path(song.relative_path)
+        try:
+            file_path = resolve_library_path(song.relative_path)
+        except (OSError, ValueError):
+            logger.warning("Rejected invalid managed lyrics path for song %s", song_id)
+            return False
         if not file_path.exists():
             return False
         
@@ -288,7 +298,7 @@ class LyricsService:
             f"https://lrclib.net/api/get?{urlencode(params)}",
             headers={
                 "Accept": "application/json",
-                "User-Agent": "AuraMusic/0.1 (local music app)",
+                "User-Agent": "ANMPlayer/0.1 (local music app)",
             },
             method="GET",
         )

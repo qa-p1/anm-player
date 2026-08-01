@@ -1,5 +1,5 @@
 import type { HistoryEntry, LibraryTrack, OnlineMusicItem, Song } from "@/types/api";
-import { cachedArtworkUrl, upgradeArtworkUrl } from "@/services/api-client";
+import { cachedArtworkUrl } from "@/services/api-client";
 
 export type PlayerTrack =
   | {
@@ -79,8 +79,15 @@ function youtubeVideoId(sourceUrl: string | null): string | null {
   if (!sourceUrl) return null;
   try {
     const url = new URL(sourceUrl);
-    if (url.hostname === "youtu.be") return url.pathname.split("/").filter(Boolean)[0] ?? null;
-    if (url.hostname.endsWith("youtube.com")) return url.searchParams.get("v");
+    if (url.hostname === "youtu.be" || url.hostname === "www.youtu.be") {
+      return url.pathname.split("/").filter(Boolean)[0] ?? null;
+    }
+    if (url.hostname === "youtube.com" || url.hostname.endsWith(".youtube.com")) {
+      if (url.pathname === "/watch") return url.searchParams.get("v");
+      if (url.pathname.startsWith("/shorts/") || url.pathname.startsWith("/embed/")) {
+        return url.pathname.split("/").filter(Boolean)[1] ?? null;
+      }
+    }
   } catch {
     return null;
   }
@@ -183,7 +190,11 @@ export function normalizeStoredPlayerTrack(value: unknown): PlayerTrack | null {
       title: candidate.title,
       artistName: nullableString(candidate.artistName),
       albumTitle: nullableString(candidate.albumTitle),
-      artworkUrl: cachedArtworkUrl(nullableString(candidate.artworkUrl)),
+      artworkUrl: cachedArtworkUrl(
+        rawLibraryTrack.artwork_path
+        || rawLibraryTrack.artwork_url
+        || nullableString(candidate.artworkUrl),
+      ),
       durationSeconds: nullableNumber(candidate.durationSeconds),
       rawLibraryTrack,
     };
@@ -202,7 +213,11 @@ export function normalizeStoredPlayerTrack(value: unknown): PlayerTrack | null {
       title: candidate.title,
       artistName: nullableString(candidate.artistName),
       albumTitle: nullableString(candidate.albumTitle),
-      artworkUrl: upgradeArtworkUrl(nullableString(candidate.artworkUrl)),
+      artworkUrl: cachedArtworkUrl(
+        rawSong.artwork_path
+        || rawSong.artwork_url
+        || nullableString(candidate.artworkUrl),
+      ),
       durationSeconds: nullableNumber(candidate.durationSeconds),
       rawSong,
     };
@@ -216,7 +231,12 @@ export function normalizeStoredPlayerTrack(value: unknown): PlayerTrack | null {
       title: candidate.title,
       artistName: nullableString(candidate.artistName),
       albumTitle: nullableString(candidate.albumTitle),
-      artworkUrl: cachedArtworkUrl(nullableString(candidate.artworkUrl)),
+      artworkUrl: cachedArtworkUrl(
+        ((candidate.rawItem && typeof candidate.rawItem === "object"
+          ? candidate.rawItem
+          : candidate) as OnlineMusicItem).thumbnail
+        || nullableString(candidate.artworkUrl),
+      ),
       durationSeconds: nullableNumber(candidate.durationSeconds),
       rawItem: (candidate.rawItem && typeof candidate.rawItem === "object" ? candidate.rawItem : candidate) as OnlineMusicItem,
     };

@@ -1,5 +1,5 @@
 import { Filter, X } from "lucide-react";
-import { useState } from "react";
+import { useId, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,6 +24,7 @@ interface FilterPanelProps {
 
 export function FilterPanel({ filters, onFiltersChange, onClear }: FilterPanelProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const idPrefix = useId();
 
   const hasActiveFilters = Object.keys(filters).some(
     (key) => key !== "sortBy" && key !== "sortOrder" && filters[key as keyof FilterState] !== undefined
@@ -56,10 +57,11 @@ export function FilterPanel({ filters, onFiltersChange, onClear }: FilterPanelPr
           <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
             {/* Year Range */}
             <div className="space-y-2">
-              <Label>Year Range</Label>
+              <p className="text-sm font-medium">Year range</p>
               <div className="flex gap-2">
                 <Input
                   type="number"
+                  aria-label="Minimum year"
                   placeholder="From"
                   value={filters.yearMin || ""}
                   onChange={(e) =>
@@ -75,6 +77,7 @@ export function FilterPanel({ filters, onFiltersChange, onClear }: FilterPanelPr
                 <span className="flex items-center text-muted-foreground">-</span>
                 <Input
                   type="number"
+                  aria-label="Maximum year"
                   placeholder="To"
                   value={filters.yearMax || ""}
                   onChange={(e) =>
@@ -92,10 +95,11 @@ export function FilterPanel({ filters, onFiltersChange, onClear }: FilterPanelPr
 
             {/* Duration Range */}
             <div className="space-y-2">
-              <Label>Duration (minutes)</Label>
+              <p className="text-sm font-medium">Duration (minutes)</p>
               <div className="flex gap-2">
                 <Input
                   type="number"
+                  aria-label="Minimum duration in minutes"
                   placeholder="Min"
                   value={filters.durationMin ? Math.floor(filters.durationMin / 60) : ""}
                   onChange={(e) =>
@@ -111,6 +115,7 @@ export function FilterPanel({ filters, onFiltersChange, onClear }: FilterPanelPr
                 <span className="flex items-center text-muted-foreground">-</span>
                 <Input
                   type="number"
+                  aria-label="Maximum duration in minutes"
                   placeholder="Max"
                   value={filters.durationMax ? Math.floor(filters.durationMax / 60) : ""}
                   onChange={(e) =>
@@ -128,8 +133,9 @@ export function FilterPanel({ filters, onFiltersChange, onClear }: FilterPanelPr
 
             {/* Artwork Filter */}
             <div className="space-y-2">
-              <Label>Artwork</Label>
+              <Label htmlFor={`${idPrefix}-artwork`}>Artwork</Label>
               <select
+                id={`${idPrefix}-artwork`}
                 value={filters.hasArtwork === undefined ? "all" : filters.hasArtwork ? "yes" : "no"}
                 onChange={(e) => {
                   const value = e.target.value;
@@ -148,8 +154,9 @@ export function FilterPanel({ filters, onFiltersChange, onClear }: FilterPanelPr
 
             {/* Sort By */}
             <div className="space-y-2">
-              <Label>Sort By</Label>
+              <Label htmlFor={`${idPrefix}-sort-by`}>Sort by</Label>
               <select
+                id={`${idPrefix}-sort-by`}
                 value={filters.sortBy || "relevance"}
                 onChange={(e) =>
                   onFiltersChange({
@@ -171,8 +178,9 @@ export function FilterPanel({ filters, onFiltersChange, onClear }: FilterPanelPr
 
             {/* Sort Order */}
             <div className="space-y-2">
-              <Label>Sort Order</Label>
+              <Label htmlFor={`${idPrefix}-sort-order`}>Sort order</Label>
               <select
+                id={`${idPrefix}-sort-order`}
                 value={filters.sortOrder || "asc"}
                 onChange={(e) =>
                   onFiltersChange({

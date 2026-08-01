@@ -3,7 +3,6 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from app.core.config import settings
 from app.api.v1.routes.ytmusic import stream
 from app.models import Base, LibraryTrack, Song, StreamCacheEntry
 from app.services.playback_sources import PlaybackSourceService
@@ -29,8 +28,11 @@ def playback(video_id: str) -> PlaybackData:
     )
 
 
+def playback_service(session, music_root) -> PlaybackSourceService:
+    return PlaybackSourceService(session, resolve_music_path=lambda value: music_root / str(value))
+
+
 def test_downloaded_file_wins_over_cache_and_innertube(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr(settings, "music_directory", tmp_path)
     audio_file = tmp_path / "Artist" / "track.mp3"
     audio_file.parent.mkdir(parents=True)
     audio_file.write_bytes(b"downloaded")
@@ -50,7 +52,7 @@ def test_downloaded_file_wins_over_cache_and_innertube(tmp_path, monkeypatch) ->
         monkeypatch.setattr(StreamCacheService, "get_cached_youtube_stream", lambda *args: (_ for _ in ()).throw(AssertionError("cache queried")))
         monkeypatch.setattr(ytmusic_service, "playback", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("InnerTube queried")))
 
-        resolved = PlaybackSourceService(session).resolve_youtube("video-id")
+        resolved = playback_service(session, tmp_path).resolve_youtube("video-id")
 
     assert resolved.kind == "downloaded"
     assert resolved.path == audio_file
@@ -70,7 +72,6 @@ def test_cache_wins_over_innertube_when_download_is_absent(tmp_path, monkeypatch
 
 
 def test_legacy_downloaded_song_is_resolved_by_youtube_video_id(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr(settings, "music_directory", tmp_path)
     audio_file = tmp_path / "Radiohead" / "OK Computer" / "track.mp3"
     audio_file.parent.mkdir(parents=True)
     audio_file.write_bytes(b"downloaded")
@@ -86,14 +87,13 @@ def test_legacy_downloaded_song_is_resolved_by_youtube_video_id(tmp_path, monkey
         )
         session.commit()
         monkeypatch.setattr(StreamCacheService, "get_cached_youtube_stream", lambda *args: (_ for _ in ()).throw(AssertionError("cache queried")))
-        resolved = PlaybackSourceService(session).resolve_youtube("ok-computer-video")
+        resolved = playback_service(session, tmp_path).resolve_youtube("ok-computer-video")
 
     assert resolved.kind == "downloaded"
     assert resolved.path == audio_file
 
 
 def test_youtube_stream_route_serves_downloaded_file_before_proxying(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr(settings, "music_directory", tmp_path)
     audio_file = tmp_path / "Artist" / "track.mp3"
     audio_file.parent.mkdir(parents=True)
     audio_file.write_bytes(b"downloaded")
@@ -110,10 +110,16 @@ def test_youtube_stream_route_serves_downloaded_file_before_proxying(tmp_path, m
             )
         )
         session.commit()
+        original_resolve = PlaybackSourceService.resolve_youtube
+        monkeypatch.setattr(
+            PlaybackSourceService,
+            "resolve_youtube",
+            lambda _self, value: original_resolve(playback_service(session, tmp_path), value),
+        )
         response = stream("video-id", session, None)
 
     assert response.path == str(audio_file)
-    assert response.headers["x-aura-playback-source"] == "downloaded"
+    assert response.headers["x-anm-player-playback-source"] == "downloaded"
 
 
 def test_innertube_is_used_only_after_download_and_cache_miss(monkeypatch) -> None:
@@ -131,7 +137,6 @@ def test_innertube_is_used_only_after_download_and_cache_miss(monkeypatch) -> No
 
 
 def test_missing_download_is_invalidated_before_falling_back(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr(settings, "music_directory", tmp_path)
     monkeypatch.setattr(StreamCacheService, "get_cached_youtube_stream", lambda *args: None)
     monkeypatch.setattr(StreamCacheService, "start_background_cache", lambda *args, **kwargs: None)
     monkeypatch.setattr(ytmusic_service, "playback", lambda video_id, quality: playback(video_id))
@@ -147,7 +152,7 @@ def test_missing_download_is_invalidated_before_falling_back(tmp_path, monkeypat
         )
         session.add(track)
         session.commit()
-        resolved = PlaybackSourceService(session).resolve_youtube("video-id")
+        resolved = playback_service(session, tmp_path).resolve_youtube("video-id")
         session.refresh(track)
 
         assert resolved.kind == "streaming"
@@ -158,7 +163,6 @@ def test_missing_download_is_invalidated_before_falling_back(tmp_path, monkeypat
 def test_real_cache_entry_is_selected_after_download_miss(tmp_path, monkeypatch) -> None:
     cache_file = tmp_path / "cached.webm"
     cache_file.write_bytes(b"cached")
-    monkeypatch.setattr(settings, "music_directory", tmp_path)
 
     with make_session() as session:
         session.add(

@@ -1,25 +1,27 @@
-FROM node:24-alpine AS base
+FROM node:24-alpine3.22@sha256:191c9f0080fcbbc6547a85dc0ff7988072214a355aabdc1d2ec55a7dae5eea8a AS dependencies
 WORKDIR /app
-COPY package.json package-lock.json* ./
+COPY package.json package-lock.json ./
 COPY apps/web/package.json apps/web/package.json
+RUN npm ci
 
-FROM base AS development
-RUN npm install
+FROM dependencies AS development
+COPY VERSION ./VERSION
 COPY apps/web apps/web
 WORKDIR /app/apps/web
 EXPOSE 5173
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
 
-FROM base AS build
-ARG VITE_API_BASE_URL
-ARG VITE_API_ACCESS_TOKEN
-ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
-ENV VITE_API_ACCESS_TOKEN=$VITE_API_ACCESS_TOKEN
-RUN npm ci
+FROM dependencies AS build
+COPY VERSION ./VERSION
 COPY apps/web apps/web
 WORKDIR /app/apps/web
 RUN npm run build
 
-FROM nginx:1.29-alpine AS production
-COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
+FROM nginx:1.29.8-alpine@sha256:5616878291a2eed594aee8db4dade5878cf7edcb475e59193904b198d9b830de AS production
+COPY docker/nginx.conf /etc/nginx/templates/anm-player.conf.template
+COPY docker/web-entrypoint.sh /usr/local/bin/anm-player-web-entrypoint
 COPY --from=build /app/apps/web/dist /usr/share/nginx/html
+RUN chmod 0755 /usr/local/bin/anm-player-web-entrypoint \
+    && rm -f /etc/nginx/conf.d/default.conf
 EXPOSE 80
+ENTRYPOINT ["anm-player-web-entrypoint"]

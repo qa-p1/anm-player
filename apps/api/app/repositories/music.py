@@ -1,7 +1,6 @@
-from sqlalchemy import func, or_, select, text
+from sqlalchemy import func, select, text
 from sqlalchemy import update
-from sqlalchemy.orm import Session, joinedload
-from sqlalchemy.sql import expression
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.models import Album, AlbumDownloadItem, Artist, DownloadJob, Playlist, PlaylistLibraryTrack, QueueItem, Song
 from app.models.history import Favorite, History
@@ -30,49 +29,9 @@ class SongRepository(Repository[Song]):
         statement = (
             select(Song)
             .options(joinedload(Song.artist), joinedload(Song.album))
-            .where(Song.is_downloaded == True)
-            .order_by(Song.created_at.desc())
+            .where(Song.is_downloaded.is_(True))
+            .order_by(Song.created_at.desc(), Song.id.desc())
             .offset(offset)
-            .limit(limit)
-        )
-        return list(self.session.scalars(statement).unique())
-
-    def search_local(self, query: str, *, limit: int = 50) -> list[Song]:
-        search_pattern = f"%{query}%"
-        statement = (
-            select(Song)
-            .options(joinedload(Song.artist), joinedload(Song.album))
-            .join(Artist, Song.artist_id == Artist.id, isouter=True)
-            .join(Album, Song.album_id == Album.id, isouter=True)
-            .where(
-                Song.is_downloaded == True,
-                or_(
-                    Song.title.ilike(search_pattern),
-                    Artist.name.ilike(search_pattern),
-                    Album.title.ilike(search_pattern),
-                ),
-            )
-            .order_by(Song.title)
-            .limit(limit)
-        )
-        return list(self.session.scalars(statement).unique())
-
-    def get_recently_added(self, *, limit: int = 50) -> list[Song]:
-        statement = (
-            select(Song)
-            .options(joinedload(Song.artist), joinedload(Song.album))
-            .where(Song.is_downloaded == True)
-            .order_by(Song.created_at.desc())
-            .limit(limit)
-        )
-        return list(self.session.scalars(statement).unique())
-
-    def get_random(self, *, limit: int = 10) -> list[Song]:
-        statement = (
-            select(Song)
-            .options(joinedload(Song.artist), joinedload(Song.album))
-            .where(Song.is_downloaded == True)
-            .order_by(func.random())
             .limit(limit)
         )
         return list(self.session.scalars(statement).unique())
@@ -92,7 +51,10 @@ class ArtistRepository(Repository[Artist]):
     def get_with_details(self, artist_id: int) -> Artist | None:
         statement = (
             select(Artist)
-            .options(joinedload(Artist.albums), joinedload(Artist.songs))
+            .options(
+                selectinload(Artist.albums).selectinload(Album.songs).joinedload(Song.artist),
+                selectinload(Artist.songs).joinedload(Song.album),
+            )
             .where(Artist.id == artist_id)
         )
         return self.session.scalars(statement).unique().first()
@@ -104,28 +66,16 @@ class ArtistRepository(Repository[Artist]):
                 func.count(func.distinct(Song.id)).label("song_count"),
                 func.count(func.distinct(Album.id)).label("album_count"),
             )
-            .join(Song, Artist.id == Song.artist_id, isouter=True)
-            .join(Album, Artist.id == Album.artist_id, isouter=True)
-            .where(Song.is_downloaded == True)
-            .group_by(Artist.id)
-            .order_by(Artist.name)
-            .offset(offset)
-            .limit(limit)
-        )
-        return list(self.session.execute(statement))
-
-    def get_random_with_counts(self, *, limit: int = 5) -> list[tuple[Artist, int, int]]:
-        statement = (
-            select(
-                Artist,
-                func.count(func.distinct(Song.id)).label("song_count"),
-                func.count(func.distinct(Album.id)).label("album_count"),
+            .options(
+                selectinload(Artist.albums).selectinload(Album.songs),
+                selectinload(Artist.songs),
             )
             .join(Song, Artist.id == Song.artist_id, isouter=True)
             .join(Album, Artist.id == Album.artist_id, isouter=True)
-            .where(Song.is_downloaded == True)
+            .where(Song.is_downloaded.is_(True))
             .group_by(Artist.id)
-            .order_by(func.random())
+            .order_by(Artist.name, Artist.id)
+            .offset(offset)
             .limit(limit)
         )
         return list(self.session.execute(statement))
@@ -145,59 +95,13 @@ class AlbumRepository(Repository[Album]):
     def get_with_details(self, album_id: int) -> Album | None:
         statement = (
             select(Album)
-            .options(joinedload(Album.artist), joinedload(Album.songs))
+            .options(
+                joinedload(Album.artist),
+                selectinload(Album.songs).joinedload(Song.artist),
+            )
             .where(Album.id == album_id)
         )
         return self.session.scalars(statement).unique().first()
-
-    def list_with_counts(self, *, limit: int = 50, offset: int = 0) -> list[tuple[Album, int, int]]:
-        statement = (
-            select(
-                Album,
-                func.count(Song.id).label("song_count"),
-                func.sum(Song.duration_seconds).label("duration_seconds"),
-            )
-            .options(joinedload(Album.artist))
-            .join(Song, Album.id == Song.album_id, isouter=True)
-            .where(Song.is_downloaded == True)
-            .group_by(Album.id)
-            .order_by(Album.title)
-            .offset(offset)
-            .limit(limit)
-        )
-        return list(self.session.execute(statement))
-
-    def get_recently_added_with_counts(self, *, limit: int = 10) -> list[tuple[Album, int, int]]:
-        statement = (
-            select(
-                Album,
-                func.count(Song.id).label("song_count"),
-                func.sum(Song.duration_seconds).label("duration_seconds"),
-            )
-            .options(joinedload(Album.artist))
-            .join(Song, Album.id == Song.album_id, isouter=True)
-            .where(Song.is_downloaded == True)
-            .group_by(Album.id)
-            .order_by(Album.created_at.desc())
-            .limit(limit)
-        )
-        return list(self.session.execute(statement))
-
-    def get_random_with_counts(self, *, limit: int = 5) -> list[tuple[Album, int, int]]:
-        statement = (
-            select(
-                Album,
-                func.count(Song.id).label("song_count"),
-                func.sum(Song.duration_seconds).label("duration_seconds"),
-            )
-            .options(joinedload(Album.artist))
-            .join(Song, Album.id == Song.album_id, isouter=True)
-            .where(Song.is_downloaded == True)
-            .group_by(Album.id)
-            .order_by(func.random())
-            .limit(limit)
-        )
-        return list(self.session.execute(statement))
 
 
 class PlaylistRepository(Repository[Playlist]):
@@ -207,7 +111,10 @@ class PlaylistRepository(Repository[Playlist]):
     def get_with_songs(self, playlist_id: int) -> Playlist | None:
         statement = (
             select(Playlist)
-            .options(joinedload(Playlist.songs).joinedload(PlaylistSong.song))
+            .options(
+                joinedload(Playlist.songs).joinedload(PlaylistSong.song).joinedload(Song.artist),
+                joinedload(Playlist.songs).joinedload(PlaylistSong.song).joinedload(Song.album),
+            )
             .where(Playlist.id == playlist_id)
         )
         return self.session.scalars(statement).unique().first()
@@ -237,14 +144,16 @@ class PlaylistRepository(Repository[Playlist]):
         self.session.add(playlist_song)
         return playlist_song
 
-    def remove_song(self, playlist_id: int, song_id: int) -> None:
+    def remove_song(self, playlist_id: int, song_id: int) -> bool:
         statement = select(PlaylistSong).where(
             PlaylistSong.playlist_id == playlist_id,
             PlaylistSong.song_id == song_id,
         )
         playlist_song = self.session.scalars(statement).first()
-        if playlist_song:
-            self.session.delete(playlist_song)
+        if not playlist_song:
+            return False
+        self.session.delete(playlist_song)
+        return True
 
     def reorder_song(self, playlist_id: int, song_id: int, new_position: int) -> None:
         statement = select(PlaylistSong).where(
@@ -342,15 +251,6 @@ class DownloadJobRepository(Repository[DownloadJob]):
         self.session.rollback()
         return None
 
-    def next_queued(self) -> DownloadJob | None:
-        statement = (
-            select(DownloadJob)
-            .where(DownloadJob.status == "queued")
-            .order_by(DownloadJob.created_at.asc())
-            .limit(1)
-        )
-        return self.session.scalars(statement).first()
-
     def list_by_statuses(self, statuses: list[str], *, limit: int = 50, offset: int = 0) -> list[DownloadJob]:
         statement = (
             select(DownloadJob)
@@ -413,54 +313,6 @@ class FavoriteRepository(Repository[Favorite]):
             self.session.add(favorite)
             return True
 
-    def list_songs(self, *, limit: int = 50, offset: int = 0) -> list[Song]:
-        statement = (
-            select(Song)
-            .options(joinedload(Song.artist), joinedload(Song.album))
-            .join(Favorite, Favorite.song_id == Song.id)
-            .where(Song.is_downloaded == True)
-            .order_by(Favorite.created_at.desc())
-            .offset(offset)
-            .limit(limit)
-        )
-        return list(self.session.scalars(statement).unique())
-
-    def list_artists_with_counts(self, *, limit: int = 50, offset: int = 0) -> list[tuple[Artist, int, int]]:
-        statement = (
-            select(
-                Artist,
-                func.count(func.distinct(Song.id)).label("song_count"),
-                func.count(func.distinct(Album.id)).label("album_count"),
-            )
-            .join(Favorite, Favorite.artist_id == Artist.id)
-            .join(Song, Artist.id == Song.artist_id, isouter=True)
-            .join(Album, Artist.id == Album.artist_id, isouter=True)
-            .where(Song.is_downloaded == True)
-            .group_by(Artist.id)
-            .order_by(Favorite.created_at.desc())
-            .offset(offset)
-            .limit(limit)
-        )
-        return list(self.session.execute(statement))
-
-    def list_albums_with_counts(self, *, limit: int = 50, offset: int = 0) -> list[tuple[Album, int, int]]:
-        statement = (
-            select(
-                Album,
-                func.count(Song.id).label("song_count"),
-                func.sum(Song.duration_seconds).label("duration_seconds"),
-            )
-            .options(joinedload(Album.artist))
-            .join(Favorite, Favorite.album_id == Album.id)
-            .join(Song, Album.id == Song.album_id, isouter=True)
-            .where(Song.is_downloaded == True)
-            .group_by(Album.id)
-            .order_by(Favorite.created_at.desc())
-            .offset(offset)
-            .limit(limit)
-        )
-        return list(self.session.execute(statement))
-
 
 class HistoryRepository(Repository[History]):
     def __init__(self, session: Session) -> None:
@@ -504,24 +356,6 @@ class HistoryRepository(Repository[History]):
             if key not in latest or entry.played_at > latest[key].played_at:
                 latest[key] = entry
         return sorted(latest.values(), key=lambda entry: (counts[self._history_key(entry)], entry.played_at), reverse=True)[:limit]
-
-    def get_recently_played_songs(self, *, limit: int = 50) -> list[Song]:
-        subquery = (
-            select(History.song_id, func.max(History.played_at).label("last_played"))
-            .where(History.song_id.isnot(None))
-            .group_by(History.song_id)
-            .order_by(func.max(History.played_at).desc())
-            .limit(limit)
-            .subquery()
-        )
-
-        statement = (
-            select(Song)
-            .options(joinedload(Song.artist), joinedload(Song.album))
-            .join(subquery, Song.id == subquery.c.song_id)
-            .order_by(subquery.c.last_played.desc())
-        )
-        return list(self.session.scalars(statement).unique())
 
     def get_most_played_songs(self, *, limit: int = 50) -> list[Song]:
         subquery = (
@@ -568,7 +402,7 @@ def _download_source_key(source_url: str) -> str:
     video_id = None
     if host in {"youtu.be", "www.youtu.be"}:
         video_id = parsed.path.strip("/").split("/")[0]
-    elif host.endswith("youtube.com"):
+    elif host == "youtube.com" or host.endswith(".youtube.com"):
         if parsed.path == "/watch":
             video_id = (parse_qs(parsed.query).get("v") or [None])[0]
         elif parsed.path.startswith(("/shorts/", "/embed/")):

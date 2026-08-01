@@ -1,33 +1,27 @@
-import { apiDelete, apiGet, apiPatch, apiPost, apiPut } from "@/services/api-client";
+import { apiDelete, apiGet, apiPost, apiPut } from "@/services/api-client";
 import type {
-  Album,
-  AlbumDetail,
   Artist,
   ArtistDetail,
   DownloadCreateRequest,
   DownloadJob,
   LibraryAlbum,
   LibraryAlbumDetail,
+  LibraryCounts,
   LibraryArtistDetail,
   FavoriteToggleRequest,
   FavoritesResponse,
   HistoryCreateRequest,
   HistoryEntry,
-  AlbumDownloadJob,
   Playlist,
   PlaylistAddSongsRequest,
   PlaylistAddOnlineTrackRequest,
   PlaylistCreateRequest,
   PlaylistDetail,
-  PlaylistUpdateRequest,
-  SearchResponse,
   Song,
   OnlineHomeResponse,
   OnlineRelatedResponse,
-  OnlineAlbumPreview,
   AlbumStatusResponse,
   LibrarySearchResponse,
-  LibraryRemoveResponse,
   LibraryTrackDownloadRemoveResponse,
   SmartCollection,
   OnlineSearchResponse,
@@ -36,14 +30,13 @@ import type {
   TrackStatusResponse,
 } from "@/types/api";
 
-// Search
-export function searchMusic(query: string, signal?: AbortSignal) {
-  return apiGet<SearchResponse>(`/search?q=${encodeURIComponent(query)}`, { signal });
+// Downloads
+function listDownloads(limit = 100, offset = 0, signal?: AbortSignal) {
+  return apiGet<DownloadJob[]>(`/downloads?limit=${limit}&offset=${offset}`, { signal });
 }
 
-// Downloads
-export function listDownloads(signal?: AbortSignal) {
-  return apiGet<DownloadJob[]>("/downloads?limit=100", { signal });
+export function listAllDownloads(signal?: AbortSignal) {
+  return collectAllPages((limit, offset) => listDownloads(limit, offset, signal));
 }
 
 export function queueDownload(request: DownloadCreateRequest) {
@@ -71,66 +64,35 @@ export function removeCompletedDownloads() {
 }
 
 // Songs
-export function listSongs(limit = 50, offset = 0, signal?: AbortSignal) {
+function listSongs(limit = 50, offset = 0, signal?: AbortSignal) {
   return apiGet<Song[]>(`/songs?limit=${limit}&offset=${offset}`, { signal });
 }
 
-export function getSong(songId: number, signal?: AbortSignal) {
-  return apiGet<Song>(`/songs/${songId}`, { signal });
+export function listAllSongs(signal?: AbortSignal) {
+  return collectAllPages((limit, offset) => listSongs(limit, offset, signal));
 }
 
-export function searchSongsLocal(query: string, limit = 50, signal?: AbortSignal) {
-  return apiGet<Song[]>(`/songs/search?q=${encodeURIComponent(query)}&limit=${limit}`, { signal });
-}
-
-export function listFavoriteSongs(limit = 50, offset = 0, signal?: AbortSignal) {
-  return apiGet<Song[]>(`/songs/favorites?limit=${limit}&offset=${offset}`, { signal });
+export function searchAllSongsLocal(query: string, signal?: AbortSignal) {
+  return collectAllPages(
+    (limit, offset) => advancedSearchSongs({ q: query, limit, offset }, signal),
+  );
 }
 
 export function listFavorites(signal?: AbortSignal) {
   return apiGet<FavoritesResponse>("/favorites", { signal });
 }
 
-export function getRecentlyPlayedSongs(limit = 50, signal?: AbortSignal) {
-  return apiGet<Song[]>(`/songs/recently-played?limit=${limit}`, { signal });
-}
-
-export function getMostPlayedSongs(limit = 50, signal?: AbortSignal) {
-  return apiGet<Song[]>(`/songs/most-played?limit=${limit}`, { signal });
-}
-
-export function getRecentlyAddedSongs(limit = 50, signal?: AbortSignal) {
-  return apiGet<Song[]>(`/songs/recently-added?limit=${limit}`, { signal });
-}
-
-export function getRandomSongs(limit = 10, signal?: AbortSignal) {
-  return apiGet<Song[]>(`/songs/random?limit=${limit}`, { signal });
-}
-
 // Artists
-export function listArtists(limit = 50, offset = 0, signal?: AbortSignal) {
+function listArtists(limit = 50, offset = 0, signal?: AbortSignal) {
   return apiGet<Artist[]>(`/artists?limit=${limit}&offset=${offset}`, { signal });
+}
+
+export function listAllArtists(signal?: AbortSignal) {
+  return collectAllPages((limit, offset) => listArtists(limit, offset, signal));
 }
 
 export function getArtist(artistId: number, signal?: AbortSignal) {
   return apiGet<ArtistDetail>(`/artists/${artistId}`, { signal });
-}
-
-export function getFavoriteArtists(limit = 50, offset = 0, signal?: AbortSignal) {
-  return apiGet<Artist[]>(`/artists/favorites?limit=${limit}&offset=${offset}`, { signal });
-}
-
-export function getRandomArtists(limit = 5, signal?: AbortSignal) {
-  return apiGet<Artist[]>(`/artists/random?limit=${limit}`, { signal });
-}
-
-// Albums
-export function listAlbums(limit = 50, offset = 0, signal?: AbortSignal) {
-  return apiGet<Album[]>(`/albums?limit=${limit}&offset=${offset}`, { signal });
-}
-
-export function getAlbum(albumId: number, signal?: AbortSignal) {
-  return apiGet<AlbumDetail>(`/albums/legacy/${albumId}`, { signal });
 }
 
 export function getUnifiedAlbum(publicId: string, signal?: AbortSignal) {
@@ -165,21 +127,13 @@ export function removeUnifiedAlbumDownload(publicId: string) {
   return apiDelete<UnifiedAlbum>(`/albums/${encodeURIComponent(publicId)}/download`);
 }
 
-export function getFavoriteAlbums(limit = 50, offset = 0, signal?: AbortSignal) {
-  return apiGet<Album[]>(`/albums/favorites?limit=${limit}&offset=${offset}`, { signal });
-}
-
-export function getRecentlyAddedAlbums(limit = 10, signal?: AbortSignal) {
-  return apiGet<Album[]>(`/albums/recently-added?limit=${limit}`, { signal });
-}
-
-export function getRandomAlbums(limit = 5, signal?: AbortSignal) {
-  return apiGet<Album[]>(`/albums/random?limit=${limit}`, { signal });
-}
-
 // Playlists
-export function listPlaylists(limit = 50, offset = 0, signal?: AbortSignal) {
+function listPlaylists(limit = 50, offset = 0, signal?: AbortSignal) {
   return apiGet<Playlist[]>(`/playlists?limit=${limit}&offset=${offset}`, { signal });
+}
+
+export function listAllPlaylists(signal?: AbortSignal) {
+  return collectAllPages((limit, offset) => listPlaylists(limit, offset, signal));
 }
 
 export function getPlaylist(playlistId: number, signal?: AbortSignal) {
@@ -188,10 +142,6 @@ export function getPlaylist(playlistId: number, signal?: AbortSignal) {
 
 export function createPlaylist(request: PlaylistCreateRequest) {
   return apiPost<Playlist, PlaylistCreateRequest>("/playlists", request);
-}
-
-export function updatePlaylist(playlistId: number, request: PlaylistUpdateRequest) {
-  return apiPatch<Playlist, PlaylistUpdateRequest>(`/playlists/${playlistId}`, request);
 }
 
 export function deletePlaylist(playlistId: number) {
@@ -206,8 +156,12 @@ export function addOnlineTrackToPlaylist(playlistId: number, request: PlaylistAd
   return apiPost<PlaylistDetail, PlaylistAddOnlineTrackRequest>(`/playlists/${playlistId}/online-track`, request);
 }
 
-export function removeSongFromPlaylist(playlistId: number, songId: number, deleteFile = false) {
-  return apiDelete<PlaylistDetail>(`/playlists/${playlistId}/songs/${songId}?delete_file=${deleteFile ? "true" : "false"}`);
+export function removeSongFromPlaylist(playlistId: number, songId: number) {
+  return apiDelete<PlaylistDetail>(`/playlists/${playlistId}/songs/${songId}`);
+}
+
+export function removeLibraryTrackFromPlaylist(playlistId: number, trackId: number) {
+  return apiDelete<PlaylistDetail>(`/playlists/${playlistId}/tracks/${trackId}`);
 }
 
 // Favorites
@@ -220,10 +174,6 @@ export function addHistory(request: HistoryCreateRequest) {
   return apiPost<HistoryEntry, HistoryCreateRequest>("/history", request);
 }
 
-export function listHistory(limit = 50, offset = 0, signal?: AbortSignal) {
-  return apiGet<HistoryEntry[]>(`/history?limit=${limit}&offset=${offset}`, { signal });
-}
-
 export function getRecentlyPlayedHistory(limit = 50, signal?: AbortSignal) {
   return apiGet<HistoryEntry[]>(`/history/recently-played?limit=${limit}`, { signal });
 }
@@ -234,22 +184,15 @@ export function getMostPlayedHistory(limit = 50, signal?: AbortSignal) {
 
 // Media streaming
 export function getSongStreamUrl(songId: number): string {
-  const baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api/v1";
-  return `${baseUrl}/media/songs/${songId}/stream`;
+  return `/api/v1/media/songs/${songId}/stream`;
 }
 
 export function getLibraryTrackStreamUrl(trackId: number): string {
-  const baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api/v1";
-  return `${baseUrl}/media/library-tracks/${trackId}/stream`;
+  return `/api/v1/media/library-tracks/${trackId}/stream`;
 }
 
 export function getYouTubeStreamUrl(videoId: string): string {
-  const baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api/v1";
-  return `${baseUrl}/ytmusic/stream/${encodeURIComponent(videoId)}`;
-}
-
-export function getYouTubeStreamStatus(videoId: string, signal?: AbortSignal) {
-  return apiGet<{ cached: boolean }>(`/ytmusic/stream/${encodeURIComponent(videoId)}/status`, { signal });
+  return `/api/v1/ytmusic/stream/${encodeURIComponent(videoId)}`;
 }
 
 export function getYouTubeHome(signal?: AbortSignal) {
@@ -266,14 +209,6 @@ export function searchYouTubeMusic(query: string, filter = "all", continuation?:
   return apiGet<OnlineSearchResponse>(`/ytmusic/search?${params.toString()}`, { signal });
 }
 
-export function previewOnlineAlbum(externalId: string, signal?: AbortSignal) {
-  return apiGet<OnlineAlbumPreview>(`/library/albums/online/${encodeURIComponent(externalId)}`, { signal });
-}
-
-export function saveOnlineAlbum(externalId: string) {
-  return apiPost<LibraryAlbumDetail, { external_id: string }>("/library/albums/save-online", { external_id: externalId });
-}
-
 export function getLibraryAlbumStatuses(externalIds: string[], signal?: AbortSignal) {
   return apiPost<AlbumStatusResponse, { external_ids: string[] }>("/library/albums/status", { external_ids: externalIds }, { signal });
 }
@@ -288,30 +223,22 @@ export function listLibraryAlbums(query?: string, limit = 50, offset = 0, signal
   return apiGet<LibraryAlbum[]>(`/library/albums?${params.toString()}`, { signal });
 }
 
+export function listAllLibraryAlbums(query?: string, signal?: AbortSignal) {
+  return collectAllPages(
+    (limit, offset) => listLibraryAlbums(query, limit, offset, signal),
+  );
+}
+
+export function getLibraryCounts(signal?: AbortSignal) {
+  return apiGet<LibraryCounts>("/library/counts", { signal });
+}
+
 export function getLibraryAlbum(albumId: number, signal?: AbortSignal) {
   return apiGet<LibraryAlbumDetail>(`/library/albums/${albumId}`, { signal });
 }
 
-export function downloadLibraryAlbum(albumId: number, maxParallel?: number) {
-  return apiPost<AlbumDownloadJob, { max_parallel?: number }>(`/library/albums/${albumId}/download`, {
-    max_parallel: maxParallel,
-  });
-}
-
-export function cancelLibraryAlbumDownload(albumId: number) {
-  return apiDelete<AlbumDownloadJob>(`/library/albums/${albumId}/download`);
-}
-
-export function removeLibraryAlbum(albumId: number, deleteDownloads = false) {
-  return apiDelete<LibraryRemoveResponse>(`/library/albums/${albumId}?delete_downloads=${deleteDownloads ? "true" : "false"}`);
-}
-
-export function removeLibraryTrack(trackId: number, deleteDownloads = false) {
-  return apiDelete<LibraryRemoveResponse>(`/library/tracks/${trackId}?delete_downloads=${deleteDownloads ? "true" : "false"}`);
-}
-
-export function removeLibraryTrackDownload(trackId: number, deleteFile = true) {
-  return apiDelete<LibraryTrackDownloadRemoveResponse>(`/library/tracks/${trackId}/download?delete_file=${deleteFile ? "true" : "false"}`);
+export function removeLibraryTrackDownload(trackId: number) {
+  return apiDelete<LibraryTrackDownloadRemoveResponse>(`/library/tracks/${trackId}/download`);
 }
 
 export function searchLibrary(query: string, limit = 50, signal?: AbortSignal) {
@@ -340,21 +267,8 @@ export function importPlaylistUrl(url: string, name?: string, maxParallel?: numb
   );
 }
 
-// Recommendations
-export function getRecommendations(
-  strategy: "mixed" | "similar_artists" | "popular" | "discovery" | "time_based" = "mixed",
-  entityType: "song" | "album" = "song",
-  limit = 20,
-  signal?: AbortSignal
-) {
-  return apiPost<
-    { strategy: string; entity_type: string; songs: Song[]; albums: Album[] },
-    { strategy: string; entity_type: string; limit: number }
-  >("/recommendations", { strategy, entity_type: entityType, limit }, { signal });
-}
-
 // Advanced Search
-export function advancedSearchSongs(params: {
+function advancedSearchSongs(params: {
   q?: string;
   artist_ids?: string;
   album_ids?: string;
@@ -377,16 +291,25 @@ export function advancedSearchSongs(params: {
   return apiGet<Song[]>(`/advanced-search/songs?${query}`, { signal });
 }
 
-// Metadata
-export function searchMetadata(data: {
-  title?: string;
-  artist?: string;
-  album?: string;
-  duration_ms?: number;
-  provider?: string;
-  limit?: number;
-}, signal?: AbortSignal) {
-  return apiPost<unknown[], typeof data>("/metadata/search", data, { signal });
+export function advancedSearchAllSongs(
+  params: Omit<Parameters<typeof advancedSearchSongs>[0], "limit" | "offset">,
+  signal?: AbortSignal,
+) {
+  return collectAllPages(
+    (limit, offset) => advancedSearchSongs({ ...params, limit, offset }, signal),
+  );
+}
+
+async function collectAllPages<T extends { id: string | number }>(
+  loadPage: (limit: number, offset: number) => Promise<T[]>,
+): Promise<T[]> {
+  const pageSize = 100;
+  const items = new Map<string | number, T>();
+  for (let offset = 0; ; offset += pageSize) {
+    const page = await loadPage(pageSize, offset);
+    for (const item of page) items.set(item.id, item);
+    if (page.length < pageSize) return [...items.values()];
+  }
 }
 
 export function enrichSong(songId: number, provider?: string) {
@@ -451,42 +374,5 @@ export function saveSongLyrics(songId: number, lyrics: string) {
   return apiPost<LyricsResponse, { lyrics: string }>(
     `/lyrics/songs/${songId}`,
     { lyrics }
-  );
-}
-
-// Discovery
-export function getHomeDiscovery(signal?: AbortSignal) {
-  return apiGet<import("@/types/api").HomeDiscovery>("/discovery/home", { signal });
-}
-
-export function getTrendingAlbums(limit = 20, signal?: AbortSignal) {
-  return apiGet<{ section: string; title: string; items: import("@/types/api").DiscoveryItem[] }>(
-    `/discovery/trending?limit=${limit}`,
-    { signal }
-  );
-}
-
-export function getNewReleases(limit = 20, signal?: AbortSignal) {
-  return apiGet<{ section: string; title: string; items: import("@/types/api").DiscoveryItem[] }>(
-    `/discovery/new-releases?limit=${limit}`,
-    { signal }
-  );
-}
-
-export function getFeaturedAlbums(limit = 10, signal?: AbortSignal) {
-  return apiGet<{ section: string; title: string; items: import("@/types/api").DiscoveryItem[] }>(
-    `/discovery/featured?limit=${limit}`,
-    { signal }
-  );
-}
-
-export function getDiscoveryGenres(signal?: AbortSignal) {
-  return apiGet<{ genres: string[] }>("/discovery/genres", { signal });
-}
-
-export function getGenreAlbums(genre: string, limit = 20, signal?: AbortSignal) {
-  return apiGet<{ section: string; genre: string; title: string; items: import("@/types/api").DiscoveryItem[] }>(
-    `/discovery/genres/${encodeURIComponent(genre)}?limit=${limit}`,
-    { signal }
   );
 }

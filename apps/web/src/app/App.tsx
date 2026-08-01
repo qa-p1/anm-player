@@ -1,25 +1,28 @@
-import { useEffect } from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { lazy, Suspense, useEffect } from "react";
+import { Navigate, Route, Routes } from "react-router";
 
-import { HomePage } from "@/features/home/home-page";
-import { AlbumDetailPage } from "@/features/library/album-detail-page";
-import { LegacyLocalAlbumRedirect, LegacyOnlineAlbumRedirect, LegacySavedAlbumRedirect } from "@/features/library/legacy-album-redirect";
-import { AlbumsLibraryPage } from "@/features/library/albums-library-page";
-import { ArtistDetailPage } from "@/features/library/artist-detail-page";
-import { ArtistsLibraryPage } from "@/features/library/artists-library-page";
-import { FavoritesPage } from "@/features/library/favorites-page";
-import { LibraryPage } from "@/features/library/library-page";
-import { PlaylistDetailPage } from "@/features/library/playlist-detail-page";
-import { PlaylistsPage } from "@/features/library/playlists-page";
-import { SmartCollectionPage } from "@/features/library/smart-collection-page";
-import { SongsLibraryPage } from "@/features/library/songs-library-page";
-import { SearchPage } from "@/features/search/search-page";
-import { SettingsPage } from "@/features/settings/settings-page";
 import { useAudioPlayer } from "@/hooks/use-audio-player";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { AppLayout } from "@/layouts/app-layout";
 import { apiGet } from "@/services/api-client";
 import { applyAccent, initializeTheme, useThemeStore, type AccentTheme, type ThemeMode } from "@/stores/theme-store";
+
+const HomePage = lazy(() => import("@/features/home/home-page").then((module) => ({ default: module.HomePage })));
+const SearchPage = lazy(() => import("@/features/search/search-page").then((module) => ({ default: module.SearchPage })));
+const AlbumDetailPage = lazy(() => import("@/features/library/album-detail-page").then((module) => ({ default: module.AlbumDetailPage })));
+const AlbumsLibraryPage = lazy(() => import("@/features/library/albums-library-page").then((module) => ({ default: module.AlbumsLibraryPage })));
+const ArtistDetailPage = lazy(() => import("@/features/library/artist-detail-page").then((module) => ({ default: module.ArtistDetailPage })));
+const ArtistsLibraryPage = lazy(() => import("@/features/library/artists-library-page").then((module) => ({ default: module.ArtistsLibraryPage })));
+const FavoritesPage = lazy(() => import("@/features/library/favorites-page").then((module) => ({ default: module.FavoritesPage })));
+const LibraryPage = lazy(() => import("@/features/library/library-page").then((module) => ({ default: module.LibraryPage })));
+const PlaylistDetailPage = lazy(() => import("@/features/library/playlist-detail-page").then((module) => ({ default: module.PlaylistDetailPage })));
+const PlaylistsPage = lazy(() => import("@/features/library/playlists-page").then((module) => ({ default: module.PlaylistsPage })));
+const SmartCollectionPage = lazy(() => import("@/features/library/smart-collection-page").then((module) => ({ default: module.SmartCollectionPage })));
+const SongsLibraryPage = lazy(() => import("@/features/library/songs-library-page").then((module) => ({ default: module.SongsLibraryPage })));
+const SettingsPage = lazy(() => import("@/features/settings/settings-page").then((module) => ({ default: module.SettingsPage })));
+const LegacyOnlineAlbumRedirect = lazy(() => import("@/features/library/legacy-album-redirect").then((module) => ({ default: module.LegacyOnlineAlbumRedirect })));
+const LegacySavedAlbumRedirect = lazy(() => import("@/features/library/legacy-album-redirect").then((module) => ({ default: module.LegacySavedAlbumRedirect })));
+const LegacyLocalAlbumRedirect = lazy(() => import("@/features/library/legacy-album-redirect").then((module) => ({ default: module.LegacyLocalAlbumRedirect })));
 
 export function App() {
   const setMode = useThemeStore((state) => state.setMode);
@@ -38,7 +41,8 @@ export function App() {
   useKeyboardShortcuts();
 
   return (
-    <Routes>
+    <Suspense fallback={<div className="grid min-h-[50vh] place-items-center text-sm text-muted-foreground">Loading…</div>}>
+      <Routes>
       <Route element={<AppLayout />}>
         <Route index element={<HomePage />} />
         <Route path="search" element={<SearchPage />} />
@@ -61,6 +65,7 @@ export function App() {
         <Route path="settings" element={<SettingsPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+      </Routes>
+    </Suspense>
   );
 }

@@ -1,19 +1,23 @@
 {
-  "name": "aura-music",
+  "name": "anm-player",
   "private": true,
   "version": "0.1.0",
-  "description": "A modern self-hosted music app foundation.",
+  "description": "A single-user music library and player.",
   "scripts": {
     "dev": "npm --workspace apps/web run dev",
     "build": "npm --workspace apps/web run build",
     "preview": "npm --workspace apps/web run preview",
     "lint": "npm --workspace apps/web run lint",
-    "typecheck": "npm --workspace apps/web run typecheck"
+    "typecheck": "npm --workspace apps/web run typecheck",
+    "test": "npm --workspace apps/web run test",
+    "test:coverage": "npm --workspace apps/web run test:coverage",
+    "check:bundle": "node scripts/check_bundle_size.mjs",
+    "knip": "npm --workspace apps/web run knip"
   },
   "workspaces": [
     "apps/web"
   ],
   "engines": {
-    "node": ">=22"
+    "node": ">=24 <27"
   }
 }

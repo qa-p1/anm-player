@@ -1,7 +1,7 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { ChevronLeft, ChevronRight, Download, Music, Play, Search, Sparkles, TrendingUp } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 
 import { pageTransition } from "@/animations/page-motion";
 import { OnlineMusicCard } from "@/components/cards/online-music-card";
@@ -12,7 +12,7 @@ import { EmptyState } from "@/components/empty-states/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useDownloads, useRecentlyPlayedHistory } from "@/hooks/use-music-queries";
-import { cachedArtworkUrl } from "@/services/api-client";
+import { cachedArtworkUrl, isRequestCancelled } from "@/services/api-client";
 import { getLibraryAlbumStatuses, getLibraryTrackStatuses, getYouTubeHome, getYouTubeRelated } from "@/services/music-api";
 import { usePlayerStore } from "@/stores/player-store";
 import type { AlbumStatusItem, HistoryEntry, OnlineHomeSection, OnlineMusicItem } from "@/types/api";
@@ -83,7 +83,7 @@ export function HomePage() {
         setDownloadedTracks(Object.fromEntries(responses.flatMap((response) => response.statuses).map((status) => [status.external_id, status.is_downloaded])));
       })
       .catch((statusError: unknown) => {
-        if (!(statusError instanceof DOMException && statusError.name === "AbortError")) console.error("Could not check Home track download status:", statusError);
+        if (!isRequestCancelled(statusError)) console.error("Could not check Home track download status:", statusError);
       });
     return () => controller.abort();
   }, [displayedPlayable, downloadJobsKey]);
@@ -108,7 +108,7 @@ export function HomePage() {
         setAlbumStatuses(Object.fromEntries(response.statuses.map((status) => [status.external_id, status])));
       })
       .catch((statusError: unknown) => {
-        if (statusError instanceof DOMException && statusError.name === "AbortError") return;
+        if (isRequestCancelled(statusError)) return;
         setAlbumStatuses({});
         console.error("Could not check Home album library status:", statusError);
       });
@@ -137,7 +137,7 @@ export function HomePage() {
     <motion.div {...pageTransition} className="mx-auto max-w-7xl space-y-8 px-3 py-4 sm:px-6 lg:px-8 lg:py-7">
       <section className="flex items-center justify-between gap-3">
         <div className="min-w-0">
-          <p className="mb-1 text-xs font-semibold uppercase tracking-[0.16em] text-primary sm:text-sm">Aura</p>
+          <p className="mb-1 text-xs font-semibold uppercase tracking-[0.16em] text-primary sm:text-sm">ANM Player</p>
           <h1 className="truncate text-3xl font-black tracking-normal sm:text-5xl">Listen now</h1>
         </div>
         <Button asChild variant="glass" className="shrink-0">

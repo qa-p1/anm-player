@@ -1,7 +1,7 @@
 import { Check, Pause, Play, Plus } from "lucide-react";
 import type { MouseEvent } from "react";
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 
 import { Button } from "@/components/ui/button";
 import { TrackActionsMenu } from "@/components/menus/track-actions-menu";
@@ -110,7 +110,6 @@ export function OnlineMusicCard({ item, context, variant = "tile", className, al
     return (
       <article
         className={cn("glass-panel group flex min-w-0 items-center gap-3 rounded-2xl p-2.5 transition hover:bg-white/10 sm:p-3", isCurrent && "ring-1 ring-primary/40", className)}
-        onClick={() => play()}
       >
         <Artwork artworkUrl={artworkUrl} title={item.title} round={false} />
         <div className="min-w-0 flex-1">
@@ -118,11 +117,9 @@ export function OnlineMusicCard({ item, context, variant = "tile", className, al
           <p className="truncate text-xs text-muted-foreground">{item.subtitle ?? item.kind}</p>
         </div>
         <span className="hidden text-xs text-muted-foreground sm:block">{formatDuration(item.duration_seconds)}</span>
-        {item.playable && (
-          <Button size="icon" variant="ghost" aria-label="Play" onClick={play}>
-            <PlayIcon className="h-4 w-4 fill-current" />
-          </Button>
-        )}
+        <Button size="icon" variant="ghost" aria-label={`Open ${item.title}`} onClick={play}>
+          <PlayIcon className="h-4 w-4 fill-current" />
+        </Button>
         {actions}
       </article>
     );
@@ -131,20 +128,18 @@ export function OnlineMusicCard({ item, context, variant = "tile", className, al
   const isArtist = variant === "artist" || item.kind === "artist";
 
   return (
-    <article className={cn("group min-w-0 cursor-pointer", className)} onClick={() => play()}>
+    <article className={cn("group min-w-0", className)}>
       <div className={cn("relative mb-3 aspect-square overflow-hidden bg-white/10", isArtist ? "rounded-full" : "rounded-2xl")}>
         {artworkUrl ? (
           <ArtworkImage src={artworkUrl} alt={item.title} className="h-full w-full object-cover transition duration-300 group-hover:scale-105" loading="lazy" />
         ) : (
           <div className="h-full w-full bg-[linear-gradient(135deg,#f43f5e,#14b8a6_52%,#f59e0b)]" />
         )}
-        {item.playable && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/45 opacity-0 transition group-hover:opacity-100">
-            <Button size="icon" aria-label="Play" onClick={play}>
+        <div className="absolute inset-0 flex items-center justify-center bg-black/45 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100">
+            <Button size="icon" aria-label={`${item.playable ? "Play" : "Open"} ${item.title}`} onClick={play}>
               <PlayIcon className="h-4 w-4 fill-current" />
             </Button>
-          </div>
-        )}
+        </div>
       </div>
       <div className={cn("flex items-start gap-2", isArtist && "text-center")}>
         <div className="min-w-0 flex-1">

@@ -61,15 +61,6 @@ export function TrackRow({
         isCurrent && "ring-1 ring-primary/40",
         className,
       )}
-      onClick={play}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          play();
-        }
-      }}
-      role="button"
-      tabIndex={0}
     >
       {leading}
       {showArtwork && <div className="h-12 w-12 shrink-0 overflow-hidden rounded-xl bg-white/10">

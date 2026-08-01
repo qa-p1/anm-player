@@ -35,7 +35,7 @@ class StorageGateMiddleware:
         response = api_error_response(
             status_code=423,
             code="storage_migration_in_progress",
-            message="Aura storage is being moved. Try again when migration completes.",
+            message="ANM Player storage is temporarily locked. Try again when the current storage operation completes.",
             details={"migration": storage_coordinator.status()},
         )
         await response(scope, receive, send)

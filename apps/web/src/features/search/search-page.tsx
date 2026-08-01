@@ -1,7 +1,7 @@
 import { motion } from "framer-motion";
 import { Album, Mic2, Music2, Search, Video } from "lucide-react";
 import { useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router";
 
 import { pageTransition } from "@/animations/page-motion";
 import { OnlineMusicCard } from "@/components/cards/online-music-card";
@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { useDownloads } from "@/hooks/use-music-queries";
+import { isRequestCancelled } from "@/services/api-client";
 import { getLibraryAlbumStatuses, getLibraryTrackStatuses, searchYouTubeMusic } from "@/services/music-api";
 import type { AlbumStatusItem, OnlineMusicItem } from "@/types/api";
 import { cn } from "@/lib/utils";
@@ -59,7 +60,7 @@ export function SearchPage() {
         setContinuation(response.continuation);
       })
       .catch((searchError: unknown) => {
-        if (searchError instanceof DOMException && searchError.name === "AbortError") return;
+        if (isRequestCancelled(searchError)) return;
         setError(searchError instanceof Error ? searchError.message : "Search failed.");
         setItems([]);
       })
@@ -94,7 +95,7 @@ export function SearchPage() {
         });
       })
       .catch((statusError: unknown) => {
-        if (statusError instanceof DOMException && statusError.name === "AbortError") return;
+        if (isRequestCancelled(statusError)) return;
         setAlbumStatuses({});
         setAlbumStatusError(statusError instanceof Error ? statusError.message : "Could not check saved album status.");
       });
@@ -111,7 +112,7 @@ export function SearchPage() {
     getLibraryTrackStatuses(externalIds, controller.signal)
       .then((response) => setDownloadedTracks(Object.fromEntries(response.statuses.map((status) => [status.external_id, status.is_downloaded]))))
       .catch((statusError: unknown) => {
-        if (!(statusError instanceof DOMException && statusError.name === "AbortError")) console.error("Could not check track download status:", statusError);
+        if (!isRequestCancelled(statusError)) console.error("Could not check track download status:", statusError);
       });
     return () => controller.abort();
   }, [items, downloadJobsKey]);
@@ -147,7 +148,6 @@ export function SearchPage() {
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Search songs, albums, artists, playlists, or moods"
             className="h-14 pl-12 pr-4 text-base sm:h-16 sm:text-lg"
-            autoFocus
           />
         </div>
         <div className="no-scrollbar flex gap-2 overflow-x-auto pb-1">

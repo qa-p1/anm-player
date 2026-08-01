@@ -3,7 +3,6 @@ from pathlib import Path
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
-from app.core.config import settings
 from app.models import Album, Artist, Base, Song
 from app.services.library_scanner import LibraryScannerService
 
@@ -23,18 +22,17 @@ def make_session():
     return sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)()
 
 
-def test_scan_resolves_downloaded_relative_paths_against_music_directory(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr(settings, "music_directory", tmp_path)
-    audio_file = tmp_path / "Artist" / "Album" / "song.mp3"
+def test_scan_resolves_downloaded_relative_paths_against_music_directory(music_directory) -> None:
+    audio_file = music_directory / "Artist" / "Album" / "song.mp3"
     audio_file.parent.mkdir(parents=True)
     audio_file.write_bytes(b"audio")
 
     with make_session() as session:
-        song = Song(title="Song", file_path=str(audio_file.relative_to(tmp_path)), is_downloaded=True)
+        song = Song(title="Song", file_path=str(audio_file.relative_to(music_directory)), is_downloaded=True)
         session.add(song)
         session.commit()
 
-        result = MetadataScanner(session, {"title": "Song"}).scan_directory(tmp_path)
+        result = MetadataScanner(session, {"title": "Song"}).scan_directory(music_directory)
         songs = session.scalars(select(Song)).all()
 
     assert result.added == 0
@@ -44,8 +42,7 @@ def test_scan_resolves_downloaded_relative_paths_against_music_directory(tmp_pat
     assert songs[0].is_downloaded is True
 
 
-def test_scan_checks_all_existing_records_for_missing_files(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr(settings, "music_directory", tmp_path)
+def test_scan_checks_all_existing_records_for_missing_files(music_directory) -> None:
 
     with make_session() as session:
         session.add_all(
@@ -53,16 +50,15 @@ def test_scan_checks_all_existing_records_for_missing_files(tmp_path, monkeypatc
         )
         session.commit()
 
-        result = LibraryScannerService(session).scan_directory(tmp_path)
-        downloaded = session.scalars(select(Song).where(Song.is_downloaded == True)).all()
+        result = LibraryScannerService(session).scan_directory(music_directory)
+        downloaded = session.scalars(select(Song).where(Song.is_downloaded.is_(True))).all()
 
     assert result.removed == 51
     assert downloaded == []
 
 
-def test_scan_applies_changed_artist_and_album_tags(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr(settings, "music_directory", tmp_path)
-    audio_file = tmp_path / "song.mp3"
+def test_scan_applies_changed_artist_and_album_tags(music_directory) -> None:
+    audio_file = music_directory / "song.mp3"
     audio_file.write_bytes(b"audio")
 
     with make_session() as session:
@@ -85,7 +81,7 @@ def test_scan_applies_changed_artist_and_album_tags(tmp_path, monkeypatch) -> No
         result = MetadataScanner(
             session,
             {"title": "New Title", "artist": "New Artist", "album": "New Album", "year": 2026},
-        ).scan_directory(tmp_path)
+        ).scan_directory(music_directory)
         session.refresh(song)
 
         assert song.artist is not None and song.artist.name == "New Artist"

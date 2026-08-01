@@ -1,16 +1,16 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { ChevronLeft, ChevronRight, Clock3, Disc, Heart, ListMusic, Mic, Music, Search } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Link } from "react-router";
 
 import { pageTransition } from "@/animations/page-motion";
 import { Button } from "@/components/ui/button";
 import { ArtworkImage } from "@/components/cards/artwork-image";
 import { Input } from "@/components/ui/input";
 import { useMostPlayedHistory } from "@/hooks/use-music-queries";
-import { cachedArtworkUrl } from "@/services/api-client";
-import { listArtists, listLibraryAlbums, listPlaylists, listSongs, searchLibrary } from "@/services/music-api";
+import { cachedArtworkUrl, isRequestCancelled } from "@/services/api-client";
+import { getLibraryCounts, listLibraryAlbums, searchLibrary } from "@/services/music-api";
 import type { LibraryAlbum, LibrarySearchResult } from "@/types/api";
 
 export function LibraryPage() {
@@ -30,23 +30,16 @@ export function LibraryPage() {
     const controller = new AbortController();
 
     Promise.all([
-      listSongs(100, 0, controller.signal),
-      listLibraryAlbums(undefined, 100, 0, controller.signal),
-      listArtists(100, 0, controller.signal),
-      listPlaylists(100, 0, controller.signal),
+      getLibraryCounts(controller.signal),
+      listLibraryAlbums(undefined, 12, 0, controller.signal),
     ])
-      .then(([songs, albums, artists, playlists]) => {
+      .then(([counts, albums]) => {
         if (controller.signal.aborted) return;
         setAlbums(albums);
-        setStats({
-          songs: songs.length,
-          albums: albums.length,
-          artists: artists.length,
-          playlists: playlists.length,
-        });
+        setStats(counts);
       })
       .catch((error) => {
-        if (error.name !== "AbortError") {
+        if (!isRequestCancelled(error)) {
           console.error("Failed to load library stats:", error);
         }
       });
@@ -66,7 +59,7 @@ export function LibraryPage() {
         if (!controller.signal.aborted) setResults(response.results);
       })
       .catch((error) => {
-        if (error instanceof DOMException && error.name === "AbortError") return;
+        if (isRequestCancelled(error)) return;
         setResults([]);
       });
     return () => controller.abort();
@@ -90,7 +83,7 @@ export function LibraryPage() {
     { id: "recently-played", label: "Recently Played" },
     { id: "most-played", label: "Most Played" },
   ];
-  const randomAlbum = useMemo(() => albums.length > 0 ? albums[Math.floor(Math.random() * albums.length)] : null, [albums]);
+  const randomAlbum = albums[0] ?? null;
   const topTrack = mostPlayed[0];
   const personalityCards: LibraryPersonalityCard[] = [
     {
@@ -105,7 +98,7 @@ export function LibraryPage() {
     },
     {
       id: "album-pick",
-      eyebrow: "Random album pick",
+      eyebrow: "Album pick",
       title: randomAlbum?.title || "An album for later",
       description: randomAlbum?.artist_name || "Save an album and the library will pick one for you.",
       path: randomAlbum?.canonical_url || "/library/albums",

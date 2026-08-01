@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { NavLink, useLocation } from "react-router-dom";
+import { NavLink, useLocation } from "react-router";
 
 import { navItems } from "@/components/navigation/nav-items";
 import { cn } from "@/lib/utils";

@@ -95,7 +95,7 @@ def test_new_orm_columns_store_canonical_names() -> None:
 
 
 def test_storage_gate_returns_structured_423_but_keeps_health_and_status_available() -> None:
-    client = TestClient(app)
+    client = TestClient(app, base_url="http://localhost")
     storage_coordinator._set_gate()
     try:
         locked = client.get("/api/v1/settings")

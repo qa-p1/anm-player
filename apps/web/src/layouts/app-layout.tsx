@@ -1,6 +1,6 @@
 import { AnimatePresence } from "framer-motion";
 import { useLayoutEffect } from "react";
-import { Outlet, useLocation } from "react-router-dom";
+import { Outlet, useLocation } from "react-router";
 
 import { BottomNav } from "@/components/navigation/bottom-nav";
 import { DownloadQueueDialog, DownloadQueueTrigger } from "@/components/download-queue";

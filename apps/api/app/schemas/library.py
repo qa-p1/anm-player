@@ -1,10 +1,26 @@
 from datetime import datetime
+from typing import Annotated
 
 from pydantic import BaseModel, Field
 
+from app.schemas.artwork import ArtworkResponseModel
 
-class LibraryTrackResponse(BaseModel):
+
+ExternalId = Annotated[str, Field(min_length=1, max_length=255, pattern=r"^[A-Za-z0-9_-]+$")]
+PositiveId = Annotated[int, Field(gt=0, le=2_147_483_647)]
+
+
+class LibraryCountsResponse(BaseModel):
+    songs: int = 0
+    albums: int = 0
+    artists: int = 0
+    playlists: int = 0
+
+
+class LibraryTrackResponse(ArtworkResponseModel):
     id: int
+    song_id: int | None = None
+    artist_id: int | None = None
     source: str = "youtube"
     external_id: str
     title: str
@@ -28,7 +44,7 @@ class LibraryTrackResponse(BaseModel):
     updated_at: datetime
 
 
-class LibraryAlbumResponse(BaseModel):
+class LibraryAlbumResponse(ArtworkResponseModel):
     id: int
     public_id: str
     canonical_url: str
@@ -56,7 +72,7 @@ class LibraryAlbumDetailResponse(LibraryAlbumResponse):
     tracks: list[LibraryTrackResponse] = []
 
 
-class LibraryArtistResponse(BaseModel):
+class LibraryArtistResponse(ArtworkResponseModel):
     id: int | None = None
     source: str = "youtube"
     external_id: str
@@ -73,7 +89,7 @@ class LibraryArtistDetailResponse(LibraryArtistResponse):
     top_tracks: list[LibraryTrackResponse] = []
 
 
-class OnlineAlbumTrackPreview(BaseModel):
+class OnlineAlbumTrackPreview(ArtworkResponseModel):
     source: str = "youtube"
     external_id: str
     title: str
@@ -89,7 +105,7 @@ class OnlineAlbumTrackPreview(BaseModel):
     explicit: bool = False
 
 
-class OnlineAlbumPreview(BaseModel):
+class OnlineAlbumPreview(ArtworkResponseModel):
     source: str = "youtube"
     external_id: str
     title: str
@@ -102,7 +118,7 @@ class OnlineAlbumPreview(BaseModel):
 
 
 class SaveOnlineAlbumRequest(BaseModel):
-    external_id: str = Field(min_length=1, max_length=255)
+    external_id: ExternalId
 
 
 class AlbumFavoriteRequest(BaseModel):
@@ -140,7 +156,7 @@ class UnifiedAlbumCapabilities(BaseModel):
     can_remove_download: bool
 
 
-class UnifiedAlbumTrackResponse(BaseModel):
+class UnifiedAlbumTrackResponse(ArtworkResponseModel):
     id: str
     title: str
     artist_name: str | None = None
@@ -150,6 +166,7 @@ class UnifiedAlbumTrackResponse(BaseModel):
     explicit: bool = False
     library_track_id: int | None = None
     song_id: int | None = None
+    artist_id: int | None = None
     provider_track_id: str | None = None
     playback_source: str
     is_downloaded: bool
@@ -157,7 +174,7 @@ class UnifiedAlbumTrackResponse(BaseModel):
     stream_url: str | None = None
 
 
-class UnifiedAlbumResponse(BaseModel):
+class UnifiedAlbumResponse(ArtworkResponseModel):
     id: str
     canonical_url: str
     source: str
@@ -175,7 +192,7 @@ class UnifiedAlbumResponse(BaseModel):
 
 
 class AlbumStatusRequest(BaseModel):
-    external_ids: list[str] = Field(min_length=1, max_length=100)
+    external_ids: list[ExternalId] = Field(min_length=1, max_length=100)
 
 
 class AlbumStatusItem(BaseModel):
@@ -193,7 +210,7 @@ class AlbumStatusResponse(BaseModel):
 
 
 class TrackStatusRequest(BaseModel):
-    external_ids: list[str] = Field(min_length=1, max_length=200)
+    external_ids: list[ExternalId] = Field(min_length=1, max_length=200)
 
 
 class TrackStatusItem(BaseModel):
@@ -237,7 +254,7 @@ class AlbumDownloadCreateRequest(BaseModel):
 
 
 class PlaylistLibraryTrackAddRequest(BaseModel):
-    track_ids: list[int] = Field(min_length=1, max_length=100)
+    track_ids: list[PositiveId] = Field(min_length=1, max_length=50)
     force: bool = False
 
 
@@ -275,3 +292,12 @@ class SmartCollectionResponse(BaseModel):
     description: str
     tracks: list[LibraryTrackResponse] = []
     albums: list[LibraryAlbumResponse] = []
+
+
+class LibrarySyncResponse(BaseModel):
+    added: int = 0
+    updated: int = 0
+    removed: int = 0
+    reconciled: int = 0
+    errors: int = 0
+    total_processed: int = 0

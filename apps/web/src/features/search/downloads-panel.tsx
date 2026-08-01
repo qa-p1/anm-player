@@ -1,11 +1,12 @@
 import { motion } from "framer-motion";
 import { ChevronDown, Disc3, Pause, Play, RotateCcw, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 
+import { ArtworkImage } from "@/components/cards/artwork-image";
 import { Button } from "@/components/ui/button";
-import { getDownloadEventsUrl } from "@/services/api-client";
-import { listDownloads } from "@/services/music-api";
+import { cachedArtworkUrl, getDownloadEventsUrl } from "@/services/api-client";
+import { listAllDownloads } from "@/services/music-api";
 import type { DownloadJob } from "@/types/api";
 
 interface DownloadsPanelProps {
@@ -21,28 +22,77 @@ interface DownloadsPanelProps {
 
 export function DownloadsPanel({ jobs, onJobUpdate, onCancel, onRetry, onPause, onResume, onRemoveCompleted, onCancelAlbum }: DownloadsPanelProps) {
   const updateRef = useRef(onJobUpdate);
-  updateRef.current = onJobUpdate;
+  useEffect(() => {
+    updateRef.current = onJobUpdate;
+  }, [onJobUpdate]);
   const activeIds = jobs
     .filter((job) => ["queued", "preparing", "downloading", "processing", "paused"].includes(job.status))
     .map((job) => job.id);
   const activeKey = activeIds.join(",");
 
   useEffect(() => {
-    const sockets = activeIds.map((jobId) => {
-        const socket = new WebSocket(getDownloadEventsUrl(jobId));
-        socket.onmessage = (event) => updateRef.current(JSON.parse(event.data) as DownloadJob);
-        return socket;
-      });
+    const jobIds = activeKey ? activeKey.split(",").map(Number) : [];
+    const sockets = new Set<WebSocket>();
+    const reconnectTimers = new Set<number>();
+    let pollTimer: number | null = null;
+    let stopped = false;
 
-    const poll = window.setInterval(() => {
-      listDownloads()
+    function poll() {
+      void listAllDownloads()
         .then((snapshot) => snapshot.forEach((job) => updateRef.current(job)))
         .catch(() => undefined);
-    }, 5000);
+    }
+
+    function startPolling() {
+      if (pollTimer !== null || stopped) return;
+      poll();
+      pollTimer = window.setInterval(poll, 5000);
+    }
+
+    function connect(jobId: number, failures = 0) {
+      if (stopped) return;
+      let socket: WebSocket;
+      try {
+        socket = new WebSocket(getDownloadEventsUrl(jobId));
+      } catch {
+        scheduleReconnect(jobId, failures + 1);
+        return;
+      }
+      sockets.add(socket);
+      let receivedValidMessage = false;
+      socket.onmessage = (event) => {
+        const job = parseDownloadEvent(event.data);
+        if (!job || job.id !== jobId) return;
+        receivedValidMessage = true;
+        updateRef.current(job);
+      };
+      socket.onerror = () => socket.close();
+      socket.onclose = () => {
+        sockets.delete(socket);
+        if (!stopped) scheduleReconnect(jobId, receivedValidMessage ? 0 : failures + 1);
+      };
+    }
+
+    function scheduleReconnect(jobId: number, failures: number) {
+      if (failures >= 5) {
+        startPolling();
+        return;
+      }
+      const delay = Math.min(1000 * 2 ** failures, 16_000);
+      const timer = window.setTimeout(() => {
+        reconnectTimers.delete(timer);
+        connect(jobId, failures);
+      }, delay);
+      reconnectTimers.add(timer);
+    }
+
+    jobIds.forEach((jobId) => connect(jobId));
 
     return () => {
+      stopped = true;
       sockets.forEach((socket) => socket.close());
-      window.clearInterval(poll);
+      reconnectTimers.forEach((timer) => window.clearTimeout(timer));
+      if (pollTimer !== null) window.clearInterval(pollTimer);
     };
   }, [activeKey]);
 
@@ -96,6 +146,19 @@ export function DownloadsPanel({ jobs, onJobUpdate, onCancel, onRetry, onPause, 
       </div>
     </section>
   );
+}
+
+function parseDownloadEvent(value: unknown): DownloadJob | null {
+  try {
+    const parsed = typeof value === "string" ? JSON.parse(value) : value;
+    if (!parsed || typeof parsed !== "object") return null;
+    const candidate = parsed as Partial<DownloadJob>;
+    if (typeof candidate.id !== "number" || typeof candidate.status !== "string") return null;
+    if (typeof candidate.progress !== "number" || candidate.progress < 0 || candidate.progress > 100) return null;
+    return candidate as DownloadJob;
+  } catch {
+    return null;
+  }
 }
 
 function AlbumDownloadGroup({
@@ -174,7 +237,7 @@ function DownloadJobRow({
   return (
     <motion.article layout className={nested ? "grid min-w-0 max-w-full grid-cols-[auto_minmax(0,1fr)] gap-3 overflow-hidden rounded-xl bg-white/5 p-2.5 sm:flex sm:items-center" : "glass-panel grid min-w-0 max-w-full grid-cols-[auto_minmax(0,1fr)] gap-3 overflow-hidden rounded-2xl p-3 sm:flex sm:items-center"}>
       {job.thumbnail_url ? (
-        <img src={job.thumbnail_url} alt="" className="h-14 w-14 shrink-0 rounded-xl object-cover" />
+        <ArtworkImage src={cachedArtworkUrl(job.thumbnail_url)} alt="" className="h-14 w-14 shrink-0 rounded-xl object-cover" />
       ) : (
         <div className="h-14 w-14 shrink-0 rounded-xl bg-[linear-gradient(135deg,#f43f5e,#14b8a6_52%,#f59e0b)]" />
       )}

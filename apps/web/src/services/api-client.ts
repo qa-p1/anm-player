@@ -1,185 +1,206 @@
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000/api/v1";
-const apiAccessToken = import.meta.env.VITE_API_ACCESS_TOKEN as string | undefined;
-
-function operatorHeaders(): Record<string, string> {
-  return apiAccessToken ? { Authorization: `Bearer ${apiAccessToken}` } : {};
-}
+const API_BASE_PATH = "/api/v1";
+const DEFAULT_TIMEOUT_MS = 30_000;
 
 export interface ApiClientOptions {
   signal?: AbortSignal;
+  timeoutMs?: number;
 }
 
-export async function apiGet<TResponse>(path: string, options: ApiClientOptions = {}) {
-  const response = await fetch(`${apiBaseUrl}${path}`, {
-    method: "GET",
-    signal: options.signal,
-    headers: {
-      Accept: "application/json",
-      ...operatorHeaders(),
-    },
-  });
-
-  if (!response.ok) {
-    const message = await getErrorMessage(response);
-    throw new Error(message);
+class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number | null,
+    readonly code: string,
+  ) {
+    super(message);
+    this.name = "ApiError";
   }
-
-  return (await response.json()) as TResponse;
 }
 
-export async function apiPost<TResponse, TBody>(path: string, body?: TBody, options: ApiClientOptions = {}) {
-  const response = await fetch(`${apiBaseUrl}${path}`, {
-    method: "POST",
-    signal: options.signal,
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/json",
-      ...operatorHeaders(),
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-
-  if (!response.ok) {
-    const message = await getErrorMessage(response);
-    throw new Error(message);
-  }
-
-  return (await response.json()) as TResponse;
+export function isRequestCancelled(error: unknown): boolean {
+  return (
+    (error instanceof ApiError && error.code === "request_aborted")
+    || (error instanceof Error && error.name === "AbortError")
+  );
 }
 
-export async function apiPut<TResponse, TBody>(path: string, body?: TBody, options: ApiClientOptions = {}) {
-  const response = await fetch(`${apiBaseUrl}${path}`, {
-    method: "PUT",
-    signal: options.signal,
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/json",
-      ...operatorHeaders(),
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  if (!response.ok) throw new Error(await getErrorMessage(response));
-  return (await response.json()) as TResponse;
+export function apiGet<TResponse>(path: string, options?: ApiClientOptions) {
+  return apiRequest<TResponse>("GET", path, undefined, options);
 }
 
-export async function apiPatch<TResponse, TBody>(path: string, body?: TBody, options: ApiClientOptions = {}) {
-  const response = await fetch(`${apiBaseUrl}${path}`, {
-    method: "PATCH",
-    signal: options.signal,
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/json",
-      ...operatorHeaders(),
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-
-  if (!response.ok) {
-    const message = await getErrorMessage(response);
-    throw new Error(message);
-  }
-
-  return (await response.json()) as TResponse;
+export function apiPost<TResponse, TBody>(path: string, body?: TBody, options?: ApiClientOptions) {
+  return apiRequest<TResponse, TBody>("POST", path, body, options);
 }
 
-export async function apiDelete<TResponse>(path: string, options: ApiClientOptions = {}) {
-  const response = await fetch(`${apiBaseUrl}${path}`, {
-    method: "DELETE",
-    signal: options.signal,
-    headers: {
-      Accept: "application/json",
-      ...operatorHeaders(),
-    },
-  });
+export function apiPut<TResponse, TBody>(path: string, body?: TBody, options?: ApiClientOptions) {
+  return apiRequest<TResponse, TBody>("PUT", path, body, options);
+}
 
-  if (!response.ok) {
-    const message = await getErrorMessage(response);
-    throw new Error(message);
+export function apiPatch<TResponse, TBody>(path: string, body?: TBody, options?: ApiClientOptions) {
+  return apiRequest<TResponse, TBody>("PATCH", path, body, options);
+}
+
+export function apiDelete<TResponse>(path: string, options?: ApiClientOptions) {
+  return apiRequest<TResponse>("DELETE", path, undefined, options);
+}
+
+async function apiRequest<TResponse, TBody = never>(
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
+  path: string,
+  body?: TBody,
+  options: ApiClientOptions = {},
+): Promise<TResponse> {
+  if (!path.startsWith("/")) throw new ApiError("API paths must start with /", null, "invalid_path");
+
+  const controller = new AbortController();
+  let timedOut = false;
+  const timeout = window.setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+  const abort = () => controller.abort();
+  if (options.signal?.aborted) controller.abort();
+  else options.signal?.addEventListener("abort", abort, { once: true });
+
+  try {
+    const hasBody = body !== undefined;
+    const response = await fetch(`${API_BASE_PATH}${path}`, {
+      method,
+      signal: controller.signal,
+      headers: {
+        Accept: "application/json",
+        ...(hasBody ? { "Content-Type": "application/json" } : {}),
+      },
+      body: hasBody ? JSON.stringify(body) : undefined,
+    });
+
+    if (!response.ok) throw await responseError(response);
+    if (response.status === 204) return undefined as TResponse;
+
+    const text = await response.text();
+    if (!text) return undefined as TResponse;
+    try {
+      return JSON.parse(text) as TResponse;
+    } catch {
+      throw new ApiError("The server returned an invalid response.", response.status, "invalid_response");
+    }
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    if (timedOut) throw new ApiError("The request timed out. Try again.", null, "request_timeout");
+    if (controller.signal.aborted) throw new ApiError("The request was cancelled.", null, "request_aborted");
+    throw new ApiError("Could not reach ANM Player. Check that the server is running.", null, "network_error");
+  } finally {
+    window.clearTimeout(timeout);
+    options.signal?.removeEventListener("abort", abort);
   }
-
-  // Handle 204 No Content
-  if (response.status === 204) {
-    return undefined as TResponse;
-  }
-
-  const text = await response.text();
-  return text ? (JSON.parse(text) as TResponse) : (undefined as TResponse);
 }
 
 export function getDownloadEventsUrl(jobId: number) {
-  const url = new URL(apiBaseUrl);
+  const url = new URL(`${API_BASE_PATH}/downloads/${jobId}/events`, window.location.href);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  url.pathname = `${url.pathname.replace(/\/$/, "")}/downloads/${jobId}/events`;
   return url.toString();
 }
 
-export function resolveApiMediaUrl(pathOrUrl: string | null | undefined): string | null {
-  if (!pathOrUrl) return null;
-  if (/^https?:\/\//i.test(pathOrUrl) || pathOrUrl.startsWith("data:")) {
-    return pathOrUrl;
-  }
-  if (!pathOrUrl.startsWith("/")) {
-    return pathOrUrl;
-  }
-
-  const base = new URL(apiBaseUrl);
-  const apiPrefix = base.pathname.replace(/\/$/, "");
-  const path = pathOrUrl.startsWith(apiPrefix) ? pathOrUrl : `${apiPrefix}${pathOrUrl}`;
-  return `${base.origin}${path}`;
-}
-
-export function upgradeArtworkUrl(url: string | null | undefined, size = 1080): string | null {
+function upgradeArtworkUrl(url: string | null | undefined, size = 1080): string | null {
   if (!url) return null;
-  if (!/^https?:\/\//i.test(url)) return resolveApiMediaUrl(url);
+  if (!/^https?:\/\//i.test(url)) return url;
 
   try {
     const parsed = new URL(url);
-    if (!parsed.hostname.includes("ytimg.com") && !parsed.hostname.includes("googleusercontent.com")) {
-      return url;
-    }
-
+    if (!isProviderArtworkHost(parsed.hostname)) return url;
     parsed.searchParams.delete("sqp");
     parsed.searchParams.delete("rs");
-    let value = parsed.toString();
-    value = value.replace(/=w\d+-h\d+(-[a-z0-9-]+)?/i, `=w${size}-h${size}-l90-rj`);
-    value = value.replace(/=s\d+(-[a-z0-9-]+)?/i, `=s${size}`);
-
-    return value;
+    return parsed.toString()
+      .replace(/=w\d+-h\d+(-[a-z0-9-]+)?/i, `=w${size}-h${size}-l90-rj`)
+      .replace(/=s\d+(-[a-z0-9-]+)?/i, `=s${size}`);
   } catch {
     return url;
   }
 }
 
 export function cachedArtworkUrl(url: string | null | undefined, size = 1080): string | null {
+  const localMediaUrl = normalizeLocalMediaUrl(url);
+  if (localMediaUrl) return localMediaUrl;
+
   const upgraded = upgradeArtworkUrl(url, size);
-  if (!upgraded || !/^https?:\/\//i.test(upgraded)) return upgraded;
-  const base = new URL(apiBaseUrl);
-  const parsed = new URL(upgraded);
-  const mediaPrefix = `${base.pathname.replace(/\/$/, "")}/media/`;
-  if (parsed.origin === base.origin && parsed.pathname.startsWith(mediaPrefix)) {
-    return upgraded;
-  }
-  const proxy = new URL(`${base.origin}${base.pathname.replace(/\/$/, "")}/media/remote-artwork`);
-  proxy.searchParams.set("url", upgraded);
-  if (apiAccessToken) proxy.searchParams.set("access_token", apiAccessToken);
-  return proxy.toString();
+  if (!upgraded) return null;
+  if (/^(?:data:image\/|blob:)/i.test(upgraded)) return upgraded;
+  if (!/^https:\/\//i.test(upgraded)) return null;
+  return `${API_BASE_PATH}/media/remote-artwork?url=${encodeURIComponent(upgraded)}`;
 }
 
-async function getErrorMessage(response: Response) {
+function normalizeLocalMediaUrl(url: string | null | undefined, depth = 0): string | null {
+  if (depth > 3) return null;
+  const value = url?.trim();
+  if (!value) return null;
+  if (value.startsWith(`${API_BASE_PATH}/media/`)) {
+    return unwrapLegacyLocalArtworkProxy(value, depth) ?? value;
+  }
+  if (value.startsWith("/media/")) return `${API_BASE_PATH}${value}`;
+  if (!/^https?:\/\//i.test(value)) return null;
+
   try {
-    const body = (await response.json()) as {
+    const parsed = new URL(value);
+    const browserHost = window.location.hostname.toLowerCase();
+    const sourceHost = parsed.hostname.toLowerCase();
+    const sameHost = sourceHost === browserHost;
+    const sameLoopback = isLoopbackHost(sourceHost) && isLoopbackHost(browserHost);
+    if (!sameHost && !sameLoopback) return null;
+
+    if (parsed.pathname.startsWith(`${API_BASE_PATH}/media/`)) {
+      const relative = `${parsed.pathname}${parsed.search}${parsed.hash}`;
+      return unwrapLegacyLocalArtworkProxy(relative, depth) ?? relative;
+    }
+    if (parsed.pathname.startsWith("/media/")) {
+      return `${API_BASE_PATH}${parsed.pathname}${parsed.search}${parsed.hash}`;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function unwrapLegacyLocalArtworkProxy(value: string, depth: number): string | null {
+  try {
+    const parsed = new URL(value, window.location.href);
+    if (parsed.pathname !== `${API_BASE_PATH}/media/remote-artwork`) return null;
+    const target = parsed.searchParams.get("url");
+    return target ? normalizeLocalMediaUrl(target, depth + 1) : null;
+  } catch {
+    return null;
+  }
+}
+
+function isLoopbackHost(hostname: string): boolean {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1" || hostname === "[::1]";
+}
+
+function isProviderArtworkHost(hostname: string): boolean {
+  const value = hostname.toLowerCase().replace(/\.$/, "");
+  return ["googleusercontent.com", "ggpht.com", "ytimg.com"].some(
+    (host) => value === host || value.endsWith(`.${host}`),
+  );
+}
+
+async function responseError(response: Response): Promise<ApiError> {
+  const fallback = `ANM Player request failed (${response.status}).`;
+  if (!response.headers.get("content-type")?.includes("application/json")) {
+    return new ApiError(fallback, response.status, "http_error");
+  }
+
+  try {
+    const body = await response.json() as {
       error?: { code?: string; message?: string; details?: { migration?: unknown } };
       detail?: string | { message?: string };
     };
     if (body.error?.code === "storage_migration_in_progress" && body.error.details?.migration) {
-      window.dispatchEvent(new CustomEvent("aura-storage-migration-detected", {
-        detail: body.error.details.migration,
-      }));
+      window.dispatchEvent(new CustomEvent("aura-storage-migration-detected", { detail: body.error.details.migration }));
     }
-    return body.error?.message
+    const message = body.error?.message
       ?? (typeof body.detail === "string" ? body.detail : body.detail?.message)
-      ?? `API request failed: ${response.status}`;
+      ?? fallback;
+    return new ApiError(message, response.status, body.error?.code ?? "http_error");
   } catch {
-    return `API request failed: ${response.status}`;
+    return new ApiError(fallback, response.status, "invalid_error_response");
   }
 }

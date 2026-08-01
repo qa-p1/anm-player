@@ -1,0 +1,7 @@
+-r requirements.txt
+
+pytest==9.1.1
+pytest-cov==7.0.0
+coverage==7.15.2
+ruff==0.15.22
+pip-audit==2.10.1

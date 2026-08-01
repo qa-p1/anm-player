@@ -1,7 +1,7 @@
 import { motion } from "framer-motion";
 import { Heart, Mic, Play, Shuffle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { Link, useLocation, useParams } from "react-router-dom";
+import { Link, useLocation, useParams } from "react-router";
 
 import { pageTransition } from "@/animations/page-motion";
 import { SongCard } from "@/components/cards/song-card";
@@ -9,7 +9,7 @@ import { ArtworkImage } from "@/components/cards/artwork-image";
 import { TrackRow } from "@/components/cards/track-row";
 import { BackButton } from "@/components/navigation/back-button";
 import { Button } from "@/components/ui/button";
-import { cachedArtworkUrl } from "@/services/api-client";
+import { cachedArtworkUrl, isRequestCancelled } from "@/services/api-client";
 import { getArtist, getOnlineArtist, toggleFavorite } from "@/services/music-api";
 import { usePlayerStore } from "@/stores/player-store";
 import type { ArtistDetail, LibraryArtistDetail, LibraryTrack } from "@/types/api";
@@ -47,7 +47,7 @@ export function ArtistDetailPage() {
         }
       })
       .catch((error) => {
-        if (error instanceof DOMException && error.name === "AbortError") return;
+        if (isRequestCancelled(error)) return;
         console.error("Failed to load artist:", error);
       })
       .finally(() => {

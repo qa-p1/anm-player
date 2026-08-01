@@ -1,37 +1,56 @@
+name: ${COMPOSE_PROJECT_NAME:-anm-player}
+
 services:
   web:
     build:
       context: .
       dockerfile: docker/web.Dockerfile
       target: production
-      args:
-        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000/api/v1}
-        VITE_API_ACCESS_TOKEN: ${VITE_API_ACCESS_TOKEN:-}
-    ports:
-      - "${WEB_PORT:-5173}:80"
     environment:
-      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000/api/v1}
-      VITE_API_ACCESS_TOKEN: ${VITE_API_ACCESS_TOKEN:-}
+      API_ACCESS_TOKEN: ${API_ACCESS_TOKEN:-}
+    ports:
+      - "${WEB_BIND_HOST:-127.0.0.1}:${WEB_PORT:-5173}:80"
     depends_on:
-      - api
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    restart: unless-stopped
 
   api:
     build:
       context: .
       dockerfile: docker/api.Dockerfile
-    ports:
-      - "${API_PORT:-8000}:8000"
+      target: runtime
+    expose:
+      - "8000"
     environment:
       API_ENV: ${API_ENV:-production}
-      API_CORS_ORIGINS: ${API_CORS_ORIGINS:-http://localhost:5173}
       API_ACCESS_TOKEN: ${API_ACCESS_TOKEN:-}
-      AURA_DATA_ROOT: ${AURA_DATA_ROOT:-/data}
-      AURA_STATE_FILE: ${AURA_STATE_FILE:-/aura-state/storage-state.json}
-      DOWNLOAD_OVERWRITE_EXISTING: ${DOWNLOAD_OVERWRITE_EXISTING:-false}
-      DOWNLOAD_AUDIO_FORMAT: ${DOWNLOAD_AUDIO_FORMAT:-mp3}
+      API_TRUSTED_HOSTS: ${API_TRUSTED_HOSTS:-localhost,127.0.0.1,api}
+      AURA_DATA_ROOT: /data
+      AURA_STATE_FILE: /aura-state/storage-state.json
+      DOWNLOAD_WORKER_POLL_INTERVAL_SECONDS: ${DOWNLOAD_WORKER_POLL_INTERVAL_SECONDS:-1}
+      STREAM_FETCH_MAX_CONCURRENCY: ${STREAM_FETCH_MAX_CONCURRENCY:-2}
+      STREAM_MAX_FILE_MB: ${STREAM_MAX_FILE_MB:-256}
+      STREAM_CACHE_BUDGET_MB: ${STREAM_CACHE_BUDGET_MB:-2048}
+      ARTWORK_MAX_RESPONSE_MB: ${ARTWORK_MAX_RESPONSE_MB:-12}
+      ARTWORK_MAX_PIXELS: ${ARTWORK_MAX_PIXELS:-40000000}
+      ARTWORK_MAX_CONCURRENCY: ${ARTWORK_MAX_CONCURRENCY:-4}
     volumes:
       - aura-data:/data
       - aura-state:/aura-state
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=2).read()"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 15s
+    restart: unless-stopped
 
 volumes:
   aura-data:

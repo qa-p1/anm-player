@@ -22,8 +22,7 @@ LYRICS_STATUS_NOT_FOUND = "not_found"
 LYRICS_STATUS_OFFLINE = "offline"
 LYRICS_STATUS_ERROR = "error"
 
-_lyrics_locks_guard = threading.Lock()
-_lyrics_locks: dict[str, threading.Lock] = {}
+_lyrics_locks = tuple(threading.Lock() for _ in range(64))
 
 
 @dataclass
@@ -179,12 +178,8 @@ class LyricsCacheService:
 
     def lock_for(self, source: str, external_id: str) -> threading.Lock:
         key = f"{source}:{external_id}"
-        with _lyrics_locks_guard:
-            lock = _lyrics_locks.get(key)
-            if lock is None:
-                lock = threading.Lock()
-                _lyrics_locks[key] = lock
-            return lock
+        index = int(hashlib.sha256(key.encode("utf-8")).hexdigest()[:8], 16)
+        return _lyrics_locks[index % len(_lyrics_locks)]
 
     def _entry(self, source: str, external_id: str) -> LyricsCacheEntry | None:
         return self.session.scalars(
@@ -198,9 +193,11 @@ class LyricsCacheService:
         if entry.status != LYRICS_STATUS_CACHED or not entry.relative_path:
             return None
         cache_path = self._resolve_cache_path(entry.relative_path)
-        if cache_path is None or not cache_path.exists() or cache_path.stat().st_size <= 0:
+        if cache_path is None:
             return None
         try:
+            if not cache_path.is_file() or cache_path.stat().st_size <= 0:
+                return None
             text = cache_path.read_text(encoding="utf-8").strip()
         except (OSError, UnicodeDecodeError):
             logger.warning("invalid lyrics cache file", extra={"cache_path": str(cache_path)}, exc_info=True)
@@ -209,15 +206,17 @@ class LyricsCacheService:
 
     def _write_file(self, source: str, external_id: str, lyrics: str, lyric_format: str) -> Path:
         suffix = ".lrc" if lyric_format == "lrc" else ".txt"
-        filename = f"{hashlib.sha1(f'{source}:{external_id}'.encode()).hexdigest()}{suffix}"
+        filename = f"{hashlib.sha256(f'{source}:{external_id}'.encode()).hexdigest()}{suffix}"
         target = self.cache_dir / filename
         temp = self.cache_dir / f"{filename}.part"
         temp.unlink(missing_ok=True)
-        temp.write_text(lyrics, encoding="utf-8")
-        if temp.stat().st_size <= 0:
+        try:
+            temp.write_text(lyrics, encoding="utf-8")
+            if temp.stat().st_size <= 0:
+                raise ValueError("Lyrics cache file was empty.")
+            temp.replace(target)
+        finally:
             temp.unlink(missing_ok=True)
-            raise ValueError("Lyrics cache file was empty.")
-        temp.replace(target)
         return target
 
     def _resolve_cache_path(self, cache_path: str) -> Path | None:

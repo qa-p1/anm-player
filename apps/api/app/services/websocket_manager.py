@@ -13,7 +13,7 @@ class DownloadProgressHub:
         self._connections: dict[int, set[WebSocket]] = defaultdict(set)
         self._loop: asyncio.AbstractEventLoop | None = None
 
-    def bind_loop(self, loop: asyncio.AbstractEventLoop) -> None:
+    def bind_loop(self, loop: asyncio.AbstractEventLoop | None) -> None:
         self._loop = loop
 
     async def connect(self, job_id: int, websocket: WebSocket) -> None:
@@ -37,9 +37,23 @@ class DownloadProgressHub:
             self.disconnect(job_id, websocket)
 
     def publish_threadsafe(self, job_id: int, payload: dict[str, Any]) -> None:
-        if not self._loop:
+        loop = self._loop
+        if not loop or loop.is_closed():
             return
-        asyncio.run_coroutine_threadsafe(self.broadcast(job_id, payload), self._loop)
+        coroutine = self.broadcast(job_id, payload)
+        try:
+            future = asyncio.run_coroutine_threadsafe(coroutine, loop)
+        except RuntimeError:
+            coroutine.close()
+            return
+
+        def consume_result(completed) -> None:
+            try:
+                completed.result()
+            except Exception:
+                logger.debug("download progress broadcast did not complete", exc_info=True)
+
+        future.add_done_callback(consume_result)
 
 
 download_progress_hub = DownloadProgressHub()

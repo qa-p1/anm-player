@@ -19,8 +19,3 @@ class ResourceNotFoundError(AppError):
 class ConflictError(AppError):
     status_code = HTTPStatus.CONFLICT
     code = "conflict"
-
-
-class FeatureNotImplementedError(AppError):
-    status_code = HTTPStatus.NOT_IMPLEMENTED
-    code = "feature_not_implemented"

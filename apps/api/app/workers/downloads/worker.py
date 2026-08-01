@@ -1,4 +1,6 @@
 import logging
+import os
+import secrets
 import shutil
 import threading
 import time
@@ -12,8 +14,10 @@ from app.core.config import settings
 from app.core.enums import DownloadStage, DownloadStatus
 from app.database.session import SessionLocal
 from app.models import AlbumDownloadItem, DownloadJob, LibraryAlbum, Song
-from app.repositories.music import AlbumRepository, ArtistRepository, DownloadJobRepository, QueueItemRepository, SongRepository
+from app.repositories.music import AlbumRepository, ArtistRepository, DownloadJobRepository, SongRepository
+from app.services.download_state import sync_linked_album_download
 from app.services.file_paths import library_storage_path
+from app.services.library_scanner import library_sync_guard
 from app.services.naming import NamingService
 from app.services.artwork_cache import ArtworkCacheService
 from app.services.lyrics_service import LyricsService
@@ -22,7 +26,7 @@ from app.services.websocket_manager import download_progress_hub
 from app.services.settings import SettingsService
 from app.services.metadata.service import MetadataEnrichmentService
 from app.storage import storage_manager
-from app.storage.coordinator import storage_coordinator
+from app.storage.coordinator import StorageMigrationError, storage_coordinator
 
 logger = logging.getLogger(__name__)
 
@@ -63,18 +67,20 @@ class DownloadWorker:
             self._stop_event.wait(settings.download_worker_poll_interval_seconds)
 
     def _work_once(self) -> None:
-        job_id = self._claim_next_job()
-        if job_id is None:
-            return
-
         try:
             with storage_coordinator.filesystem_write():
-                self._download_job(job_id)
-        except Exception as exc:
-            logger.exception("download failed", extra={"job_id": job_id})
-            self._mark_failed(job_id, exc)
-        finally:
-            shutil.rmtree(self._download_jobs_dir() / str(job_id), ignore_errors=True)
+                job_id = self._claim_next_job()
+                if job_id is None:
+                    return
+                try:
+                    self._download_job(job_id)
+                except Exception as exc:
+                    logger.exception("download failed", extra={"job_id": job_id})
+                    self._mark_failed(job_id, exc)
+                finally:
+                    shutil.rmtree(self._download_jobs_dir() / str(job_id), ignore_errors=True)
+        except StorageMigrationError:
+            return
 
     def _claim_next_job(self) -> int | None:
         with self._claim_lock:
@@ -100,8 +106,10 @@ class DownloadWorker:
             if job_id is None:
                 return None
             job = downloads.get(job_id)
-            if job and job.queue_item:
-                job.queue_item.status = DownloadStatus.PREPARING
+            if job:
+                if job.queue_item:
+                    job.queue_item.status = DownloadStatus.PREPARING
+                sync_linked_album_download(session, job)
                 session.commit()
         self._publish(job_id)
         return job_id
@@ -116,6 +124,7 @@ class DownloadWorker:
                     fresh_job.stage = DownloadStage.QUEUED
                     if fresh_job.queue_item:
                         fresh_job.queue_item.status = DownloadStatus.QUEUED
+                    sync_linked_album_download(session, fresh_job)
                     session.commit()
                     return
                 fresh_job.status = DownloadStatus.FAILED
@@ -123,79 +132,77 @@ class DownloadWorker:
                 fresh_job.error_message = self._friendly_error(exc)
                 if fresh_job.queue_item:
                     fresh_job.queue_item.status = DownloadStatus.FAILED
-                album_item = session.query(AlbumDownloadItem).filter(
-                    AlbumDownloadItem.download_job_id == fresh_job.id
-                ).first()
-                if album_item:
-                    album_item.status = DownloadStatus.FAILED
-                    album_item.error_message = fresh_job.error_message
-                    album_job = album_item.album_job
-                    album_job.failed_tracks = sum(1 for item in album_job.items if item.status == DownloadStatus.FAILED)
-                    album_job.completed_tracks = sum(1 for item in album_job.items if item.status == DownloadStatus.COMPLETED)
-                    finished = album_job.failed_tracks + album_job.completed_tracks
-                    album_job.progress = int((finished / album_job.total_tracks) * 100) if album_job.total_tracks else 100
-                    if finished >= album_job.total_tracks:
-                        album_job.status = DownloadStatus.FAILED
-                        album_job.completed_at = datetime.now(UTC)
+                sync_linked_album_download(session, fresh_job)
                 session.commit()
                 self._publish(fresh_job.id)
 
     def _download_job(self, job_id: int) -> None:
+        request = self._download_request(job_id)
+        if not request:
+            return
+        source_url, audio_format = request
+        work_dir = self._download_jobs_dir() / str(job_id)
+        work_dir.mkdir(parents=True, exist_ok=True)
+        info, output_file = self._download_media(job_id, source_url, audio_format, work_dir)
+        with library_sync_guard():
+            postprocessing = self._save_download(job_id, info, output_file)
+        if postprocessing:
+            song_id, fetch_lyrics, enrich_metadata = postprocessing
+            self._postprocess_download(song_id, fetch_lyrics, enrich_metadata)
+
+    def _download_request(self, job_id: int) -> tuple[str, str] | None:
         with SessionLocal() as session:
             job = DownloadJobRepository(session).get(job_id)
             if not job or not job.source_url:
+                return None
+            return job.source_url, job.audio_format
+
+    def _update_progress(self, job_id: int, payload: dict[str, Any]) -> None:
+        with SessionLocal() as hook_session:
+            hook_job = DownloadJobRepository(hook_session).get(job_id)
+            if not hook_job:
                 return
-            source_url = job.source_url
-            audio_format = job.audio_format
-
-        work_dir = self._download_jobs_dir() / str(job_id)
-        work_dir.mkdir(parents=True, exist_ok=True)
-
-        def progress_hook(payload: dict[str, Any]) -> None:
-            with SessionLocal() as hook_session:
-                hook_job = DownloadJobRepository(hook_session).get(job_id)
-                if not hook_job:
-                    return
-                if storage_coordinator.cancel_work.is_set():
-                    hook_job.status = DownloadStatus.QUEUED
-                    hook_job.stage = DownloadStage.QUEUED
-                    if hook_job.queue_item:
-                        hook_job.queue_item.status = DownloadStatus.QUEUED
-                    hook_session.commit()
-                    raise RuntimeError("Download returned to queue for storage migration")
+            if storage_coordinator.cancel_work.is_set():
+                hook_job.status = DownloadStatus.QUEUED
+                hook_job.stage = DownloadStage.QUEUED
+                if hook_job.queue_item:
+                    hook_job.queue_item.status = DownloadStatus.QUEUED
+                sync_linked_album_download(hook_session, hook_job)
+                hook_session.commit()
+                raise RuntimeError("Download returned to queue for storage migration")
+            if hook_job.status == DownloadStatus.CANCELLED:
+                raise RuntimeError("Download cancelled")
+            while hook_job.status == DownloadStatus.PAUSED:
+                hook_session.commit()
+                time.sleep(0.25)
+                hook_session.refresh(hook_job)
                 if hook_job.status == DownloadStatus.CANCELLED:
                     raise RuntimeError("Download cancelled")
-                while hook_job.status == DownloadStatus.PAUSED:
-                    hook_session.commit()
-                    time.sleep(0.25)
-                    hook_session.refresh(hook_job)
-                    if hook_job.status == DownloadStatus.CANCELLED:
-                        raise RuntimeError("Download cancelled")
 
-                status = payload.get("status")
-                if status == "downloading":
-                    hook_job.status = DownloadStatus.DOWNLOADING
-                    hook_job.stage = DownloadStage.DOWNLOADING
-                    hook_job.progress = self._percent(payload)
-                    hook_job.speed = self._format_speed(payload.get("speed"))
-                    hook_job.eta = self._format_eta(payload.get("eta"))
-                elif status == "finished":
-                    hook_job.status = DownloadStatus.PROCESSING
-                    hook_job.stage = DownloadStage.EXTRACTING
-                    hook_job.progress = max(hook_job.progress, 92)
-                album_item = hook_session.query(AlbumDownloadItem).filter(
-                    AlbumDownloadItem.download_job_id == hook_job.id
-                ).first()
-                if album_item:
-                    album_item.status = hook_job.status
-                    album_item.progress = hook_job.progress
-                    album_job = album_item.album_job
-                    album_job.status = hook_job.status
-                    album_job.progress = int(
-                        sum(item.progress for item in album_job.items) / max(album_job.total_tracks, 1)
-                    )
-                hook_session.commit()
-                self._publish(job_id)
+            status = payload.get("status")
+            if status == "downloading":
+                hook_job.status = DownloadStatus.DOWNLOADING
+                hook_job.stage = DownloadStage.DOWNLOADING
+                hook_job.progress = self._percent(payload)
+                hook_job.speed = self._format_speed(payload.get("speed"))
+                hook_job.eta = self._format_eta(payload.get("eta"))
+            elif status == "finished":
+                hook_job.status = DownloadStatus.PROCESSING
+                hook_job.stage = DownloadStage.EXTRACTING
+                hook_job.progress = max(hook_job.progress, 92)
+            sync_linked_album_download(hook_session, hook_job)
+            hook_session.commit()
+            self._publish(job_id)
+
+    def _download_media(
+        self,
+        job_id: int,
+        source_url: str,
+        audio_format: str,
+        work_dir: Path,
+    ) -> tuple[dict[str, Any], Path]:
+        def progress_hook(payload: dict[str, Any]) -> None:
+            self._update_progress(job_id, payload)
 
         options = {
             "format": "bestaudio/best",
@@ -215,8 +222,14 @@ class DownloadWorker:
 
         with YoutubeDL(options) as ydl:
             info = ydl.extract_info(source_url, download=True)
+        return info, self._find_output_file(work_dir, audio_format)
 
-        mp3_file = self._find_output_file(work_dir, audio_format)
+    def _save_download(
+        self,
+        job_id: int,
+        info: dict[str, Any],
+        output_file: Path,
+    ) -> tuple[int, bool, bool] | None:
         with SessionLocal() as session:
             downloads = DownloadJobRepository(session)
             songs = SongRepository(session)
@@ -238,7 +251,7 @@ class DownloadWorker:
 
             title = fresh_job.title or info.get("title") or "Song"
             artist_name = fresh_job.artist or info.get("artist") or info.get("creator") or info.get("uploader") or "Unknown Artist"
-            # Only persist album metadata supplied by Aura's provider/library
+            # Only persist album metadata supplied by ANM Player's provider/library
             # context. yt-dlp frequently reports a standalone release's title as
             # its album, which used to create a fake one-song album in Library.
             album_name = _download_album_name(fresh_job.album)
@@ -251,11 +264,13 @@ class DownloadWorker:
                 extension=fresh_job.audio_format,
             )
             target_path.parent.mkdir(parents=True, exist_ok=True)
-            if target_path.exists() and not fresh_job.overwrite_existing:
-                raise RuntimeError("A file already exists at the destination.")
-            shutil.move(str(mp3_file), target_path)
+            if target_path.exists():
+                if not target_path.is_file():
+                    raise RuntimeError("The download destination is not a file.")
+                if not fresh_job.overwrite_existing:
+                    raise RuntimeError("A file already exists at the destination.")
             self.tagging.write_tags(
-                target_path,
+                output_file,
                 AudioTagData(
                     title=title,
                     artist=artist_name,
@@ -328,18 +343,6 @@ class DownloadWorker:
                     album_item.album_job.album.artwork_url = artwork_url
                 if artwork_path:
                     album_item.album_job.album.artwork_path = artwork_path
-                album_item.status = DownloadStatus.COMPLETED
-                album_item.progress = 100
-                album_job = album_item.album_job
-                completed = sum(1 for item in album_job.items if item.status == DownloadStatus.COMPLETED)
-                failed = sum(1 for item in album_job.items if item.status == DownloadStatus.FAILED)
-                album_job.completed_tracks = completed
-                album_job.failed_tracks = failed
-                album_job.progress = int((completed / album_job.total_tracks) * 100) if album_job.total_tracks else 100
-                if completed + failed >= album_job.total_tracks:
-                    album_job.status = DownloadStatus.COMPLETED if failed == 0 else DownloadStatus.FAILED
-                    album_job.completed_at = datetime.now(UTC)
-
             fresh_job.status = DownloadStatus.COMPLETED
             fresh_job.stage = DownloadStage.COMPLETED
             fresh_job.progress = 100
@@ -347,20 +350,120 @@ class DownloadWorker:
             fresh_job.completed_at = datetime.now(UTC)
             if fresh_job.queue_item:
                 fresh_job.queue_item.status = DownloadStatus.COMPLETED
-            session.commit()
-            
-            if runtime.get_bool("auto_fetch_lyrics", True):
-                try:
-                    self._fetch_lyrics(session, song_for_enrichment.id)
-                except Exception as exc:
-                    logger.warning(f"Failed to fetch lyrics for song {song_for_enrichment.id}: {exc}")
-            if runtime.get_bool("auto_enrich_downloads", True):
-                try:
-                    self._enrich_song(session, song_for_enrichment.id)
-                except Exception as exc:
-                    logger.warning("Metadata enrichment failed for completed song %s: %s", song_for_enrichment.id, exc)
-            self._publish(job_id)
+            sync_linked_album_download(session, fresh_job)
 
+            # Flush every constraint before publishing the media file. The
+            # final replace and database commit are then compensated together:
+            # a failed commit restores an overwritten file or removes the new
+            # one, so the filesystem cannot get ahead of the database.
+            session.flush()
+            stage_path = target_path.with_name(
+                f".{target_path.name}.aura-stage-{secrets.token_hex(16)}"
+            )
+            backup_path = target_path.with_name(
+                f".{target_path.name}.aura-backup-{secrets.token_hex(16)}"
+            )
+            published = False
+            backed_up = False
+            try:
+                shutil.move(str(output_file), stage_path)
+                if target_path.exists():
+                    # Keep the live file in place until the final atomic
+                    # replacement. A crash can therefore never leave its
+                    # database path temporarily missing.
+                    shutil.copy2(target_path, backup_path)
+                    backed_up = True
+                os.replace(stage_path, target_path)
+                published = True
+                session.commit()
+            except Exception:
+                session.rollback()
+                self._rollback_audio_publication(
+                    target_path=target_path,
+                    stage_path=stage_path,
+                    backup_path=backup_path,
+                    published=published,
+                    backed_up=backed_up,
+                )
+                raise
+            else:
+                try:
+                    backup_path.unlink(missing_ok=True)
+                except OSError:
+                    logger.warning(
+                        "Download completed, but its replace backup could not be removed",
+                        extra={"job_id": job_id},
+                        exc_info=True,
+                    )
+
+            self._publish(job_id)
+            return (
+                song_for_enrichment.id,
+                runtime.get_bool("auto_fetch_lyrics", True),
+                runtime.get_bool("auto_enrich_downloads", True),
+            )
+
+    @staticmethod
+    def _rollback_audio_publication(
+        *,
+        target_path: Path,
+        stage_path: Path,
+        backup_path: Path,
+        published: bool,
+        backed_up: bool,
+    ) -> None:
+        restore_error: OSError | None = None
+        try:
+            if backed_up:
+                if not backup_path.is_file():
+                    raise OSError("The audio replacement backup is missing")
+                os.replace(backup_path, target_path)
+            elif published:
+                target_path.unlink(missing_ok=True)
+        except OSError as exc:
+            restore_error = exc
+            logger.exception("Could not restore the previous audio file after a failed database commit")
+        finally:
+            try:
+                stage_path.unlink(missing_ok=True)
+            except OSError:
+                logger.warning("Could not remove an unpublished audio staging file", exc_info=True)
+            if not backed_up:
+                try:
+                    backup_path.unlink(missing_ok=True)
+                except OSError:
+                    logger.warning("Could not remove an incomplete audio backup", exc_info=True)
+
+        if restore_error is not None:
+            raise RuntimeError(
+                "The download failed and ANM Player could not fully restore the previous audio file."
+            ) from restore_error
+
+    def _postprocess_download(
+        self,
+        song_id: int,
+        fetch_lyrics: bool,
+        enrich_metadata: bool,
+    ) -> None:
+        with SessionLocal() as session:
+            if fetch_lyrics:
+                try:
+                    self._fetch_lyrics(session, song_id)
+                except Exception:
+                    logger.warning(
+                        "Failed to fetch lyrics for completed song %s",
+                        song_id,
+                        exc_info=True,
+                    )
+            if enrich_metadata:
+                try:
+                    self._enrich_song(session, song_id)
+                except Exception:
+                    logger.warning(
+                        "Metadata enrichment failed for completed song %s",
+                        song_id,
+                        exc_info=True,
+                    )
 
     def _publish(self, job_id: int) -> None:
         with SessionLocal() as session:
@@ -425,7 +528,7 @@ class DownloadWorker:
         if "ffmpeg" in message.lower():
             return "Audio conversion failed. Confirm FFmpeg is installed and available."
         if "permission" in message.lower():
-            return "Aura could not write to the configured music directory."
+            return "ANM Player could not write to the configured music directory."
         if "cancelled" in message.lower():
             return "Download was cancelled."
         return "Download failed. The video may be unavailable or unsupported."
@@ -446,11 +549,18 @@ class DownloadWorker:
                 persistent_dir = storage_manager.paths.download_thumbnails
                 persistent_dir.mkdir(parents=True, exist_ok=True)
                 persistent_path = persistent_dir / cached_path.name
-                if not persistent_path.is_file():
-                    shutil.copyfile(cached_path, persistent_path)
-                return f"/media/artwork/downloads/{persistent_path.name}"
+                temporary = persistent_path.with_name(
+                    f".{persistent_path.name}.{secrets.token_hex(6)}.tmp"
+                )
+                try:
+                    shutil.copyfile(cached_path, temporary)
+                    os.replace(temporary, persistent_path)
+                finally:
+                    temporary.unlink(missing_ok=True)
+                return f"/api/v1/media/artwork/downloads/{persistent_path.name}"
             finally:
                 loop.close()
+                asyncio.set_event_loop(None)
         except Exception as exc:
             logger.warning(f"Failed to cache artwork: {exc}")
             return None
@@ -468,6 +578,7 @@ class DownloadWorker:
                 logger.info(f"Finished lyrics lookup for song {song_id}")
             finally:
                 loop.close()
+                asyncio.set_event_loop(None)
         except Exception as exc:
             logger.error(f"Lyrics lookup failed for song {song_id}: {exc}")
 
@@ -475,14 +586,14 @@ class DownloadWorker:
         import asyncio
 
         loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
         try:
             loop.run_until_complete(MetadataEnrichmentService(session).enrich_song(song_id))
         finally:
             loop.close()
+            asyncio.set_event_loop(None)
 
     def _download_jobs_dir(self) -> Path:
-        if settings.download_directory is not None:
-            return Path(settings.download_directory) / "jobs"
         return storage_manager.paths.download_jobs
 
 
