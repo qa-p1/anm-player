@@ -16,7 +16,7 @@ export function Sidebar() {
           <Disc3 className="h-5 w-5" />
         </div>
         <div>
-          <p className="text-lg font-bold tracking-normal">Aura</p>
+          <p className="text-lg font-bold tracking-normal">ANM Player</p>
           <p className="text-xs text-muted-foreground">Self-hosted music</p>
         </div>
       </div>

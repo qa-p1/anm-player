@@ -1,3 +1,3 @@
 /// <reference types="vite/client" />
 
-declare const __AURA_VERSION__: string;
+declare const __ANM_PLAYER_VERSION__: string;

@@ -97,7 +97,7 @@ def stream(
             path=str(source.path),
             media_type=source.media_type,
             filename=source.path.name,
-            headers={"Cache-Control": "private, max-age=86400", "X-Aura-Playback-Source": source.kind},
+            headers={"Cache-Control": "private, max-age=86400", "X-ANM-Player-Playback-Source": source.kind},
         )
     if source.playback is None:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Playback source did not contain audio")
@@ -119,7 +119,7 @@ def _proxy_playback_stream(playback: PlaybackData, range_header: str | None, *, 
         logger.warning("Could not open upstream stream: %s", exc)
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Could not open upstream audio stream") from exc
 
-    headers = {"Cache-Control": "no-store", "Accept-Ranges": "bytes", "X-Aura-Playback-Source": source_kind}
+    headers = {"Cache-Control": "no-store", "Accept-Ranges": "bytes", "X-ANM-Player-Playback-Source": source_kind}
     for source, target in (
         ("Content-Length", "Content-Length"),
         ("Content-Range", "Content-Range"),

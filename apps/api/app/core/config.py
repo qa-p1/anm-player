@@ -24,7 +24,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    app_name: str = "Aura"
+    app_name: str = "ANM Player"
     app_version: str = VERSION
     api_prefix: str = "/api/v1"
     api_env: Literal["development", "test", "production"] = Field(default="development", alias="API_ENV")

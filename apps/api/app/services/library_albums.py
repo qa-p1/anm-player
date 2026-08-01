@@ -1391,7 +1391,7 @@ class LibraryAlbumService:
                         logger.critical("Could not restore a staged music file after database rollback", exc_info=True)
                 if restoration_failed:
                     raise ConflictError(
-                        "Aura could not safely finish removing the download. Restart Aura before trying again."
+                        "ANM Player could not safely finish removing the download. Restart ANM Player before trying again."
                     ) from exc
                 if isinstance(exc, OSError):
                     raise ConflictError(

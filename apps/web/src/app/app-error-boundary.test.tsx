@@ -13,8 +13,8 @@ describe("AppErrorBoundary", () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     const { container } = render(<AppErrorBoundary><Broken /></AppErrorBoundary>);
 
-    expect(screen.getByRole("alert")).toHaveTextContent("Aura hit an unexpected problem");
-    expect(screen.getByRole("button", { name: "Reload Aura" })).toBeVisible();
+    expect(screen.getByRole("alert")).toHaveTextContent("ANM Player hit an unexpected problem");
+    expect(screen.getByRole("button", { name: "Reload ANM Player" })).toBeVisible();
     expect((await axe(container)).violations).toEqual([]);
   });
 });

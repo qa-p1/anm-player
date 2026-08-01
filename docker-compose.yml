@@ -1,3 +1,5 @@
+name: ${COMPOSE_PROJECT_NAME:-anm-player}
+
 services:
   web:
     build:

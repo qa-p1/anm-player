@@ -4,7 +4,7 @@ from app.schemas.health import AppInfoResponse, HealthResponse, VersionResponse
 
 class HealthService:
     def health(self) -> HealthResponse:
-        return HealthResponse(status="ok", service="aura-api")
+        return HealthResponse(status="ok", service="anm-player-api")
 
     def version(self) -> VersionResponse:
         return VersionResponse(

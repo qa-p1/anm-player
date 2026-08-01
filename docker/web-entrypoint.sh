@@ -9,7 +9,7 @@ fi
 # Substitute only the application token. Nginx variables such as $uri,
 # $host, and $http_upgrade must remain intact.
 envsubst '${API_ACCESS_TOKEN}' \
-  < /etc/nginx/templates/aura.conf.template \
+  < /etc/nginx/templates/anm-player.conf.template \
   > /etc/nginx/conf.d/default.conf
 
 exec nginx -g 'daemon off;'

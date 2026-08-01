@@ -52,7 +52,7 @@ export function useAudioPlayer() {
       } catch (error) {
         if (cancelled || isIgnorablePlaybackAbort(error)) return;
         console.error("Failed to load song:", error);
-        toast("Aura couldn't play this track.", "error");
+        toast("ANM Player couldn't play this track.", "error");
         setIsPlaying(false);
       } finally {
         if (!cancelled) {

@@ -1,6 +1,6 @@
 # Security policy
 
-Aura Music is a single-user application intended to run on one computer. Its default Docker and native launchers bind the web interface to `127.0.0.1`. It is not a multi-user service and does not provide internet-facing account authentication.
+ANM Player is a single-user application intended to run on one computer. Its default Docker and native launchers bind the web interface to `127.0.0.1`. It is not a multi-user service and does not provide internet-facing account authentication.
 
 ## Reporting a vulnerability
 
@@ -10,6 +10,6 @@ The maintainers will acknowledge a complete report when it is reviewed and will 
 
 ## Deployment model
 
-Anyone who can reach Aura's web service has operator-level control through the trusted same-origin proxy. Keep the default loopback binding. If remote access is required, put Aura behind a separately authenticated reverse proxy or a private VPN and restrict network access to trusted users.
+Anyone who can reach ANM Player's web service has operator-level control through the trusted same-origin proxy. Keep the default loopback binding. If remote access is required, put ANM Player behind a separately authenticated reverse proxy or a private VPN and restrict network access to trusted users.
 
-Provider credentials, an Aura API token, databases, downloads, storage state, and local media must never be committed to the repository. Rotate a token immediately if it is exposed.
+Provider credentials, an ANM Player API token, databases, downloads, storage state, and local media must never be committed to the repository. Rotate a token immediately if it is exposed.

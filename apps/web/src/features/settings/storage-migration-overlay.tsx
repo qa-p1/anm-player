@@ -142,7 +142,7 @@ export function StorageMigrationOverlay() {
             <Database className="h-7 w-7 text-primary" />
           </div>
           <div className="min-w-0 flex-1">
-            <h2 className="text-xl font-black">{isReset ? "Starting Aura fresh…" : "Moving data to new location…"}</h2>
+            <h2 className="text-xl font-black">{isReset ? "Starting ANM Player fresh…" : "Moving data to new location…"}</h2>
             <p className="mt-1 text-sm text-muted-foreground">{migration.message}</p>
           </div>
           <LoaderCircle className="h-5 w-5 animate-spin text-primary" />
@@ -154,27 +154,27 @@ export function StorageMigrationOverlay() {
           <span className="capitalize">{migration.phase.replaceAll("_", " ")}</span>
           <span>{isReset ? `${migration.percent}%` : `${migration.percent}% · ${migration.files_processed.toLocaleString()} / ${migration.files_total.toLocaleString()} files`}</span>
         </div>
-        <p className="mt-5 text-xs text-muted-foreground">Playback is paused and Aura controls are temporarily locked to keep the database and media files consistent.</p>
+        <p className="mt-5 text-xs text-muted-foreground">Playback is paused and ANM Player controls are temporarily locked to keep the database and media files consistent.</p>
       </div>}
 
       {view === "verified" && <div className="glass-panel w-full max-w-xl rounded-3xl p-7 text-center shadow-2xl">
         <CheckCircle2 className="mx-auto h-14 w-14 text-emerald-400" />
-        <h2 className="mt-4 text-2xl font-black">{isReset ? "Aura is ready for a fresh start" : "Data move complete and verified"}</h2>
-        <p className="mt-2 text-sm text-muted-foreground">{isReset ? "The clean database and storage layout are ready at the new location." : "Aura is now using the new data location."}</p>
+        <h2 className="mt-4 text-2xl font-black">{isReset ? "ANM Player is ready for a fresh start" : "Data move complete and verified"}</h2>
+        <p className="mt-2 text-sm text-muted-foreground">{isReset ? "The clean database and storage layout are ready at the new location." : "ANM Player is now using the new data location."}</p>
         <div className="mx-auto mt-6 max-w-sm space-y-3 text-left text-sm">
           <VerificationLine label={isReset ? "Fresh SQLite database created" : "SQLite database integrity passed"} />
           <VerificationLine label={isReset ? "No prior library records carried over" : "Managed files and track paths verified"} />
           <VerificationLine label="New storage directories are writable" />
         </div>
         {migration.cleanup_warning && <p className="mt-5 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-left text-sm text-amber-200">{migration.cleanup_warning}</p>}
-        <div className="mt-7 flex items-center justify-center gap-2 text-sm font-semibold text-primary"><RefreshCw className="h-4 w-4 animate-spin" />Refreshing Aura…</div>
+        <div className="mt-7 flex items-center justify-center gap-2 text-sm font-semibold text-primary"><RefreshCw className="h-4 w-4 animate-spin" />Refreshing ANM Player…</div>
       </div>}
 
       {view === "failed" && <div className="glass-panel w-full max-w-xl rounded-3xl p-7 text-center shadow-2xl">
         <AlertTriangle className="mx-auto h-14 w-14 text-amber-400" />
         <h2 className="mt-4 text-2xl font-black">{isReset ? "Fresh start could not be completed" : "Data move could not be completed"}</h2>
-        <p className="mt-3 text-sm text-muted-foreground">{migration.error || "Aura kept the last verified data location active."}</p>
-        <Button className="mt-6" onClick={() => window.location.reload()}><RefreshCw className="h-4 w-4" />Reload Aura</Button>
+        <p className="mt-3 text-sm text-muted-foreground">{migration.error || "ANM Player kept the last verified data location active."}</p>
+        <Button className="mt-6" onClick={() => window.location.reload()}><RefreshCw className="h-4 w-4" />Reload ANM Player</Button>
       </div>}
     </div>
   );

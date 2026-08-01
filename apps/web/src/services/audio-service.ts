@@ -31,7 +31,7 @@ class AudioService {
     const absoluteUrl = new URL(url, window.location.href).toString();
     
     if (this.audio.src !== absoluteUrl) {
-      console.info(`Aura playback source: ${source.kind}`);
+      console.info(`ANM Player playback source: ${source.kind}`);
       this.cancelPendingPositionRestore?.();
       this.audio.src = url;
       this.audio.load();

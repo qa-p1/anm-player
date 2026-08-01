@@ -1,1 +1,1 @@
-"""Aura API application package."""
+"""ANM Player API application package."""

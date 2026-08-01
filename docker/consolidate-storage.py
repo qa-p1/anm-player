@@ -1,4 +1,4 @@
-"""Consolidate legacy Aura mounts into one fully verified managed data root."""
+"""Consolidate legacy ANM Player mounts into one fully verified managed data root."""
 
 from __future__ import annotations
 
@@ -120,7 +120,7 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--confirm-app-stopped",
         action="store_true",
-        help="Confirm that all Aura API, worker, launcher, and container processes are stopped",
+        help="Confirm that all ANM Player API, worker, launcher, and container processes are stopped",
     )
     parser.add_argument("--target", required=True, type=Path)
     parser.add_argument("--database", required=True, type=Path, help="Legacy aura.db file")
@@ -131,7 +131,7 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
 
 def consolidate(args: argparse.Namespace) -> tuple[Path, int, int]:
     if not args.confirm_app_stopped:
-        raise ConsolidationError("Stop Aura completely and pass --confirm-app-stopped to continue.")
+        raise ConsolidationError("Stop ANM Player completely and pass --confirm-app-stopped to continue.")
     target = args.target.expanduser().absolute()
     if target.exists() and (not target.is_dir() or any(target.iterdir())):
         raise ConsolidationError(f"Target must be absent or an empty directory: {target}")
@@ -190,7 +190,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         print(exc)
         return 1
     print(f"Fully verified {total_files} files ({total_bytes} bytes) in {target}")
-    print("Legacy sources were not modified or deleted. Keep them until Aura starts successfully from the new root.")
+    print("Legacy sources were not modified or deleted. Keep them until ANM Player starts successfully from the new root.")
     return 0
 
 

@@ -22,7 +22,7 @@ export default tseslint.config(
     rules: {
       ...reactHooks.configs.recommended.rules,
       ...jsxA11y.configs.recommended.rules,
-      // Aura is not compiled with React Compiler. Its request lifecycle effects
+      // ANM Player is not compiled with React Compiler. Its request lifecycle effects
       // intentionally clear and replace UI state as route inputs change.
       "react-hooks/set-state-in-effect": "off",
       "react-refresh/only-export-components": ["error", { allowConstantExport: true }],

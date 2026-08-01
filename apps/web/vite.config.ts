@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import react from "@vitejs/plugin-react";
 import { defineConfig, loadEnv } from "vite";
 
-const auraVersion = readFileSync(path.resolve(__dirname, "../../VERSION"), "utf8").trim();
+const anmPlayerVersion = readFileSync(path.resolve(__dirname, "../../VERSION"), "utf8").trim();
 
 export default defineConfig(({ mode }) => {
   const repositoryRoot = path.resolve(__dirname, "../..");
@@ -15,7 +15,7 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react()],
     define: {
-      __AURA_VERSION__: JSON.stringify(auraVersion),
+      __ANM_PLAYER_VERSION__: JSON.stringify(anmPlayerVersion),
     },
     resolve: {
       alias: {

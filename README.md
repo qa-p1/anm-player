@@ -1,8 +1,8 @@
-# Aura Music
+# ANM Player
 
-Aura Music is a single-user music library and player that I run on a local computer. It can browse YouTube Music, stream a track, save music for offline playback, and keep local albums, playlists, favorites, lyrics, and listening history together.
+ANM Player is a single-user music library and player that I run on a local computer. It can browse YouTube Music, stream a track, save music for offline playback, and keep local albums, playlists, favorites, lyrics, and listening history together.
 
-This is deliberately not a public music service. Aura has one operator token and assumes every person who can reach its web interface is trusted. The default Docker and native setups bind to `127.0.0.1` for that reason.
+This is deliberately not a public music service. ANM Player has one operator token and assumes every person who can reach its web interface is trusted. The default Docker and native setups bind to `127.0.0.1` for that reason.
 
 There is no current screenshot in the repository; I would rather leave this section plain than publish an image that no longer matches the interface.
 
@@ -17,17 +17,17 @@ There is no current screenshot in the repository; I would rather leave this sect
 - Managed SQLite storage with in-app reconciliation, usage reporting, cache cleanup, verified moves, and a guarded fresh start
 - Responsive desktop and narrow layouts with reduced-motion support
 
-Provider responses and stream formats can change without notice. Aura also has no accounts, remote synchronization, DRM support, or provider-independent catalog.
+Provider responses and stream formats can change without notice. ANM Player also has no accounts, remote synchronization, DRM support, or provider-independent catalog.
 
 ## Docker quick start
 
-Docker Compose is the recommended way to run Aura. It publishes only the Nginx web service on loopback; the API remains on the internal Compose network.
+Docker Compose is the recommended way to run ANM Player. It publishes only the Nginx web service on loopback; the API remains on the internal Compose network.
 
 Clone the repository and create the local environment file:
 
 ```powershell
-git clone <repository-url> aura-music
-Set-Location aura-music
+git clone <repository-url> anm-player
+Set-Location anm-player
 Copy-Item .env.example .env
 py -3.13 -c "from pathlib import Path; import secrets; p=Path('.env'); s=p.read_text(); p.write_text(s.replace('API_ACCESS_TOKEN=', 'API_ACCESS_TOKEN='+secrets.token_urlsafe(48), 1))"
 docker compose up --build -d
@@ -36,8 +36,8 @@ docker compose up --build -d
 On macOS or Linux:
 
 ```bash
-git clone <repository-url> aura-music
-cd aura-music
+git clone <repository-url> anm-player
+cd anm-player
 cp .env.example .env
 python3.13 -c "from pathlib import Path; import secrets; p=Path('.env'); s=p.read_text(); p.write_text(s.replace('API_ACCESS_TOKEN=', 'API_ACCESS_TOKEN='+secrets.token_urlsafe(48), 1))"
 docker compose up --build -d
@@ -50,8 +50,8 @@ Open <http://127.0.0.1:5173>. Stop the stack with `docker compose down`. Named v
 The native launcher is the simplest option when Docker is not wanted. It requires Python 3.13, Node.js 24 LTS, npm, and FFmpeg on `PATH`.
 
 1. Clone the repository or extract a downloaded source archive.
-2. On Windows, double-click `start-aura.cmd`.
-3. On macOS or Linux, run `chmod +x start-aura.sh` once, then run `./start-aura.sh`.
+2. On Windows, double-click `start-anm-player.cmd`.
+3. On macOS or Linux, run `chmod +x start-anm-player.sh` once, then run `./start-anm-player.sh`.
 4. Leave the terminal open. The first run creates `apps/api/.venv`, installs pinned Python and npm dependencies, creates `.env`, generates an API token, applies database migrations, and starts both servers.
 5. The browser opens only after the API and web server are ready. First setup can take several minutes; later starts skip dependency installation while the lockfiles are unchanged.
 
@@ -90,11 +90,11 @@ The native web interface is <http://127.0.0.1:5173>. Vite proxies same-origin AP
 
 ## Environment
 
-`.env.example` contains only boot and deployment settings. Playback, download format, enrichment, retention, and album parallelism are managed in Aura's Settings page and stored in SQLite.
+`.env.example` contains only boot and deployment settings. Playback, download format, enrichment, retention, and album parallelism are managed in ANM Player's Settings page and stored in SQLite.
 
 | Variable | Default/example | Purpose |
 | --- | --- | --- |
-| `COMPOSE_PROJECT_NAME` | `aura` | Stable Compose project and volume prefix |
+| `COMPOSE_PROJECT_NAME` | `anm-player` | Stable Compose project and volume prefix |
 | `WEB_BIND_HOST` | `127.0.0.1` | Host interface published by the production web container |
 | `WEB_PORT` | `5173` | Web port |
 | `API_ENV` | `production` | Strict runtime mode: `production`, `development`, or `test` |
@@ -130,15 +130,15 @@ logs/
 
 The small state file at `.aura/storage-state.json` points to the active root. Docker uses the `aura-data` and `aura-state` named volumes under the Compose project prefix.
 
-Stop Aura before a backup. Copy or archive both the complete data root and the state file together. For Docker, stop the stack and back up both named volumes with the volume-backup method used by your Docker installation. Verify that the archive contains `aura.db`, then retain an older known-good backup before testing a restore.
+Stop ANM Player before a backup. Copy or archive both the complete data root and the state file together. For Docker, stop the stack and back up both named volumes with the volume-backup method used by your Docker installation. Verify that the archive contains `aura.db`, then retain an older known-good backup before testing a restore.
 
-Storage moves started from Settings are gated while active. Same-device moves are renamed and verified; cross-device moves are copied with a full SHA-256 manifest and SQLite `PRAGMA quick_check` before Aura switches roots. The old root is not removed before verification. If cleanup fails, Aura keeps recovery state and leaves both copies in place.
+Storage moves started from Settings are gated while active. Same-device moves are renamed and verified; cross-device moves are copied with a full SHA-256 manifest and SQLite `PRAGMA quick_check` before ANM Player switches roots. The old root is not removed before verification. If cleanup fails, ANM Player keeps recovery state and leaves both copies in place.
 
-Settings also has **Sync library now** for reconciling database download state with files in the managed music directory. Aura runs a lightweight reconciliation in the background, but the button is useful after manually copying or removing files while Aura was stopped.
+Settings also has **Sync library now** for reconciling database download state with files in the managed music directory. ANM Player runs a lightweight reconciliation in the background, but the button is useful after manually copying or removing files while ANM Player was stopped.
 
-The **Fresh start** action in Settings is intentionally destructive. It requires a new, empty, non-overlapping directory and the exact confirmation text `RESET AURA`. Aura creates and verifies a clean database in that directory before deleting its old `aura.db`, music, downloads, artwork, lyrics, streams, thumbnails, configuration, and logs. Browser player/theme state is cleared after the switch. Unrelated files in an accidentally broad old root are never deleted, and a cleanup failure leaves a visible recovery warning.
+The **Fresh start** action in Settings is intentionally destructive. It requires a new, empty, non-overlapping directory and the exact confirmation text `RESET ANM PLAYER`. ANM Player creates and verifies a clean database in that directory before deleting its old `aura.db`, music, downloads, artwork, lyrics, streams, thumbnails, configuration, and logs. Browser player/theme state is cleared after the switch. Unrelated files in an accidentally broad old root are never deleted, and a cleanup failure leaves a visible recovery warning.
 
-For an older split-volume installation, stop every Aura API, worker, launcher, and container process, prepare a new absent or empty target, and run:
+For an older split-volume installation, stop every ANM Player API, worker, launcher, and container process, prepare a new absent or empty target, and run:
 
 ```bash
 python docker/consolidate-storage.py --confirm-app-stopped \
@@ -147,7 +147,7 @@ python docker/consolidate-storage.py --confirm-app-stopped \
   --config /legacy-config --thumbnails /legacy-thumbnails --logs /legacy-logs
 ```
 
-The helper rejects overlapping paths and symbolic links, uses SQLite's backup API, verifies every copied file, stages the result atomically, and never deletes a legacy source. Keep those sources until Aura has started successfully from the new root.
+The helper rejects overlapping paths and symbolic links, uses SQLite's backup API, verifies every copied file, stages the result atomically, and never deletes a legacy source. Keep those sources until ANM Player has started successfully from the new root.
 
 ## Development
 
@@ -189,24 +189,24 @@ Runtime Python dependencies are in `apps/api/requirements.txt`; test, lint, cove
 
 ## Troubleshooting
 
-- **Port already in use:** stop the stale process or use `start-aura.cmd --api-port 8010 --web-port 5180`. Docker's web port is controlled by `WEB_PORT`.
+- **Port already in use:** stop the stale process or use `start-anm-player.cmd --api-port 8010 --web-port 5180`. Docker's web port is controlled by `WEB_PORT`.
 - **FFmpeg not found:** install FFmpeg and confirm `ffmpeg -version` works in a new terminal.
 - **Wrong Python or Node version:** use Python 3.13 and Node 24 LTS. The launcher also accepts the tested adjacent Python 3.14 and Node 25/26 runtimes, but the release reference and CI versions are 3.13 and 24.
-- **Migration failed:** stop Aura, preserve the complete data root and state file, then run `apps/api/.venv/Scripts/python.exe -m alembic current` from `apps/api`. Do not delete a source root or migration state to force progress.
+- **Migration failed:** stop ANM Player, preserve the complete data root and state file, then run `apps/api/.venv/Scripts/python.exe -m alembic current` from `apps/api`. Do not delete a source root or migration state to force progress.
 - **Stale native processes:** close old launcher terminals and stop remaining `uvicorn`, `node`, or `npm` processes before restarting.
 - **Docker will not start:** confirm Docker Desktop's Linux engine is running, then rerun `docker compose config` before rebuilding.
-- **Provider request failed:** retry later and check `data/logs`. YouTube Music and yt-dlp changes can temporarily break search, streaming, or downloads even when Aura itself is unchanged.
+- **Provider request failed:** retry later and check `data/logs`. YouTube Music and yt-dlp changes can temporarily break search, streaming, or downloads even when ANM Player itself is unchanged.
 
 ## Security and remote access
 
-Aura's bearer token is intentionally kept out of browser code, URLs, storage, and built assets. Nginx or the Vite development proxy injects it into same-origin upstream requests. The production API port is not published.
+ANM Player's bearer token is intentionally kept out of browser code, URLs, storage, and built assets. Nginx or the Vite development proxy injects it into same-origin upstream requests. The production API port is not published.
 
-This does not make Aura safe to expose directly to a LAN or the internet. Every visitor who reaches the web UI effectively has operator access. Keep `WEB_BIND_HOST=127.0.0.1`; for remote use, add a separately authenticated reverse proxy or a private VPN and restrict it to trusted people. See [SECURITY.md](SECURITY.md) for vulnerability reporting.
+This does not make ANM Player safe to expose directly to a LAN or the internet. Every visitor who reaches the web UI effectively has operator access. Keep `WEB_BIND_HOST=127.0.0.1`; for remote use, add a separately authenticated reverse proxy or a private VPN and restrict it to trusted people. See [SECURITY.md](SECURITY.md) for vulnerability reporting.
 
 ## Provider and legal note
 
-Aura depends on YouTube Music, yt-dlp, and third-party lyrics/metadata behavior. Use it only for media you are entitled to access, follow provider terms, and comply with copyright law in your jurisdiction. The maintainers do not grant rights to music or provider content and cannot determine whether a particular download is lawful for you.
+ANM Player depends on YouTube Music, yt-dlp, and third-party lyrics/metadata behavior. Use it only for media you are entitled to access, follow provider terms, and comply with copyright law in your jurisdiction. The maintainers do not grant rights to music or provider content and cannot determine whether a particular download is lawful for you.
 
-Authenticated API documentation is available at <http://127.0.0.1:5173/api/v1/docs> while Aura is running.
+Authenticated API documentation is available at <http://127.0.0.1:5173/api/v1/docs> while ANM Player is running.
 
-Aura Music is released under the [MIT License](LICENSE).
+ANM Player is released under the [MIT License](LICENSE).

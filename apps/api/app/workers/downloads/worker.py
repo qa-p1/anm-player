@@ -251,7 +251,7 @@ class DownloadWorker:
 
             title = fresh_job.title or info.get("title") or "Song"
             artist_name = fresh_job.artist or info.get("artist") or info.get("creator") or info.get("uploader") or "Unknown Artist"
-            # Only persist album metadata supplied by Aura's provider/library
+            # Only persist album metadata supplied by ANM Player's provider/library
             # context. yt-dlp frequently reports a standalone release's title as
             # its album, which used to create a fake one-song album in Library.
             album_name = _download_album_name(fresh_job.album)
@@ -436,7 +436,7 @@ class DownloadWorker:
 
         if restore_error is not None:
             raise RuntimeError(
-                "The download failed and Aura could not fully restore the previous audio file."
+                "The download failed and ANM Player could not fully restore the previous audio file."
             ) from restore_error
 
     def _postprocess_download(
@@ -528,7 +528,7 @@ class DownloadWorker:
         if "ffmpeg" in message.lower():
             return "Audio conversion failed. Confirm FFmpeg is installed and available."
         if "permission" in message.lower():
-            return "Aura could not write to the configured music directory."
+            return "ANM Player could not write to the configured music directory."
         if "cancelled" in message.lower():
             return "Download was cancelled."
         return "Download failed. The video may be unavailable or unsupported."

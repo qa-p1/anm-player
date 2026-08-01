@@ -253,7 +253,7 @@ class StorageCoordinator:
                 "operation_id": operation_id,
                 "operation_kind": "reset",
                 "phase": "prepared",
-                "message": "Preparing a clean Aura data location…",
+                "message": "Preparing a clean ANM Player data location…",
                 "old_root": str(old),
                 "target_root": str(target_path),
                 "temporary_root": None,
@@ -341,7 +341,7 @@ class StorageCoordinator:
             self._phase(operation, "verifying", "Verifying the clean database and writable storage…")
             self._verify_switched(target)
             operation["phase"] = "switched"
-            operation["message"] = "Fresh storage verified. Removing the previous Aura data…"
+            operation["message"] = "Fresh storage verified. Removing the previous ANM Player data…"
             storage_state_store.switch_root(target, migration=operation)
             self._reset_marker(operation, target).unlink(missing_ok=True)
             reconfigure_storage_logging()
@@ -366,14 +366,14 @@ class StorageCoordinator:
 
     def _remove_reset_source(self, operation: dict[str, Any], old: Path, target: Path) -> None:
         self._assert_safe_reset_source(old, target)
-        self._phase(operation, "cleanup", "Removing the previous Aura database, music, artwork, and caches…")
+        self._phase(operation, "cleanup", "Removing the previous ANM Player database, music, artwork, and caches…")
         try:
             if old.exists():
                 self._assert_no_symlinks(old)
                 self._delete_reset_managed_data(old)
         except OSError as exc:
             operation["cleanup_warning"] = (
-                "Aura is fresh and using the new location, but the previous data folder could not be fully removed."
+                "ANM Player is fresh and using the new location, but the previous data folder could not be fully removed."
             )
             storage_state_store.set_migration(operation)
             logger.warning("could not remove obsolete reset source %s: %s", old, exc)
@@ -383,7 +383,7 @@ class StorageCoordinator:
 
     @staticmethod
     def _delete_reset_managed_data(root: Path) -> None:
-        """Delete Aura-owned entries without ever erasing unrelated sibling data."""
+        """Delete ANM Player-owned entries without ever erasing unrelated sibling data."""
         for name in RESET_MANAGED_DIRECTORIES:
             managed_directory = root / name
             if managed_directory.exists():
@@ -397,7 +397,7 @@ class StorageCoordinator:
                 raise OSError(f"Expected managed storage entry {name!r} to be a file")
             managed_file.unlink(missing_ok=True)
 
-        # Remove the old root only when Aura owned everything in it. If the
+        # Remove the old root only when ANM Player owned everything in it. If the
         # operator selected a broad directory in an older configuration, any
         # unrelated entries are deliberately left untouched.
         try:
@@ -418,7 +418,7 @@ class StorageCoordinator:
 
     def _restore_reset_source(self, old: Path) -> None:
         if not old.is_dir() or not (old / "aura.db").is_file():
-            raise StorageMigrationError("The previous Aura data root is unavailable; automatic reset recovery is blocked.")
+            raise StorageMigrationError("The previous ANM Player data root is unavailable; automatic reset recovery is blocked.")
         current = storage_manager.paths.root.resolve()
         if current != old:
             close_storage_log_handlers()
@@ -458,7 +458,7 @@ class StorageCoordinator:
             raise StorageMigrationError("The current data root is too broad to delete safely.")
         for path in (REPOSITORY_ROOT.resolve(), settings.aura_state_file.resolve()):
             if cls._contains(old, path):
-                raise StorageMigrationError("The current data root contains protected Aura application files.")
+                raise StorageMigrationError("The current data root contains protected ANM Player application files.")
         if cls._contains(old, target) or cls._contains(target, old):
             raise StorageMigrationError("The new data root cannot overlap the current data root.")
 
@@ -504,7 +504,7 @@ class StorageCoordinator:
             storage_state_store.set_migration(migration)
             try:
                 self._sqlite_quick_check(target / "aura.db")
-                self._phase(migration, "switched", "Binding Aura to the new data location…", root=target)
+                self._phase(migration, "switched", "Binding ANM Player to the new data location…", root=target)
             except Exception:
                 if target.exists() and not old.exists():
                     target.rename(old)
@@ -555,7 +555,7 @@ class StorageCoordinator:
             self._phase(migration, "copy_verified", "Copy verified. Switching data location…")
 
         try:
-            self._phase(migration, "switched", "Binding Aura to the verified copy…", root=target)
+            self._phase(migration, "switched", "Binding ANM Player to the verified copy…", root=target)
             storage_manager.refresh().ensure()
             engine_manager.bind(target / "aura.db")
             reconfigure_storage_logging()
@@ -572,7 +572,7 @@ class StorageCoordinator:
             shutil.rmtree(old)
         except OSError as exc:
             migration["cleanup_warning"] = (
-                "Aura is using the new root, but the previous data folder could not be fully removed."
+                "ANM Player is using the new root, but the previous data folder could not be fully removed."
             )
             storage_state_store.set_migration(migration)
             logger.warning("could not remove obsolete storage source %s: %s", old, exc)
@@ -594,7 +594,7 @@ class StorageCoordinator:
             except OSError as exc:
                 migration["phase"] = "cleanup"
                 migration["cleanup_warning"] = (
-                    "Aura is using the new root, but the previous data folder could not be fully removed."
+                    "ANM Player is using the new root, but the previous data folder could not be fully removed."
                 )
                 storage_state_store.set_migration(migration)
                 logger.warning("could not resume obsolete storage cleanup for %s: %s", old, exc)
@@ -716,9 +716,9 @@ class StorageCoordinator:
         internal_message = str(exc)
         is_reset = migration.get("operation_kind") == "reset"
         migration["error"] = (
-            "Fresh start could not be completed. Aura kept the previous verified data location."
+            "Fresh start could not be completed. ANM Player kept the previous verified data location."
             if is_reset
-            else "The storage move could not be completed. Aura kept the last verified data location."
+            else "The storage move could not be completed. ANM Player kept the last verified data location."
         )
         migration["message"] = "The storage operation needs attention."
         migration["phase"] = (
@@ -784,7 +784,7 @@ class StorageCoordinator:
 
     @classmethod
     def _assert_reset_target_disposable(cls, target: Path, marker: Path) -> None:
-        """Only permit cleanup of the exact reset layout Aura created."""
+        """Only permit cleanup of the exact reset layout ANM Player created."""
         cls._assert_no_symlinks(target)
         managed_names = {*RESET_MANAGED_DIRECTORIES, *RESET_MANAGED_FILES}
         unexpected = sorted(
@@ -799,7 +799,7 @@ class StorageCoordinator:
                 unexpected,
             )
             raise StorageMigrationError(
-                "The fresh-start destination now contains files Aura did not create; automatic recovery is blocked."
+                "The fresh-start destination now contains files ANM Player did not create; automatic recovery is blocked."
             )
 
     def _set_gate(self) -> None:
@@ -901,7 +901,7 @@ class StorageCoordinator:
     @staticmethod
     def _sqlite_quick_check(database: Path) -> None:
         if not database.is_file():
-            raise StorageMigrationError(f"Aura database is missing: {database}")
+            raise StorageMigrationError(f"ANM Player database is missing: {database}")
         with sqlite3.connect(f"file:{database.as_posix()}?mode=ro", uri=True) as connection:
             result = connection.execute("PRAGMA quick_check").fetchone()
         if not result or str(result[0]).casefold() != "ok":

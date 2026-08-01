@@ -298,7 +298,7 @@ class LyricsService:
             f"https://lrclib.net/api/get?{urlencode(params)}",
             headers={
                 "Accept": "application/json",
-                "User-Agent": "AuraMusic/0.1 (local music app)",
+                "User-Agent": "ANMPlayer/0.1 (local music app)",
             },
             method="GET",
         )

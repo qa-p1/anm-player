@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Set up and run Aura's native API and web development servers."""
+"""Set up and run ANM Player's native API and web development servers."""
 
 from __future__ import annotations
 
@@ -50,9 +50,9 @@ class LauncherError(RuntimeError):
 
 
 def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--no-browser", action="store_true", help="Do not open Aura in the default browser")
-    parser.add_argument("--setup-only", action="store_true", help="Install and configure Aura without starting it")
+    parser = argparse.ArgumentParser(prog="start-anm-player", description=__doc__)
+    parser.add_argument("--no-browser", action="store_true", help="Do not open ANM Player in the default browser")
+    parser.add_argument("--setup-only", action="store_true", help="Install and configure ANM Player without starting it")
     parser.add_argument("--force-install", action="store_true", help="Reinstall Python and npm dependencies")
     parser.add_argument("--api-port", type=valid_port, default=8000, help="Loopback API port (default: 8000)")
     parser.add_argument("--web-port", type=valid_port, default=5173, help="Loopback web port (default: 5173)")
@@ -81,7 +81,7 @@ def npm_command() -> str:
 def check_prerequisites() -> None:
     if sys.version_info < SUPPORTED_PYTHON or sys.version_info >= (3, 15):
         raise LauncherError(
-            f"Aura requires Python 3.13 or 3.14; this launcher is using {sys.version.split()[0]}."
+            f"ANM Player requires Python 3.13 or 3.14; this launcher is using {sys.version.split()[0]}."
         )
     node = shutil.which("node")
     if not node:
@@ -102,7 +102,7 @@ def check_prerequisites() -> None:
         raise LauncherError("Could not determine the installed Node.js version.") from exc
     if result.returncode or not MINIMUM_NODE_MAJOR <= major <= MAXIMUM_NODE_MAJOR:
         raise LauncherError(
-            f"Aura supports Node.js 24 through 26; found {result.stdout.strip() or 'an unknown version'}."
+            f"ANM Player supports Node.js 24 through 26; found {result.stdout.strip() or 'an unknown version'}."
         )
 
 
@@ -274,7 +274,7 @@ def wait_until_ready(url: str, processes: Iterable[subprocess.Popen[str]], *, ti
     while time.monotonic() < deadline:
         for process in processes:
             if process.poll() is not None:
-                raise LauncherError(f"A child process exited with code {process.returncode} before Aura was ready.")
+                raise LauncherError(f"A child process exited with code {process.returncode} before ANM Player was ready.")
         try:
             with urllib.request.urlopen(url, timeout=2) as response:
                 if 200 <= response.status < 400:
@@ -345,7 +345,7 @@ def serve(*, api_port: int, web_port: int, open_browser: bool, values: dict[str,
         wait_until_ready(f"http://127.0.0.1:{api_port}/api/v1/health", processes)
         browser_url = f"http://127.0.0.1:{web_port}/"
         wait_until_ready(browser_url, processes)
-        print(f"[aura] Ready at {browser_url}", flush=True)
+        print(f"[anm-player] Ready at {browser_url}", flush=True)
         if open_browser:
             webbrowser.open(browser_url)
 
@@ -356,7 +356,7 @@ def serve(*, api_port: int, web_port: int, open_browser: bool, values: dict[str,
                     raise LauncherError(f"A child process stopped unexpectedly with exit code {return_code}.")
             time.sleep(0.25)
     except KeyboardInterrupt:
-        print("\n[aura] Stopping Aura…", flush=True)
+        print("\n[anm-player] Stopping ANM Player…", flush=True)
         return 0
     finally:
         cleanup()
@@ -374,7 +374,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         values = ensure_environment()
         run_migrations(values)
         if args.setup_only:
-            print("[aura] Setup complete.", flush=True)
+            print("[anm-player] Setup complete.", flush=True)
             return 0
         return serve(
             api_port=args.api_port,
@@ -383,8 +383,8 @@ def main(argv: Iterable[str] | None = None) -> int:
             values=values,
         )
     except LauncherError as exc:
-        print(f"[aura] {exc}", file=sys.stderr, flush=True)
-        print("[aura] Fix the issue above, then run the launcher again.", file=sys.stderr, flush=True)
+        print(f"[anm-player] {exc}", file=sys.stderr, flush=True)
+        print("[anm-player] Fix the issue above, then run the launcher again.", file=sys.stderr, flush=True)
         return 1
 
 

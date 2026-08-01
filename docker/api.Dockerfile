@@ -14,8 +14,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ffmpeg \
     && rm -rf /var/lib/apt/lists/* \
-    && groupadd --gid 10001 aura \
-    && useradd --uid 10001 --gid aura --create-home --shell /usr/sbin/nologin aura
+    && groupadd --gid 10001 anmplayer \
+    && useradd --uid 10001 --gid anmplayer --create-home --shell /usr/sbin/nologin anmplayer
 
 WORKDIR /app/apps/api
 COPY --from=wheels /wheels /wheels
@@ -23,13 +23,13 @@ COPY apps/api/requirements.txt .
 RUN pip install --no-cache-dir --no-index --find-links=/wheels -r requirements.txt \
     && rm -rf /wheels
 
-COPY --chown=aura:aura apps/api .
-COPY --chown=aura:aura docker/api-entrypoint.sh /usr/local/bin/aura-api-entrypoint
-RUN chmod 0755 /usr/local/bin/aura-api-entrypoint \
+COPY --chown=anmplayer:anmplayer apps/api .
+COPY --chown=anmplayer:anmplayer docker/api-entrypoint.sh /usr/local/bin/anm-player-api-entrypoint
+RUN chmod 0755 /usr/local/bin/anm-player-api-entrypoint \
     && mkdir -p /data /aura-state \
-    && chown -R aura:aura /data /aura-state
+    && chown -R anmplayer:anmplayer /data /aura-state
 
-USER aura
+USER anmplayer
 EXPOSE 8000
-ENTRYPOINT ["aura-api-entrypoint"]
+ENTRYPOINT ["anm-player-api-entrypoint"]
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips=*"]

@@ -123,7 +123,7 @@ export function DownloadQueueDialog() {
       <DialogContent className="max-h-[86dvh] w-[calc(100%-1.25rem)] max-w-2xl overflow-x-hidden overflow-y-auto rounded-3xl p-4 sm:p-6">
         <DialogHeader className="pr-8">
           <DialogTitle>Download queue</DialogTitle>
-          <DialogDescription>Live progress for downloads started anywhere in Aura.</DialogDescription>
+          <DialogDescription>Live progress for downloads started anywhere in ANM Player.</DialogDescription>
         </DialogHeader>
         <DownloadsPanel
           jobs={visibleJobs}

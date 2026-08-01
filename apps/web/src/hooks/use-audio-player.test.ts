@@ -142,7 +142,7 @@ describe("useAudioPlayer", () => {
     const { unmount } = renderHook(() => useAudioPlayer());
     act(() => usePlayerStore.getState().playSong(first));
 
-    await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith("Aura couldn't play this track.", "error"));
+    await waitFor(() => expect(mocks.toast).toHaveBeenCalledWith("ANM Player couldn't play this track.", "error"));
     expect(usePlayerStore.getState().isPlaying).toBe(false);
     unmount();
 

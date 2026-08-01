@@ -157,10 +157,10 @@ def start_storage_migration(request: StartMigrationRequest) -> StartMigrationRes
     dependencies=[Depends(require_operator)],
 )
 def reset_storage(request: StartResetRequest) -> StartMigrationResponse:
-    if request.confirmation != "RESET AURA":
+    if request.confirmation != "RESET ANM PLAYER":
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Type RESET AURA exactly to confirm the fresh start",
+            detail="Type RESET ANM PLAYER exactly to confirm the fresh start",
         )
     try:
         target = storage_coordinator.consume_directory(request.directory_id)

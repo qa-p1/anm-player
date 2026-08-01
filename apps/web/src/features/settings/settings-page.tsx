@@ -191,8 +191,8 @@ export function SettingsPage() {
     }
   }
 
-  async function resetAura() {
-    if (!selected?.directory_id || resetConfirmation !== "RESET AURA") return;
+  async function resetAnmPlayer() {
+    if (!selected?.directory_id || resetConfirmation !== "RESET ANM PLAYER") return;
     setResetting(true);
     try {
       await apiPost<
@@ -253,7 +253,7 @@ export function SettingsPage() {
 
   return (
     <motion.div {...pageTransition} className="mx-auto max-w-5xl space-y-8 px-4 py-5 sm:px-6 lg:px-8 lg:py-8">
-      <section><p className="mb-2 text-sm font-semibold text-primary">Settings</p><h1 className="text-4xl font-black tracking-normal sm:text-5xl">Aura, your way</h1></section>
+      <section><p className="mb-2 text-sm font-semibold text-primary">Settings</p><h1 className="text-4xl font-black tracking-normal sm:text-5xl">ANM Player, your way</h1></section>
 
       {storage?.migration.cleanup_warning && <Notice tone="warning">{storage.migration.cleanup_warning}</Notice>}
       {storage?.migration.error && <Notice tone="error">{storage.migration.error}</Notice>}
@@ -274,7 +274,7 @@ export function SettingsPage() {
       </SettingsSection>
 
       <SettingsSection icon={<RefreshCw />} title="Library">
-        <Toggle label="Scan library on startup" description="Scan the managed music folder in the background whenever Aura starts." checked={settings?.startup_scan_enabled ?? true} onChange={(value) => update("startup_scan_enabled", value)} />
+        <Toggle label="Scan library on startup" description="Scan the managed music folder in the background whenever ANM Player starts." checked={settings?.startup_scan_enabled ?? true} onChange={(value) => update("startup_scan_enabled", value)} />
         <Button variant="glass" disabled={syncingLibrary} onClick={() => void syncLibrary()}>
           <RefreshCw className={`h-4 w-4 ${syncingLibrary ? "animate-spin" : ""}`} />
           {syncingLibrary ? "Syncing library…" : "Sync library now"}
@@ -324,20 +324,20 @@ export function SettingsPage() {
       <section className="space-y-5 rounded-3xl border border-red-500/35 bg-red-500/[0.07] p-6">
         <div className="flex items-center gap-3 text-red-400"><Bomb className="h-6 w-6" /><h2 className="text-xl font-bold">Danger zone</h2></div>
         <div>
-          <p className="font-semibold">Start Aura completely fresh</p>
-          <p className="mt-1 text-sm text-muted-foreground">Deletes the current Aura database, downloaded music, artwork, lyrics, caches, playlists, favorites, history, and settings. You will choose a new empty data folder before anything is removed.</p>
+          <p className="font-semibold">Start ANM Player completely fresh</p>
+          <p className="mt-1 text-sm text-muted-foreground">Deletes the current ANM Player database, downloaded music, artwork, lyrics, caches, playlists, favorites, history, and settings. You will choose a new empty data folder before anything is removed.</p>
         </div>
         <Button
           variant="outline"
           className="border-red-500/50 text-red-300 hover:bg-red-500/15 hover:text-red-200"
           onClick={() => void openBrowser("reset")}
         >
-          <Bomb className="h-4 w-4" />Erase all Aura data and start fresh
+          <Bomb className="h-4 w-4" />Erase all ANM Player data and start fresh
         </Button>
       </section>
 
       <Dialog open={browserOpen} onOpenChange={setBrowserOpen}>
-        <DialogContent className="max-w-2xl"><DialogHeader><DialogTitle>Choose an empty server folder</DialogTitle><DialogDescription>{browserPurpose === "reset" ? "This will become a completely new Aura data root. It must be empty and cannot overlap the current location." : "Aura can see directories mounted on the API host. Only the exact empty folder you choose becomes the data root."}</DialogDescription></DialogHeader>
+        <DialogContent className="max-w-2xl"><DialogHeader><DialogTitle>Choose an empty server folder</DialogTitle><DialogDescription>{browserPurpose === "reset" ? "This will become a completely new ANM Player data root. It must be empty and cannot overlap the current location." : "ANM Player can see directories mounted on the API host. Only the exact empty folder you choose becomes the data root."}</DialogDescription></DialogHeader>
           <div className="rounded-xl bg-muted/50 p-3 font-mono text-xs">{listing?.current?.display_path ?? "Filesystem roots"}</div>
           <div className="max-h-72 space-y-1 overflow-y-auto">
             {listing?.parent?.directory_id && <FolderRow entry={{ ...listing.parent, name: ".." }} onOpen={() => void browse(listing.parent?.directory_id)} />}
@@ -350,7 +350,7 @@ export function SettingsPage() {
       </Dialog>
 
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <DialogContent><DialogHeader><DialogTitle>Move Aura data?</DialogTitle><DialogDescription>This operation pauses playback and downloads until the managed root is verified.</DialogDescription></DialogHeader>
+        <DialogContent><DialogHeader><DialogTitle>Move ANM Player data?</DialogTitle><DialogDescription>This operation pauses playback and downloads until the managed root is verified.</DialogDescription></DialogHeader>
           <div className="space-y-3 rounded-xl bg-muted/40 p-4 text-sm"><p><strong>Source:</strong> <span className="break-all">{storage?.data_root}</span></p><p><strong>Target:</strong> <span className="break-all">{selected?.display_path}</span></p><p><strong>Data:</strong> {formatBytes(storage?.used_bytes ?? 0)}</p><p><strong>Method:</strong> {selected?.same_device ? "Same-drive atomic move" : "Copy, hash, verify, then switch"}</p></div>
           <DialogFooter><Button variant="ghost" onClick={() => setConfirmOpen(false)}>Cancel</Button><Button onClick={() => void migrate()}>Move and verify</Button></DialogFooter>
         </DialogContent>
@@ -359,8 +359,8 @@ export function SettingsPage() {
       <Dialog open={resetConfirmOpen} onOpenChange={(open) => { if (!resetting) setResetConfirmOpen(open); }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Erase all Aura data?</DialogTitle>
-            <DialogDescription>This cannot be undone. Aura will verify the new empty location before deleting all Aura-managed data from the current location.</DialogDescription>
+            <DialogTitle>Erase all ANM Player data?</DialogTitle>
+            <DialogDescription>This cannot be undone. ANM Player will verify the new empty location before deleting all ANM Player-managed data from the current location.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm">
@@ -369,13 +369,13 @@ export function SettingsPage() {
               <p><strong>Managed data:</strong> {formatBytes(storage?.used_bytes ?? 0)}</p>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="reset-aura-confirmation">Type <strong>RESET AURA</strong> to continue</Label>
+              <Label htmlFor="reset-anm-player-confirmation">Type <strong>RESET ANM PLAYER</strong> to continue</Label>
               <Input
-                id="reset-aura-confirmation"
+                id="reset-anm-player-confirmation"
                 autoComplete="off"
                 value={resetConfirmation}
                 onChange={(event) => setResetConfirmation(event.target.value)}
-                placeholder="RESET AURA"
+                placeholder="RESET ANM PLAYER"
               />
             </div>
           </div>
@@ -384,8 +384,8 @@ export function SettingsPage() {
             <Button
               variant="outline"
               className="border-red-500/50 text-red-300 hover:bg-red-500/15 hover:text-red-200"
-              disabled={resetConfirmation !== "RESET AURA" || resetting}
-              onClick={() => void resetAura()}
+              disabled={resetConfirmation !== "RESET ANM PLAYER" || resetting}
+              onClick={() => void resetAnmPlayer()}
             >
               <Bomb className="h-4 w-4" />{resetting ? "Starting…" : "Erase everything"}
             </Button>

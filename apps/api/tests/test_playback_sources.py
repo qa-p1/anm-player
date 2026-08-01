@@ -119,7 +119,7 @@ def test_youtube_stream_route_serves_downloaded_file_before_proxying(tmp_path, m
         response = stream("video-id", session, None)
 
     assert response.path == str(audio_file)
-    assert response.headers["x-aura-playback-source"] == "downloaded"
+    assert response.headers["x-anm-player-playback-source"] == "downloaded"
 
 
 def test_innertube_is_used_only_after_download_and_cache_miss(monkeypatch) -> None:

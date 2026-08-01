@@ -165,7 +165,7 @@ def test_mark_failed_synchronizes_queue_and_album_progress(monkeypatch) -> None:
     ("error", "message"),
     [
         (RuntimeError("ffmpeg missing"), "Audio conversion failed. Confirm FFmpeg is installed and available."),
-        (PermissionError("permission denied"), "Aura could not write to the configured music directory."),
+        (PermissionError("permission denied"), "ANM Player could not write to the configured music directory."),
         (RuntimeError("cancelled"), "Download was cancelled."),
     ],
 )

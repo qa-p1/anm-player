@@ -1,4 +1,4 @@
-"""Runtime-managed Aura storage."""
+"""Runtime-managed ANM Player storage."""
 
 from app.storage.paths import StorageManager, StoragePaths, storage_manager
 from app.storage.state import StorageStateStore, storage_state_store

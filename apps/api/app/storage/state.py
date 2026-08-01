@@ -38,7 +38,7 @@ class StorageStateStore:
             with self.path.open("r", encoding="utf-8") as handle:
                 state = json.load(handle)
             if not isinstance(state, dict) or not isinstance(state.get("data_root"), str):
-                raise RuntimeError(f"Invalid Aura storage state: {self.path}")
+                raise RuntimeError(f"Invalid ANM Player storage state: {self.path}")
             state.setdefault("schema_version", STATE_SCHEMA_VERSION)
             state.setdefault("migration", None)
             state.setdefault("last_operation", None)

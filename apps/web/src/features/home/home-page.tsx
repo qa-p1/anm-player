@@ -137,7 +137,7 @@ export function HomePage() {
     <motion.div {...pageTransition} className="mx-auto max-w-7xl space-y-8 px-3 py-4 sm:px-6 lg:px-8 lg:py-7">
       <section className="flex items-center justify-between gap-3">
         <div className="min-w-0">
-          <p className="mb-1 text-xs font-semibold uppercase tracking-[0.16em] text-primary sm:text-sm">Aura</p>
+          <p className="mb-1 text-xs font-semibold uppercase tracking-[0.16em] text-primary sm:text-sm">ANM Player</p>
           <h1 className="truncate text-3xl font-black tracking-normal sm:text-5xl">Listen now</h1>
         </div>
         <Button asChild variant="glass" className="shrink-0">

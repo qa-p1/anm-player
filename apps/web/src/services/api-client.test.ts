@@ -31,7 +31,7 @@ describe("API client", () => {
   it("does not expose a non-JSON upstream response", async () => {
     vi.spyOn(window, "fetch").mockResolvedValue(new Response("private upstream detail", { status: 502 }));
 
-    await expect(apiGet("/ytmusic/home")).rejects.toMatchObject({ message: "Aura request failed (502)." });
+    await expect(apiGet("/ytmusic/home")).rejects.toMatchObject({ message: "ANM Player request failed (502)." });
   });
 
   it("returns a stable timeout error", async () => {

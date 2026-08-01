@@ -88,7 +88,7 @@ async function apiRequest<TResponse, TBody = never>(
     if (error instanceof ApiError) throw error;
     if (timedOut) throw new ApiError("The request timed out. Try again.", null, "request_timeout");
     if (controller.signal.aborted) throw new ApiError("The request was cancelled.", null, "request_aborted");
-    throw new ApiError("Could not reach Aura. Check that the server is running.", null, "network_error");
+    throw new ApiError("Could not reach ANM Player. Check that the server is running.", null, "network_error");
   } finally {
     window.clearTimeout(timeout);
     options.signal?.removeEventListener("abort", abort);
@@ -183,7 +183,7 @@ function isProviderArtworkHost(hostname: string): boolean {
 }
 
 async function responseError(response: Response): Promise<ApiError> {
-  const fallback = `Aura request failed (${response.status}).`;
+  const fallback = `ANM Player request failed (${response.status}).`;
   if (!response.headers.get("content-type")?.includes("application/json")) {
     return new ApiError(fallback, response.status, "http_error");
   }
