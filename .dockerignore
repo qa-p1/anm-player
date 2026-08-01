@@ -25,7 +25,7 @@
 **/*.sqlite
 **/*.sqlite3
 **/.aura
-**/data
-**/media
-**/downloads
+/data
+/media
+/downloads
 **/storage-state.json
