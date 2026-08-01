@@ -23,6 +23,7 @@ COPY apps/api/requirements.txt .
 RUN pip install --no-cache-dir --no-index --find-links=/wheels -r requirements.txt \
     && rm -rf /wheels
 
+COPY --chown=anmplayer:anmplayer VERSION /app/VERSION
 COPY --chown=anmplayer:anmplayer apps/api .
 COPY --chown=anmplayer:anmplayer docker/api-entrypoint.sh /usr/local/bin/anm-player-api-entrypoint
 RUN chmod 0755 /usr/local/bin/anm-player-api-entrypoint \
