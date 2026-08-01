@@ -1,0 +1,7 @@
+* text=auto
+
+# Keep platform launchers and container entrypoints usable after any checkout.
+*.sh text eol=lf
+*.cmd text eol=crlf
+*.Dockerfile text eol=lf
+Dockerfile text eol=lf

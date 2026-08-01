@@ -1,6 +1,6 @@
 # ANM Player
 
-ANM Player is a single-user music library and player that I run on a local computer. It can browse YouTube Music, stream a track, save music for offline playback, and keep local albums, playlists, favorites, lyrics, and listening history together.
+ANM Player (Another Music Player) is a single-user music library and player that I run on a local computer. It can browse YouTube Music, stream a track, save music for offline playback, and keep local albums, playlists, favorites, lyrics, and listening history together.
 
 This is deliberately not a public music service. ANM Player has one operator token and assumes every person who can reach its web interface is trusted. The default Docker and native setups bind to `127.0.0.1` for that reason.
 
@@ -26,7 +26,7 @@ Docker Compose is the recommended way to run ANM Player. It publishes only the N
 Clone the repository and create the local environment file:
 
 ```powershell
-git clone <repository-url> anm-player
+git clone https://github.com/qa-p1/anm-player.git
 Set-Location anm-player
 Copy-Item .env.example .env
 py -3.13 -c "from pathlib import Path; import secrets; p=Path('.env'); s=p.read_text(); p.write_text(s.replace('API_ACCESS_TOKEN=', 'API_ACCESS_TOKEN='+secrets.token_urlsafe(48), 1))"
@@ -36,7 +36,7 @@ docker compose up --build -d
 On macOS or Linux:
 
 ```bash
-git clone <repository-url> anm-player
+git clone https://github.com/qa-p1/anm-player.git
 cd anm-player
 cp .env.example .env
 python3.13 -c "from pathlib import Path; import secrets; p=Path('.env'); s=p.read_text(); p.write_text(s.replace('API_ACCESS_TOKEN=', 'API_ACCESS_TOKEN='+secrets.token_urlsafe(48), 1))"
@@ -67,7 +67,7 @@ Available launcher flags:
 --web-port PORT
 ```
 
-The Windows first-run and repeat-run paths have been exercised from a repository path containing spaces. The Unix wrapper uses the same Python orchestrator, but still needs a clean-machine acceptance run before the first release.
+Both wrappers resolve the repository root before invoking the shared launcher, including when the checkout path contains spaces.
 
 ## Native installation by hand
 
@@ -189,7 +189,7 @@ Runtime Python dependencies are in `apps/api/requirements.txt`; test, lint, cove
 
 ## Troubleshooting
 
-- **Port already in use:** stop the stale process or use `start-anm-player.cmd --api-port 8010 --web-port 5180`. Docker's web port is controlled by `WEB_PORT`.
+- **Port already in use:** stop the stale process or use `.\start-anm-player.cmd --api-port 8010 --web-port 5180`. Docker's web port is controlled by `WEB_PORT`.
 - **FFmpeg not found:** install FFmpeg and confirm `ffmpeg -version` works in a new terminal.
 - **Wrong Python or Node version:** use Python 3.13 and Node 24 LTS. The launcher also accepts the tested adjacent Python 3.14 and Node 25/26 runtimes, but the release reference and CI versions are 3.13 and 24.
 - **Migration failed:** stop ANM Player, preserve the complete data root and state file, then run `apps/api/.venv/Scripts/python.exe -m alembic current` from `apps/api`. Do not delete a source root or migration state to force progress.
