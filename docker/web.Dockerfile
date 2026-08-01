@@ -17,7 +17,7 @@ COPY apps/web apps/web
 WORKDIR /app/apps/web
 RUN npm run build
 
-FROM nginx:1.29.8-alpine@sha256:5616878291a2eed594aee8db4dade5878cf7edcb475e59193904b198d9b830de AS production
+FROM nginx:1.31.3-alpine@sha256:4a73073bd557c65b759505da037898b61f1be6cbcc3c2c3aeac22d2a470c1752 AS production
 COPY docker/nginx.conf /etc/nginx/templates/anm-player.conf.template
 COPY docker/web-entrypoint.sh /usr/local/bin/anm-player-web-entrypoint
 COPY --from=build /app/apps/web/dist /usr/share/nginx/html
