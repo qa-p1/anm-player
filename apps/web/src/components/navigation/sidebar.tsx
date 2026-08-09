@@ -1,13 +1,15 @@
 import { motion } from "framer-motion";
-import { Disc3 } from "lucide-react";
+import { Disc3, Keyboard } from "lucide-react";
 import { NavLink, useLocation } from "react-router";
 
 import { navItems } from "@/components/navigation/nav-items";
 import { DownloadQueueTrigger } from "@/components/download-queue";
 import { cn } from "@/lib/utils";
+import { useUiStore } from "@/stores/ui-store";
 
 export function Sidebar() {
   const location = useLocation();
+  const setShortcutHelpOpen = useUiStore((state) => state.setShortcutHelpOpen);
 
   return (
     <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 flex-col border-r border-white/10 bg-background/55 px-4 py-5 backdrop-blur-2xl lg:flex">
@@ -48,6 +50,7 @@ export function Sidebar() {
           );
         })}
       </nav>
+      <button type="button" onClick={() => setShortcutHelpOpen(true)} className="mb-3 flex h-10 items-center gap-3 rounded-xl px-4 text-xs font-medium text-muted-foreground transition hover:bg-white/8 hover:text-foreground"><Keyboard className="h-4 w-4" />Keyboard shortcuts <kbd className="ml-auto rounded border border-white/10 px-1.5 py-0.5 text-[0.62rem]">?</kbd></button>
       <DownloadQueueTrigger />
     </aside>
   );

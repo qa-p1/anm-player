@@ -3,7 +3,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.core.enums import DownloadStatus
-from app.core.exceptions import ConflictError
+from app.core.exceptions import ConflictError, ResourceNotFoundError
 from app.models import AlbumDownloadItem, AlbumDownloadJob, Base, DownloadJob, LibraryAlbum, LibraryTrack, QueueItem
 from app.repositories.music import DownloadJobRepository, QueueItemRepository
 from app.schemas.music import DownloadCreateRequest
@@ -39,7 +39,10 @@ def test_download_snapshots_format_and_explicit_false_overrides_global_default()
         session.commit()
 
         response = make_service(session).enqueue(
-            DownloadCreateRequest(source_url="https://example.com/snapshot", overwrite_existing=False)
+            DownloadCreateRequest(
+                source_url="https://www.youtube.com/watch?v=snapshot-id",
+                overwrite_existing=False,
+            )
         )
         job = session.get(DownloadJob, response.id)
 
@@ -61,7 +64,9 @@ def test_retry_rejects_completed_download() -> None:
 def test_pause_and_resume_update_active_job() -> None:
     with make_session() as session:
         service = make_service(session)
-        response = service.enqueue(DownloadCreateRequest(source_url="https://example.com/song"))
+        response = service.enqueue(
+            DownloadCreateRequest(source_url="https://www.youtube.com/watch?v=pause-resume-id")
+        )
 
         paused = service.pause(response.id)
         resumed = service.resume(response.id)
@@ -74,7 +79,7 @@ def test_download_response_includes_album_grouping_key() -> None:
     with make_session() as session:
         response = make_service(session).enqueue(
             DownloadCreateRequest(
-                source_url="https://example.com/album-track",
+                source_url="https://youtu.be/album-track-id",
                 search_query="album:external-album-id",
             )
         )
@@ -162,13 +167,13 @@ def test_album_job_parallelism_limits_worker_claims() -> None:
 def test_batch_enqueue_is_atomic_when_any_item_conflicts() -> None:
     with make_session() as session:
         service = make_service(session)
-        service.enqueue(DownloadCreateRequest(source_url="https://example.com/existing"))
+        service.enqueue(DownloadCreateRequest(source_url="https://youtu.be/existing-id"))
         before = session.query(DownloadJob).count()
 
         with pytest.raises(ConflictError):
             service.enqueue_batch([
-                DownloadCreateRequest(source_url="https://example.com/new"),
-                DownloadCreateRequest(source_url="https://example.com/existing"),
+                DownloadCreateRequest(source_url="https://youtu.be/new-id"),
+                DownloadCreateRequest(source_url="https://www.youtube.com/watch?v=existing-id"),
             ])
 
         assert session.query(DownloadJob).count() == before
@@ -196,3 +201,46 @@ def test_cancel_updates_queue_and_album_state_together() -> None:
         assert queue.status == DownloadStatus.CANCELLED
         assert item.status == DownloadStatus.CANCELLED
         assert album_job.status == DownloadStatus.CANCELLED
+
+
+def test_batch_listing_retry_and_active_resume_keep_queue_state_consistent() -> None:
+    with make_session() as session:
+        service = make_service(session)
+        created = service.enqueue_batch(
+            [
+                DownloadCreateRequest(source_url="https://youtu.be/batch-one"),
+                DownloadCreateRequest(source_url="https://youtu.be/batch-two"),
+            ]
+        )
+        assert {job.id for job in service.list_jobs()} == {created[0].id, created[1].id}
+
+        cancelled = service.cancel(created[0].id)
+        retried = service.retry(cancelled.id)
+        assert retried.status == DownloadStatus.QUEUED
+        assert session.get(DownloadJob, retried.id).queue_item.status == DownloadStatus.QUEUED
+
+        active = session.get(DownloadJob, created[1].id)
+        active.status = DownloadStatus.DOWNLOADING
+        active.progress = 25
+        session.commit()
+        service.pause(active.id)
+        resumed = service.resume(active.id)
+        assert resumed.status == DownloadStatus.DOWNLOADING
+        assert active.queue_item.status == DownloadStatus.DOWNLOADING
+
+
+def test_terminal_download_transitions_and_missing_jobs_are_rejected() -> None:
+    with make_session() as session:
+        job = DownloadJob(
+            status=DownloadStatus.COMPLETED,
+            source_url="https://youtu.be/completed-id",
+        )
+        session.add(job)
+        session.commit()
+        service = make_service(session)
+
+        assert service.cancel(job.id).status == DownloadStatus.COMPLETED
+        with pytest.raises(ConflictError, match="active downloads"):
+            service.pause(job.id)
+        with pytest.raises(ResourceNotFoundError, match="not found"):
+            service.cancel(999_999)

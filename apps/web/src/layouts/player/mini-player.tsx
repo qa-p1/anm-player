@@ -1,9 +1,10 @@
 import { motion } from "framer-motion";
-import { Pause, Play } from "lucide-react";
-import type { KeyboardEvent } from "react";
+import { LoaderCircle, Pause, Play, SkipBack, SkipForward } from "lucide-react";
+import type { CSSProperties } from "react";
 
 import { ArtworkImage } from "@/components/cards/artwork-image";
 import { Button } from "@/components/ui/button";
+import { audioService } from "@/services/audio-service";
 import { usePlayerStore } from "@/stores/player-store";
 
 interface MiniPlayerProps {
@@ -11,7 +12,16 @@ interface MiniPlayerProps {
 }
 
 export function MiniPlayer({ onOpen }: MiniPlayerProps) {
-  const { currentSong, isPlaying, setIsPlaying, currentTime, duration } = usePlayerStore();
+  const {
+    currentSong,
+    isPlaying,
+    setIsPlaying,
+    currentTime,
+    duration,
+    playbackStatus,
+    playPreviousSong,
+    playNextManually,
+  } = usePlayerStore();
 
   // Don't show mini player if no song is loaded
   if (!currentSong) return null;
@@ -20,41 +30,46 @@ export function MiniPlayer({ onOpen }: MiniPlayerProps) {
   const PlayPauseIcon = isPlaying ? Pause : Play;
   const artworkUrl = currentSong.artworkUrl;
 
-  function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault();
-      onOpen();
+  function handlePlayPause() {
+    setIsPlaying(!isPlaying);
+  }
+
+  function handlePrevious() {
+    const currentId = currentSong?.id;
+    const previous = playPreviousSong();
+    if (previous) {
+      if (previous.id === currentId) audioService.seek(0);
+      setIsPlaying(true);
     }
   }
 
-  function handlePlayPause(event: React.MouseEvent) {
-    event.stopPropagation();
-    setIsPlaying(!isPlaying);
+  function handleNext() {
+    const next = playNextManually();
+    if (next) setIsPlaying(true);
   }
 
   return (
     <motion.div
-      role="button"
-      tabIndex={0}
-      aria-label="Open player"
-      onClick={onOpen}
-      onKeyDown={handleKeyDown}
       initial={{ opacity: 0, y: 18, scale: 0.98 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: 18, scale: 0.98 }}
       transition={{ duration: 0.2, ease: "easeOut" }}
-      className="glass-panel fixed bottom-24 left-4 right-4 z-40 overflow-hidden rounded-[1.4rem] outline-none transition hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-ring lg:bottom-5 lg:left-auto lg:right-6 lg:w-[28rem]"
+      className="glass-panel fixed bottom-24 left-4 right-4 z-40 overflow-hidden rounded-[1.4rem] transition hover:bg-card/80 lg:bottom-5 lg:left-auto lg:right-6 lg:w-[32rem]"
     >
-      {/* Progress bar */}
-      <div className="absolute inset-x-0 top-0 h-0.5 bg-white/10">
-        <div
-          className="h-full bg-primary transition-all duration-300"
-          style={{ width: `${progress}%` }}
-        />
-      </div>
+      <input
+        type="range"
+        min={0}
+        max={Math.max(duration, 1)}
+        step={0.1}
+        value={Math.min(currentTime, Math.max(duration, 1))}
+        onChange={(event) => audioService.seek(Number(event.target.value))}
+        className="apple-player-range absolute inset-x-0 top-[-0.44rem] z-10 w-full"
+        style={{ "--range-progress": `${progress}%` } as CSSProperties}
+        aria-label="Mini-player song progress"
+      />
 
-      <div className="flex cursor-pointer items-center justify-between gap-3 p-3">
-        <div className="flex min-w-0 items-center gap-3">
+      <div className="flex items-center justify-between gap-2 p-3">
+        <button type="button" onClick={onOpen} aria-label="Open full-screen player" className="flex min-w-0 flex-1 items-center gap-3 rounded-xl text-left outline-none focus-visible:ring-2 focus-visible:ring-ring">
           <div className="h-12 w-12 shrink-0 overflow-hidden rounded-xl bg-[linear-gradient(135deg,#f43f5e,#14b8a6_52%,#f59e0b)] shadow-glow">
             <ArtworkImage
               src={artworkUrl}
@@ -67,10 +82,13 @@ export function MiniPlayer({ onOpen }: MiniPlayerProps) {
               {currentSong.title}
             </p>
             <p className="truncate text-xs text-muted-foreground">
-              {currentSong.artistName || "Unknown Artist"}
+              {playbackStatus === "loading" || playbackStatus === "buffering" || playbackStatus === "stalled"
+                ? <span className="inline-flex items-center gap-1 text-primary"><LoaderCircle className="h-3 w-3 animate-spin" />{playbackStatus === "loading" ? "Loading" : playbackStatus === "stalled" ? "Connection stalled" : "Buffering"}</span>
+                : currentSong.artistName || "Unknown Artist"}
             </p>
           </div>
-        </div>
+        </button>
+        <Button size="icon" variant="ghost" className="hidden h-9 w-9 sm:inline-flex" aria-label="Previous track" onClick={handlePrevious}><SkipBack className="h-4 w-4 fill-current" /></Button>
         <Button
           size="icon"
           variant="glass"
@@ -79,6 +97,7 @@ export function MiniPlayer({ onOpen }: MiniPlayerProps) {
         >
           <PlayPauseIcon className="h-4 w-4 fill-current" />
         </Button>
+        <Button size="icon" variant="ghost" className="h-9 w-9" aria-label="Next track" onClick={handleNext}><SkipForward className="h-4 w-4 fill-current" /></Button>
       </div>
     </motion.div>
   );

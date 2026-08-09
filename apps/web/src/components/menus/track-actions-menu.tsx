@@ -7,6 +7,10 @@ import {
   MoreHorizontal,
   PlayCircle,
   Plus,
+  Radio,
+  Share2,
+  Info,
+  Link as LinkIcon,
   Trash2,
   Sparkles,
 } from "lucide-react";
@@ -38,7 +42,9 @@ import { cn } from "@/lib/utils";
 import { isRequestCancelled } from "@/services/api-client";
 import { addLibraryTracksToPlaylist, getLibraryTrackStatuses, queueDownload } from "@/services/music-api";
 import { usePlayerStore } from "@/stores/player-store";
+import { usePlaybackPreferencesStore } from "@/stores/playback-preferences-store";
 import type { PlayerTrack } from "@/types/player";
+import { formatDuration } from "@/utils/format";
 
 interface TrackActionsMenuProps {
   track: PlayerTrack;
@@ -69,10 +75,11 @@ export function TrackActionsMenu({
   triggerVariant = "ghost",
   iconClassName,
 }: TrackActionsMenuProps) {
-  const { addToQueue, playNext } = usePlayerStore();
+  const { addToQueue, playNext, playSong } = usePlayerStore();
   const [isOpen, setIsOpen] = useState(false);
   const [resolvedDownloaded, setResolvedDownloaded] = useState(isDownloaded ?? false);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [showDetailsDialog, setShowDetailsDialog] = useState(false);
   const [newPlaylistName, setNewPlaylistName] = useState("");
   const { data: playlists = [] } = useAllPlaylists({ enabled: isOpen });
   const createPlaylistMutation = useCreatePlaylist();
@@ -162,6 +169,36 @@ export function TrackActionsMenu({
     }
   }
 
+  function handleStartRadio() {
+    usePlaybackPreferencesStore.getState().setAutoplayEnabled(true);
+    playSong(track);
+    toast("Track radio started", "success");
+    setIsOpen(false);
+  }
+
+  async function handleCopyLink() {
+    try {
+      await navigator.clipboard.writeText(trackShareUrl(track));
+      toast("Track link copied", "success");
+      setIsOpen(false);
+    } catch {
+      toast("Could not copy the track link", "error");
+    }
+  }
+
+  async function handleShare() {
+    if (!navigator.share) {
+      await handleCopyLink();
+      return;
+    }
+    try {
+      await navigator.share({ title: track.title, text: track.artistName || undefined, url: trackShareUrl(track) });
+      setIsOpen(false);
+    } catch (error) {
+      if (!(error instanceof Error && error.name === "AbortError")) toast("Could not share this track", "error");
+    }
+  }
+
   return (
     <>
       <DropdownMenu open={isOpen} onOpenChange={setIsOpen}>
@@ -185,6 +222,10 @@ export function TrackActionsMenu({
           <DropdownMenuItem onClick={handleAddToQueue}>
             <ListMusic className="mr-2 h-4 w-4" />
             Add to queue
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={handleStartRadio}>
+            <Radio className="mr-2 h-4 w-4" />
+            Start track radio
           </DropdownMenuItem>
           <DropdownMenuSub>
             <DropdownMenuSubTrigger>
@@ -234,6 +275,20 @@ export function TrackActionsMenu({
             </DropdownMenuItem>
           )}
 
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={handleCopyLink}>
+            <LinkIcon className="mr-2 h-4 w-4" />
+            Copy track link
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={handleShare}>
+            <Share2 className="mr-2 h-4 w-4" />
+            Share track
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => { setShowDetailsDialog(true); setIsOpen(false); }}>
+            <Info className="mr-2 h-4 w-4" />
+            Track details
+          </DropdownMenuItem>
+
           {(onRemoveDownload || onRemoveFromPlaylist) && <DropdownMenuSeparator />}
           {resolvedDownloaded && onRemoveDownload && (
             <DropdownMenuItem className="text-destructive" onClick={onRemoveDownload}>
@@ -275,6 +330,23 @@ export function TrackActionsMenu({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Dialog open={showDetailsDialog} onOpenChange={setShowDetailsDialog}>
+        <DialogContent onClick={(event) => event.stopPropagation()}>
+          <DialogHeader>
+            <DialogTitle>{track.title}</DialogTitle>
+            <DialogDescription>{track.artistName || "Unknown artist"}{track.albumTitle ? ` · ${track.albumTitle}` : ""}</DialogDescription>
+          </DialogHeader>
+          <dl className="grid grid-cols-[7rem_1fr] gap-x-4 gap-y-3 rounded-2xl bg-muted/45 p-4 text-sm">
+            <dt className="text-muted-foreground">Source</dt><dd className="font-medium">{track.source === "youtube" ? "YouTube Music" : track.localKind === "song" ? "Local library" : "Saved library track"}</dd>
+            <dt className="text-muted-foreground">Duration</dt><dd className="font-medium">{formatDuration(track.durationSeconds)}</dd>
+            <dt className="text-muted-foreground">Playback ID</dt><dd className="truncate font-mono text-xs">{track.id}</dd>
+            <dt className="text-muted-foreground">Availability</dt><dd className="font-medium">{track.source === "local" || resolvedDownloaded ? "Downloaded" : "Streaming"}</dd>
+            {track.albumTitle && <><dt className="text-muted-foreground">Album</dt><dd className="font-medium">{track.albumTitle}</dd></>}
+          </dl>
+          <DialogFooter><Button variant="glass" onClick={handleCopyLink}><LinkIcon className="h-4 w-4" />Copy link</Button><Button onClick={() => setShowDetailsDialog(false)}>Done</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
@@ -292,4 +364,10 @@ function onlineTrackPayload(track: Extract<PlayerTrack, { source: "youtube" }>) 
     artwork_url: item.thumbnail,
     explicit: item.explicit,
   };
+}
+
+function trackShareUrl(track: PlayerTrack) {
+  if (track.source === "youtube") return track.rawItem.url || `https://music.youtube.com/watch?v=${track.videoId}`;
+  const sourceUrl = track.localKind === "song" ? track.rawSong.source_url : track.rawLibraryTrack.source_url;
+  return sourceUrl || window.location.href;
 }

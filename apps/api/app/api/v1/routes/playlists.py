@@ -1,14 +1,18 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Response, status
 
 from app.api.deps import LimitQuery, OffsetQuery, ResourceId, get_catalog_service
 from app.schemas.music import (
     PlaylistAddSongsRequest,
     PlaylistAddOnlineTrackRequest,
+    PlaylistBulkRemoveRequest,
     PlaylistCreateRequest,
     PlaylistDetailResponse,
+    PlaylistDuplicateRequest,
+    PlaylistReorderRequest,
     PlaylistResponse,
+    PlaylistUpdateRequest,
 )
 from app.services import CatalogService
 
@@ -38,6 +42,96 @@ def get_playlist(
     playlist_id: ResourceId,
 ) -> PlaylistDetailResponse:
     return service.get_playlist(playlist_id)
+
+
+@router.patch("/{playlist_id}", response_model=PlaylistDetailResponse, summary="Update a playlist")
+def update_playlist(
+    request: PlaylistUpdateRequest,
+    service: Annotated[CatalogService, Depends(get_catalog_service)],
+    playlist_id: ResourceId,
+) -> PlaylistDetailResponse:
+    return service.update_playlist(playlist_id, request)
+
+
+@router.post(
+    "/{playlist_id}/duplicate",
+    response_model=PlaylistDetailResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Duplicate a playlist and all of its items",
+)
+def duplicate_playlist(
+    service: Annotated[CatalogService, Depends(get_catalog_service)],
+    playlist_id: ResourceId,
+    request: PlaylistDuplicateRequest | None = None,
+) -> PlaylistDetailResponse:
+    return service.duplicate_playlist(playlist_id, request)
+
+
+@router.put(
+    "/{playlist_id}/reorder",
+    response_model=PlaylistDetailResponse,
+    summary="Replace the complete mixed playlist item order",
+)
+def reorder_playlist(
+    request: PlaylistReorderRequest,
+    service: Annotated[CatalogService, Depends(get_catalog_service)],
+    playlist_id: ResourceId,
+) -> PlaylistDetailResponse:
+    return service.reorder_playlist(playlist_id, request)
+
+
+@router.post(
+    "/{playlist_id}/items/bulk-remove",
+    response_model=PlaylistDetailResponse,
+    summary="Remove multiple mixed playlist items atomically",
+)
+def bulk_remove_playlist_items(
+    request: PlaylistBulkRemoveRequest,
+    service: Annotated[CatalogService, Depends(get_catalog_service)],
+    playlist_id: ResourceId,
+) -> PlaylistDetailResponse:
+    return service.bulk_remove_playlist_items(playlist_id, request)
+
+
+@router.delete(
+    "/{playlist_id}/items",
+    response_model=PlaylistDetailResponse,
+    summary="Clear all playlist items",
+)
+def clear_playlist_items(
+    service: Annotated[CatalogService, Depends(get_catalog_service)],
+    playlist_id: ResourceId,
+) -> PlaylistDetailResponse:
+    return service.clear_playlist(playlist_id)
+
+
+@router.post(
+    "/{playlist_id}/clear",
+    response_model=PlaylistDetailResponse,
+    summary="Clear all playlist items",
+)
+def clear_playlist(
+    service: Annotated[CatalogService, Depends(get_catalog_service)],
+    playlist_id: ResourceId,
+) -> PlaylistDetailResponse:
+    return service.clear_playlist(playlist_id)
+
+
+@router.get(
+    "/{playlist_id}/export.m3u8",
+    response_class=Response,
+    summary="Export a playlist as UTF-8 M3U",
+)
+def export_playlist_m3u8(
+    service: Annotated[CatalogService, Depends(get_catalog_service)],
+    playlist_id: ResourceId,
+) -> Response:
+    filename, content = service.export_playlist_m3u8(playlist_id)
+    return Response(
+        content=content,
+        media_type="application/vnd.apple.mpegurl",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.delete("/{playlist_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete playlist")

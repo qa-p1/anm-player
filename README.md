@@ -8,14 +8,19 @@ There is no current screenshot in the repository; I would rather leave this sect
 
 ## What works today
 
-- YouTube Music home, search, album, artist, and related-track browsing
-- Streaming with a persistent queue, shuffle, repeat-one, and repeat-all
-- Media Session controls and keyboard playback shortcuts
+- YouTube Music home, search, album, artist, related-track browsing, autoplay radio, and recent or pinned searches
+- Streaming with visible buffering/error states, retry-and-skip recovery, a persistent editable queue, shuffle, repeat-one, and repeat-all
+- Advanced playback controls including speed, pitch preservation, configurable seek steps, output-device selection, A-B repeat, bookmarks, and sleep/stop timers
+- A ten-band equalizer with presets, preamp, stereo balance, mono downmix, and normalization
+- Media Session controls, an expanded keyboard shortcut system, a rich mini player, and offline/reconnection feedback
 - Background downloads through yt-dlp and FFmpeg, with live progress and retry/cancel controls
-- Local songs, artists, albums, saved online albums, playlists, favorites, and playback history
-- Lyrics lookup and local caching, plus metadata and artwork enrichment
+- Local songs, artists, albums, saved online albums, favorites, and mixed local/online playlists with editing, duplication, drag reordering, bulk actions, sharing, and M3U8 export
+- Synced lyrics with per-track timing offsets and display controls, plus editable local lyrics, metadata, and artwork enrichment
+- Listening insights for time, streaks, daily/hourly activity, and top tracks, artists, and albums, with replayable and manageable history
 - Managed SQLite storage with in-app reconciliation, usage reporting, cache cleanup, verified moves, and a guarded fresh start
 - Responsive desktop and narrow layouts with reduced-motion support
+
+See [CHANGELOG.md](CHANGELOG.md) for the complete v0.2.0 expansion list.
 
 Provider responses and stream formats can change without notice. ANM Player also has no accounts, remote synchronization, DRM support, or provider-independent catalog.
 

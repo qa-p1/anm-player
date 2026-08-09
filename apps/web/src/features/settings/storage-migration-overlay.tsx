@@ -102,7 +102,14 @@ export function StorageMigrationOverlay() {
               setView("verified");
               if (next.operation_kind === "reset") {
                 audioService.destroy();
-                for (const key of ["aura-player-storage", "aura-theme", "aura-accent"]) {
+                for (const key of [
+                  "aura-player-storage",
+                  "anm-playback-preferences",
+                  "anm-lyrics-preferences",
+                  "anm-search-history",
+                  "aura-theme",
+                  "aura-accent",
+                ]) {
                   window.localStorage.removeItem(key);
                 }
               }

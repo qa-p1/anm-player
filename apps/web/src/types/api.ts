@@ -116,6 +116,24 @@ export interface PlaylistCreateRequest {
   description?: string | null;
 }
 
+export interface PlaylistUpdateRequest {
+  name?: string;
+  description?: string | null;
+}
+
+export interface PlaylistItemReference {
+  item_type: "song" | "library_track";
+  item_id: number;
+}
+
+export interface PlaylistReorderRequest {
+  items: PlaylistItemReference[];
+}
+
+export interface PlaylistBulkRemoveRequest {
+  items: PlaylistItemReference[];
+}
+
 export interface PlaylistAddSongsRequest {
   song_ids: number[];
 }
@@ -175,6 +193,71 @@ export interface HistoryCreateRequest {
   source_url?: string | null;
   position_seconds?: number | null;
   event_type?: "played" | "skipped" | "completed";
+}
+
+export interface ListeningSummary {
+  period_days: number | null;
+  range_start: string | null;
+  generated_at: string;
+  total_plays: number;
+  completed_plays: number;
+  skipped_plays: number;
+  listening_seconds: number;
+  unique_tracks: number;
+  unique_artists: number;
+  active_days: number;
+  current_streak_days: number;
+  completion_rate: number;
+}
+
+export interface TrackInsight {
+  key: string;
+  source: "local" | "youtube";
+  external_id: string | null;
+  song_id: number | null;
+  title: string;
+  artist_name: string | null;
+  album_title: string | null;
+  artwork_url: string | null;
+  source_url: string | null;
+  duration_seconds: number | null;
+  play_count: number;
+  completed_count: number;
+  skipped_count: number;
+  listening_seconds: number;
+}
+
+export interface ArtistInsight {
+  name: string;
+  play_count: number;
+  listening_seconds: number;
+}
+
+export interface AlbumInsight {
+  title: string;
+  artist_name: string | null;
+  play_count: number;
+  listening_seconds: number;
+}
+
+export interface DailyListening {
+  date: string;
+  play_count: number;
+  listening_seconds: number;
+}
+
+export interface HourlyListening {
+  hour: number;
+  play_count: number;
+}
+
+export interface ListeningInsights {
+  summary: ListeningSummary;
+  top_tracks: TrackInsight[];
+  top_artists: ArtistInsight[];
+  top_albums: AlbumInsight[];
+  daily: DailyListening[];
+  hourly: HourlyListening[];
 }
 
 export interface OnlineArtist {

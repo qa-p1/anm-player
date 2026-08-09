@@ -43,9 +43,17 @@ describe("player queue invariants", () => {
       currentTime: 0,
       duration: 0,
       playbackRequestId: 0,
+      playbackStatus: "idle",
+      playbackError: null,
+      bufferedUntil: 0,
+      retryAttempt: 0,
       queue: [],
       queueHistory: [],
       originalQueue: [],
+      queueSnapshots: [],
+      lastQueueEdit: null,
+      _queueUndo: null,
+      pendingHistoryEvents: [],
       shuffle: false,
       repeat: "off",
     });
@@ -104,5 +112,81 @@ describe("player queue invariants", () => {
     const requestId = usePlayerStore.getState().playbackRequestId;
     expect(usePlayerStore.getState().playNextSong()?.id).toBe("a");
     expect(usePlayerStore.getState().playbackRequestId).toBe(requestId + 1);
+  });
+
+  it("lets manual next bypass repeat-one and records a skipped history event", () => {
+    const player = usePlayerStore.getState();
+    player.playAlbum([a, b, c]);
+    player.setRepeat("one");
+    player.setDuration(60);
+    player.setCurrentTime(12);
+
+    expect(usePlayerStore.getState().playNextSong()?.id).toBe("a");
+    usePlayerStore.getState().setDuration(60);
+    usePlayerStore.getState().setCurrentTime(12);
+    expect(usePlayerStore.getState().playNextManually()?.id).toBe("b");
+    expect(usePlayerStore.getState().pendingHistoryEvents).toEqual([
+      expect.objectContaining({ track: a, positionSeconds: 12, eventType: "skipped" }),
+    ]);
+  });
+
+  it("removes a failed track from repeat-all before advancing", () => {
+    const player = usePlayerStore.getState();
+    player.playAlbum([a]);
+    player.setRepeat("all");
+    expect(usePlayerStore.getState().playNextAfterError()).toBeNull();
+    expect(usePlayerStore.getState().originalQueue).toEqual([]);
+    expect(usePlayerStore.getState().currentSong).toBeNull();
+  });
+
+  it("plays and repositions queued tracks without corrupting the remaining order", () => {
+    const player = usePlayerStore.getState();
+    player.playAlbum([a, b, c, d]);
+    expect(player.moveQueueItemToEnd(0)).toBe(true);
+    expect(usePlayerStore.getState().queue.map(({ id }) => id)).toEqual(["c", "d", "b"]);
+    expect(usePlayerStore.getState().moveQueueItemNext(2)).toBe(true);
+    expect(usePlayerStore.getState().queue.map(({ id }) => id)).toEqual(["b", "c", "d"]);
+
+    expect(usePlayerStore.getState().playQueueIndex(1)?.id).toBe("c");
+    expect(usePlayerStore.getState().queue.map(({ id }) => id)).toEqual(["d"]);
+    expect(usePlayerStore.getState().queueHistory.map(({ id }) => id)).toEqual(["a"]);
+    expect(usePlayerStore.getState().originalQueue.map(({ id }) => id)).toEqual(["a", "c", "d"]);
+  });
+
+  it("undoes removal and clear operations and deduplicates upcoming tracks", () => {
+    const player = usePlayerStore.getState();
+    player.playAlbum([a, b, c]);
+    player.removeFromQueue(0);
+    expect(usePlayerStore.getState().queue.map(({ id }) => id)).toEqual(["c"]);
+    expect(usePlayerStore.getState().lastQueueEdit).toEqual({ kind: "remove", trackCount: 1 });
+    expect(usePlayerStore.getState().undoLastQueueEdit()).toBe(true);
+    expect(usePlayerStore.getState().queue.map(({ id }) => id)).toEqual(["b", "c"]);
+
+    usePlayerStore.getState().addToQueue(b);
+    usePlayerStore.getState().addToQueue(c);
+    expect(usePlayerStore.getState().deduplicateQueue()).toBe(2);
+    expect(usePlayerStore.getState().queue.map(({ id }) => id)).toEqual(["b", "c"]);
+
+    usePlayerStore.getState().clearQueue();
+    expect(usePlayerStore.getState().queue).toEqual([]);
+    expect(usePlayerStore.getState().undoLastQueueEdit()).toBe(true);
+    expect(usePlayerStore.getState().queue.map(({ id }) => id)).toEqual(["b", "c"]);
+  });
+
+  it("saves, loads, deletes queue snapshots, and replays queue history", () => {
+    const player = usePlayerStore.getState();
+    player.playAlbum([a, b, c]);
+    const snapshot = player.saveQueueSnapshot("Road trip");
+    expect(snapshot?.tracks.map(({ id }) => id)).toEqual(["a", "b", "c"]);
+
+    usePlayerStore.getState().playNextManually();
+    usePlayerStore.getState().playNextManually();
+    expect(usePlayerStore.getState().replayHistoryItem(0)?.id).toBe("a");
+    expect(usePlayerStore.getState().queue.map(({ id }) => id)).toEqual(["b", "c"]);
+
+    expect(usePlayerStore.getState().loadQueueSnapshot(snapshot!.id, false)?.id).toBe("a");
+    expect(usePlayerStore.getState()).toMatchObject({ isPlaying: false, playbackStatus: "paused" });
+    usePlayerStore.getState().deleteQueueSnapshot(snapshot!.id);
+    expect(usePlayerStore.getState().queueSnapshots).toEqual([]);
   });
 });

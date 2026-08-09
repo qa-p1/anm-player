@@ -353,7 +353,7 @@ def test_album_download_finalization_links_existing_song_and_artwork(
     monkeypatch.setattr(worker_module, "SessionLocal", Session)
     monkeypatch.setattr(worker, "_publish", lambda _job_id: None)
     monkeypatch.setattr(worker.tagging, "write_tags", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(worker, "_cache_artwork", lambda _url: "/media/artwork/downloads/cached.jpg")
+    monkeypatch.setattr(worker, "_cache_artwork", lambda _url: "/api/v1/media/artwork/downloads/cached.jpg")
     monkeypatch.setattr(worker, "_fetch_lyrics", lambda *_args: (_ for _ in ()).throw(RuntimeError("lyrics")))
     monkeypatch.setattr(worker, "_enrich_song", lambda *_args: (_ for _ in ()).throw(RuntimeError("metadata")))
 
@@ -366,7 +366,7 @@ def test_album_download_finalization_links_existing_song_and_artwork(
         assert job.status == DownloadStatus.COMPLETED
         assert song.is_downloaded is True
         assert song.artwork_url == "https://example.com/art.jpg"
-        assert song.artwork_path == "/media/artwork/downloads/cached.jpg"
+        assert song.artwork_path == "/api/v1/media/artwork/downloads/cached.jpg"
         assert item.status == DownloadStatus.COMPLETED
         assert item.track.song_id == song.id
         assert item.album_job.completed_tracks == 1
@@ -415,5 +415,5 @@ def test_publish_group_fallback_output_and_async_helpers(music_directory, monkey
 
     monkeypatch.setattr(worker_module, "ArtworkCacheService", FakeArtworkCache)
     result = worker._cache_artwork("https://example.com/art.jpg")
-    assert result == "/media/artwork/downloads/art.jpg"
+    assert result == "/api/v1/media/artwork/downloads/art.jpg"
     assert worker._cache_artwork(None) is None

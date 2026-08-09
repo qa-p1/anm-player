@@ -90,12 +90,23 @@ def test_artwork_url_allowlist_cached_shortcut_and_public_path(tmp_path) -> None
     cached.write_bytes(b"cached")
     assert asyncio.run(service.download_and_cache("https://i.ytimg.com/image.jpg")) == cached
     assert asyncio.run(service.download_and_cache("https://example.com/image.jpg")) is None
-    assert service.public_path(cached).startswith("/media/artwork/cache/")
+    assert service.public_path(cached).startswith("/api/v1/media/artwork/cache/")
 
 
 class FakeStreamResponse:
-    def __init__(self, *, content_type="image/png", content_length="4", chunks=None) -> None:
+    def __init__(
+        self,
+        *,
+        status_code=200,
+        content_type="image/png",
+        content_length="4",
+        chunks=None,
+        location=None,
+    ) -> None:
+        self.status_code = status_code
         self.headers = {"content-type": content_type, "content-length": content_length}
+        if location is not None:
+            self.headers["location"] = location
         self.chunks = chunks or [b"test"]
 
     async def __aenter__(self):
@@ -114,6 +125,7 @@ class FakeStreamResponse:
 
 class FakeAsyncClient:
     response = FakeStreamResponse()
+    responses = None
 
     def __init__(self, **_kwargs) -> None:
         pass
@@ -126,6 +138,8 @@ class FakeAsyncClient:
 
     def stream(self, method, url):
         assert method == "GET" and url.startswith("https://")
+        if self.responses:
+            return self.responses.pop(0)
         return self.response
 
 
@@ -141,6 +155,31 @@ def test_bounded_artwork_download_validates_headers_and_body(tmp_path, monkeypat
 
     FakeAsyncClient.response = FakeStreamResponse(content_length="not-a-number")
     assert asyncio.run(service._download("https://i.ytimg.com/image.jpg")) is None
+
+
+def test_artwork_redirects_remain_allowlisted_and_size_bounded(tmp_path, monkeypatch) -> None:
+    service = ArtworkCacheService(tmp_path / "cache")
+    monkeypatch.setattr(artwork_module.httpx, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(artwork_module.settings, "artwork_max_response_mb", 1)
+
+    FakeAsyncClient.responses = [
+        FakeStreamResponse(status_code=302, location="https://images.googleusercontent.com/final.jpg"),
+        FakeStreamResponse(chunks=[b"safe"]),
+    ]
+    assert asyncio.run(service._download("https://i.ytimg.com/image.jpg")) == b"safe"
+
+    FakeAsyncClient.responses = [FakeStreamResponse(status_code=302, location="https://example.com/private")]
+    assert asyncio.run(service._download("https://i.ytimg.com/image.jpg")) is None
+
+    FakeAsyncClient.responses = [FakeStreamResponse(status_code=302, location=None)]
+    assert asyncio.run(service._download("https://i.ytimg.com/image.jpg")) is None
+
+    FakeAsyncClient.responses = [FakeStreamResponse(content_length=str(1024 * 1024 + 1))]
+    assert asyncio.run(service._download("https://i.ytimg.com/image.jpg")) is None
+
+    FakeAsyncClient.responses = [FakeStreamResponse(content_length="", chunks=[b"x" * (1024 * 1024), b"x"])]
+    assert asyncio.run(service._download("https://i.ytimg.com/image.jpg")) is None
+    FakeAsyncClient.responses = None
 
 
 def test_artwork_eviction_removes_oldest_file(tmp_path, monkeypatch) -> None:

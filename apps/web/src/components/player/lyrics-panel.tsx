@@ -1,5 +1,5 @@
-import { ChevronDown, FileText, Loader2, Maximize2, RefreshCw } from "lucide-react";
-import { useEffect, useMemo, useRef } from "react";
+import { ChevronDown, Copy, FileText, LocateFixed, Loader2, Maximize2, Minus, Pencil, Plus, RefreshCw, RotateCcw, Save, Type, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { EmptyState } from "@/components/empty-states/empty-state";
 import { useLyrics } from "@/components/player/use-lyrics";
@@ -7,7 +7,9 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { audioService } from "@/services/audio-service";
+import { useLyricsPreferencesStore, type LyricsFontSize } from "@/stores/lyrics-preferences-store";
 import { usePlayerStore } from "@/stores/player-store";
+import { toast } from "@/components/ui/toast";
 
 interface LyricsPanelProps {
   songId?: number | null;
@@ -39,8 +41,44 @@ export function LyricsPanel({
   }, [album, artist, duration, songId, title, videoId]);
   const lyricsState = useLyrics(target);
   const currentTime = usePlayerStore((state) => state.currentTime);
+  const [isEditing, setIsEditing] = useState(false);
+  const [draftLyrics, setDraftLyrics] = useState("");
+  const lyricsPreferences = useLyricsPreferencesStore();
+  const targetKey = songId ? `local:${songId}` : `youtube:${videoId}`;
+  const timeOffset = lyricsPreferences.offsets[targetKey] ?? 0;
   const lrcLines = useMemo(() => parseLrc(lyricsState.lyrics), [lyricsState.lyrics]);
-  const activeLine = useActiveLine(lrcLines, currentTime);
+  const activeLine = useActiveLine(lrcLines, currentTime - timeOffset);
+
+  useEffect(() => {
+    setIsEditing(false);
+    setDraftLyrics("");
+  }, [targetKey]);
+
+  function beginEditing() {
+    setDraftLyrics(lyricsState.lyrics || "");
+    setIsEditing(true);
+  }
+
+  async function saveEditedLyrics() {
+    try {
+      const result = await lyricsState.saveLyrics(draftLyrics.trim());
+      if (!result) return;
+      setIsEditing(false);
+      toast("Lyrics saved", "success");
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Could not save lyrics", "error");
+    }
+  }
+
+  async function copyLyrics() {
+    if (!lyricsState.lyrics) return;
+    try {
+      await navigator.clipboard.writeText(lyricsState.lyrics);
+      toast("Lyrics copied", "success");
+    } catch {
+      toast("Could not copy lyrics", "error");
+    }
+  }
 
   if (!target) {
     return (
@@ -79,6 +117,11 @@ export function LyricsPanel({
         >
           <RefreshCw className="h-4 w-4" />
         </Button>
+        {songId && (
+          <Button type="button" variant="quiet" size="icon" className={cn("text-white/65 hover:text-white", immersive ? "h-11 w-11" : "h-9 w-9")} aria-label="Edit lyrics" onClick={beginEditing}>
+            <Pencil className="h-4 w-4" />
+          </Button>
+        )}
         {!immersive && onExpand && (
           <Button type="button" variant="quiet" size="icon" className="h-9 w-9" aria-label="Open lyrics full screen" onClick={onExpand}>
             <Maximize2 className="h-4 w-4" />
@@ -86,17 +129,39 @@ export function LyricsPanel({
         )}
       </header>
 
+      {immersive && lyricsState.lyrics && !isEditing && (
+        <div className="no-scrollbar mb-2 flex shrink-0 items-center gap-1.5 overflow-x-auto rounded-2xl bg-black/15 p-1.5 text-white">
+          <LyricsTool active={lyricsPreferences.autoScroll} label={lyricsPreferences.autoScroll ? "Auto-scroll on" : "Auto-scroll off"} onClick={() => lyricsPreferences.setAutoScroll(!lyricsPreferences.autoScroll)}><LocateFixed className="h-4 w-4" /></LyricsTool>
+          <LyricsTool label={`Text: ${lyricsPreferences.fontSize}`} onClick={lyricsPreferences.cycleFontSize}><Type className="h-4 w-4" /></LyricsTool>
+          {lrcLines.length > 0 && (
+            <>
+              <LyricsTool label="Lyrics 0.5 seconds earlier" onClick={() => lyricsPreferences.adjustOffset(targetKey, -0.5)}><Minus className="h-4 w-4" /></LyricsTool>
+              <span className="min-w-max px-1 text-[0.68rem] font-semibold tabular-nums text-white/65">Offset {timeOffset > 0 ? "+" : ""}{timeOffset.toFixed(1)}s</span>
+              <LyricsTool label="Lyrics 0.5 seconds later" onClick={() => lyricsPreferences.adjustOffset(targetKey, 0.5)}><Plus className="h-4 w-4" /></LyricsTool>
+              {timeOffset !== 0 && <LyricsTool label="Reset lyrics timing" onClick={() => lyricsPreferences.resetOffset(targetKey)}><RotateCcw className="h-4 w-4" /></LyricsTool>}
+            </>
+          )}
+          <LyricsTool label="Copy lyrics" onClick={copyLyrics}><Copy className="h-4 w-4" /></LyricsTool>
+        </div>
+      )}
+
       <div className="min-h-0 flex-1" aria-live="polite">
-        {lyricsState.isLoading ? (
+        {isEditing ? (
+          <div className="flex h-full min-h-0 flex-col gap-3 pb-2">
+            <p className="text-xs leading-5 text-white/55">Paste plain lyrics or LRC timestamps such as <code>[01:23.45]Line</code>. Changes are stored with this downloaded song.</p>
+            <textarea value={draftLyrics} onChange={(event) => setDraftLyrics(event.target.value)} spellCheck rows={16} className="min-h-0 flex-1 resize-none rounded-2xl border border-white/12 bg-black/20 p-4 font-mono text-sm leading-6 text-white outline-none placeholder:text-white/35 focus:border-white/35" placeholder="Paste or edit lyrics…" aria-label="Lyrics editor" />
+            <div className="flex justify-end gap-2"><Button variant="glass" onClick={() => setIsEditing(false)}><X className="h-4 w-4" />Cancel</Button><Button onClick={saveEditedLyrics} disabled={lyricsState.isSaving || !draftLyrics.trim()}><Save className="h-4 w-4" />{lyricsState.isSaving ? "Saving…" : "Save lyrics"}</Button></div>
+          </div>
+        ) : lyricsState.isLoading ? (
           <div className="flex h-full items-center justify-center">
             <Loader2 className="h-9 w-9 animate-spin text-white/55" />
           </div>
         ) : !lyricsState.lyrics ? (
           <LyricsEmptyState status={lyricsState.status} onRefetch={() => lyricsState.refresh()} />
         ) : lrcLines.length > 0 ? (
-          <SyncedLyricsView lines={lrcLines} activeLine={activeLine} immersive={immersive} />
+          <SyncedLyricsView lines={lrcLines} activeLine={activeLine} immersive={immersive} autoScroll={lyricsPreferences.autoScroll} timeOffset={timeOffset} fontSize={lyricsPreferences.fontSize} />
         ) : (
-          <PlainLyricsView lyrics={lyricsState.lyrics} immersive={immersive} />
+          <PlainLyricsView lyrics={lyricsState.lyrics} immersive={immersive} fontSize={lyricsPreferences.fontSize} />
         )}
       </div>
     </section>
@@ -120,7 +185,7 @@ function LyricsEmptyState({ status, onRefetch }: { status: string; onRefetch: ()
   );
 }
 
-function SyncedLyricsView({ lines, activeLine, immersive }: { lines: LrcLine[]; activeLine: number; immersive: boolean }) {
+function SyncedLyricsView({ lines, activeLine, immersive, autoScroll, timeOffset, fontSize }: { lines: LrcLine[]; activeLine: number; immersive: boolean; autoScroll: boolean; timeOffset: number; fontSize: LyricsFontSize }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const lineRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const manualScrollUntil = useRef(0);
@@ -129,7 +194,7 @@ function SyncedLyricsView({ lines, activeLine, immersive }: { lines: LrcLine[]; 
   useEffect(() => {
     const container = containerRef.current;
     const line = lineRefs.current[activeLine];
-    if (!container || !line || Date.now() < manualScrollUntil.current) return;
+    if (!autoScroll || !container || !line || Date.now() < manualScrollUntil.current) return;
     if (raf.current) window.cancelAnimationFrame(raf.current);
     raf.current = window.requestAnimationFrame(() => {
       const targetTop = line.offsetTop - 18;
@@ -138,7 +203,7 @@ function SyncedLyricsView({ lines, activeLine, immersive }: { lines: LrcLine[]; 
     return () => {
       if (raf.current) window.cancelAnimationFrame(raf.current);
     };
-  }, [activeLine]);
+  }, [activeLine, autoScroll]);
 
   return (
     <ScrollArea
@@ -157,10 +222,11 @@ function SyncedLyricsView({ lines, activeLine, immersive }: { lines: LrcLine[]; 
                 lineRefs.current[index] = node;
               }}
               type="button"
-              onClick={() => audioService.seek(line.time)}
+              onClick={() => audioService.seek(Math.max(0, line.time + timeOffset))}
               className={cn(
                 "block w-full break-words text-left font-black leading-[1.08] tracking-[-0.035em] transition duration-300 [overflow-wrap:anywhere]",
-                immersive ? "text-[clamp(2rem,7vw,4.75rem)] text-white/28 hover:text-white/65" : "text-2xl text-muted-foreground/45 hover:text-foreground sm:text-3xl",
+                immersive ? immersiveLyricsSize(fontSize) : compactLyricsSize(fontSize),
+                immersive ? "text-white/28 hover:text-white/65" : "text-muted-foreground/45 hover:text-foreground",
                 index === activeLine && (immersive ? "lyrics-active-glow scale-[1.01] text-white" : "scale-[1.02] text-foreground"),
                 index < activeLine && (immersive ? "text-white/18" : "text-muted-foreground/30"),
               )}
@@ -176,11 +242,11 @@ function SyncedLyricsView({ lines, activeLine, immersive }: { lines: LrcLine[]; 
   );
 }
 
-function PlainLyricsView({ lyrics, immersive }: { lyrics: string; immersive: boolean }) {
+function PlainLyricsView({ lyrics, immersive, fontSize }: { lyrics: string; immersive: boolean; fontSize: LyricsFontSize }) {
   return (
     <ScrollArea className="no-scrollbar h-full px-1">
       <div className={cn("mx-auto max-w-3xl overflow-hidden py-5", immersive && "max-w-5xl pb-[30vh] pt-12 sm:pt-20")}>
-        <pre className={cn("max-w-full whitespace-pre-wrap break-words font-sans font-bold leading-[1.32] [overflow-wrap:anywhere]", immersive ? "text-[clamp(1.75rem,6vw,4rem)] tracking-[-0.025em] text-white" : "text-base text-foreground")}>
+        <pre className={cn("max-w-full whitespace-pre-wrap break-words font-sans font-bold leading-[1.32] [overflow-wrap:anywhere]", immersive ? cn(plainLyricsSize(fontSize), "tracking-[-0.025em] text-white") : cn(fontSize === "compact" ? "text-sm" : fontSize === "large" ? "text-xl" : "text-base", "text-foreground"))}>
           {lyrics}
         </pre>
       </div>
@@ -215,4 +281,20 @@ function parseLrc(lyrics: string | null): LrcLine[] {
     }
   }
   return result.sort((a, b) => a.time - b.time);
+}
+
+function LyricsTool({ active = false, label, onClick, children }: { active?: boolean; label: string; onClick: () => void; children: React.ReactNode }) {
+  return <button type="button" aria-label={label} title={label} aria-pressed={active || undefined} onClick={onClick} className={cn("grid h-8 w-8 shrink-0 place-items-center rounded-lg text-white/55 transition hover:bg-white/10 hover:text-white", active && "bg-white text-black hover:bg-white/90 hover:text-black")}>{children}</button>;
+}
+
+function immersiveLyricsSize(size: LyricsFontSize) {
+  return size === "compact" ? "text-[clamp(1.5rem,5vw,3.5rem)]" : size === "large" ? "text-[clamp(2.4rem,8.5vw,5.6rem)]" : "text-[clamp(2rem,7vw,4.75rem)]";
+}
+
+function compactLyricsSize(size: LyricsFontSize) {
+  return size === "compact" ? "text-xl sm:text-2xl" : size === "large" ? "text-3xl sm:text-4xl" : "text-2xl sm:text-3xl";
+}
+
+function plainLyricsSize(size: LyricsFontSize) {
+  return size === "compact" ? "text-[clamp(1.35rem,4.5vw,3rem)]" : size === "large" ? "text-[clamp(2.2rem,7.5vw,5rem)]" : "text-[clamp(1.75rem,6vw,4rem)]";
 }

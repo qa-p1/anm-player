@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { Album, Mic2, Music2, Search, Video } from "lucide-react";
+import { Album, Clock3, Mic2, Music2, Pin, PinOff, Search, Trash2, Video, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
 
@@ -14,6 +14,7 @@ import { isRequestCancelled } from "@/services/api-client";
 import { getLibraryAlbumStatuses, getLibraryTrackStatuses, searchYouTubeMusic } from "@/services/music-api";
 import type { AlbumStatusItem, OnlineMusicItem } from "@/types/api";
 import { cn } from "@/lib/utils";
+import { useSearchHistoryStore } from "@/stores/search-history-store";
 
 const filters = [
   { id: "songs", label: "Songs", icon: Music2 },
@@ -27,7 +28,7 @@ type SearchFilter = (typeof filters)[number]["id"];
 const starterSearches = ["Global top songs", "New pop songs", "Lo-fi focus", "EDM workout", "Indie hits", "New albums"];
 
 export function SearchPage() {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [query, setQuery] = useState(() => searchParams.get("q") ?? "");
   const [activeFilter, setActiveFilter] = useState<SearchFilter>("songs");
   const [items, setItems] = useState<OnlineMusicItem[]>([]);
@@ -40,6 +41,11 @@ export function SearchPage() {
   const debouncedQuery = useDebouncedValue(query, 450);
   const normalizedQuery = debouncedQuery.trim();
   const { data: downloadJobs = [] } = useDownloads();
+  const searchEntries = useSearchHistoryStore((state) => state.entries);
+  const recordSearch = useSearchHistoryStore((state) => state.recordSearch);
+  const togglePinnedSearch = useSearchHistoryStore((state) => state.togglePinned);
+  const removeSearch = useSearchHistoryStore((state) => state.removeSearch);
+  const clearRecentSearches = useSearchHistoryStore((state) => state.clearRecent);
   const downloadJobsKey = downloadJobs.map((job) => `${job.id}:${job.status}:${job.progress}`).join(",");
 
   useEffect(() => {
@@ -58,6 +64,7 @@ export function SearchPage() {
       .then((response) => {
         setItems(response.items);
         setContinuation(response.continuation);
+        recordSearch(normalizedQuery);
       })
       .catch((searchError: unknown) => {
         if (isRequestCancelled(searchError)) return;
@@ -69,7 +76,16 @@ export function SearchPage() {
       });
 
     return () => controller.abort();
-  }, [normalizedQuery, activeFilter]);
+  }, [normalizedQuery, activeFilter, recordSearch]);
+
+  useEffect(() => {
+    const current = searchParams.get("q") ?? "";
+    if (current === normalizedQuery) return;
+    const next = new URLSearchParams(searchParams);
+    if (normalizedQuery) next.set("q", normalizedQuery);
+    else next.delete("q");
+    setSearchParams(next, { replace: true });
+  }, [normalizedQuery, searchParams, setSearchParams]);
 
   useEffect(() => {
     const albumIds = Array.from(
@@ -173,21 +189,30 @@ export function SearchPage() {
       </section>
 
       {!normalizedQuery && (
-        <section className="space-y-3">
-          <h2 className="text-xl font-bold tracking-normal">Start with a vibe</h2>
-          <div className="flex flex-wrap gap-2">
-            {starterSearches.map((search) => (
-              <button
-                key={search}
-                type="button"
-                onClick={() => setQuery(search)}
-                className="glass-panel rounded-full px-4 py-2 text-sm font-semibold transition hover:bg-white/10"
-              >
-                {search}
-              </button>
-            ))}
-          </div>
-        </section>
+        <>
+          {searchEntries.length > 0 && (
+            <section className="space-y-3">
+              <div className="flex items-center justify-between gap-3"><div className="flex items-center gap-2"><Clock3 className="h-5 w-5 text-primary" /><h2 className="text-xl font-bold tracking-normal">Recent searches</h2></div>{searchEntries.some((entry) => !entry.pinned) && <Button size="sm" variant="quiet" onClick={clearRecentSearches}><Trash2 className="h-4 w-4" />Clear recent</Button>}</div>
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {searchEntries.map((entry) => (
+                  <div key={entry.query} className="glass-panel flex items-center gap-2 rounded-2xl p-2">
+                    <button type="button" onClick={() => setQuery(entry.query)} className="min-w-0 flex flex-1 items-center gap-2 rounded-xl px-2 py-1.5 text-left hover:bg-white/5"><Search className="h-4 w-4 shrink-0 text-muted-foreground" /><span className="truncate text-sm font-semibold">{entry.query}</span>{entry.pinned && <Pin className="h-3.5 w-3.5 shrink-0 fill-primary text-primary" />}</button>
+                    <button type="button" aria-label={entry.pinned ? `Unpin ${entry.query}` : `Pin ${entry.query}`} onClick={() => togglePinnedSearch(entry.query)} className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-white/10 hover:text-foreground">{entry.pinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}</button>
+                    <button type="button" aria-label={`Remove ${entry.query} from recent searches`} onClick={() => removeSearch(entry.query)} className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-white/10 hover:text-red-400"><X className="h-4 w-4" /></button>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+          <section className="space-y-3">
+            <h2 className="text-xl font-bold tracking-normal">Start with a vibe</h2>
+            <div className="flex flex-wrap gap-2">
+              {starterSearches.map((search) => (
+                <button key={search} type="button" onClick={() => setQuery(search)} className="glass-panel rounded-full px-4 py-2 text-sm font-semibold transition hover:bg-white/10">{search}</button>
+              ))}
+            </div>
+          </section>
+        </>
       )}
 
       {error && <div className="glass-panel rounded-2xl p-4 text-sm text-primary">{error}</div>}

@@ -1,3 +1,7 @@
+import re
+import unicodedata
+from urllib.parse import quote, urlsplit
+
 from app.core.exceptions import ConflictError, ResourceNotFoundError
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -33,10 +37,14 @@ from app.schemas.music import (
     HistoryResponse,
     PlaylistAddOnlineTrackRequest,
     PlaylistAddSongsRequest,
+    PlaylistBulkRemoveRequest,
     PlaylistCreateRequest,
     PlaylistDetailResponse,
+    PlaylistDuplicateRequest,
     PlaylistItemResponse,
+    PlaylistReorderRequest,
     PlaylistResponse,
+    PlaylistUpdateRequest,
     SongResponse,
 )
 from app.schemas.library import MixedPlaylistTrackResponse
@@ -209,12 +217,282 @@ class CatalogService:
             raise ConflictError("A playlist with that name already exists.") from exc
         return self._playlist_to_response(playlist)
 
+    def update_playlist(self, playlist_id: int, request: PlaylistUpdateRequest) -> PlaylistDetailResponse:
+        playlist = self.playlists.get(playlist_id)
+        if not playlist:
+            raise ResourceNotFoundError("Playlist not found", details={"playlist_id": playlist_id})
+
+        changes = request.model_dump(exclude_unset=True)
+        if "name" in changes:
+            playlist.name = changes["name"]
+        if "description" in changes:
+            playlist.description = changes["description"]
+        try:
+            self.playlists.session.commit()
+        except IntegrityError as exc:
+            self.playlists.session.rollback()
+            raise ConflictError("A playlist with that name already exists.") from exc
+        return self.get_playlist(playlist_id)
+
+    def duplicate_playlist(
+        self,
+        playlist_id: int,
+        request: PlaylistDuplicateRequest | None = None,
+    ) -> PlaylistDetailResponse:
+        source = self.playlists.get(playlist_id)
+        if not source:
+            raise ResourceNotFoundError("Playlist not found", details={"playlist_id": playlist_id})
+
+        requested_name = request.name if request else None
+        name = requested_name or self._next_playlist_copy_name(source.name)
+        duplicate = Playlist(
+            name=name,
+            description=source.description,
+            artwork_path=source.artwork_path,
+        )
+        ordered_links = self._ordered_playlist_links(playlist_id)
+        try:
+            self.playlists.add(duplicate)
+            for position, (item_type, link) in enumerate(ordered_links):
+                if item_type == "song":
+                    self.playlists.session.add(
+                        PlaylistSong(
+                            playlist_id=duplicate.id,
+                            song_id=link.song_id,
+                            position=position,
+                        )
+                    )
+                else:
+                    self.playlists.session.add(
+                        PlaylistLibraryTrack(
+                            playlist_id=duplicate.id,
+                            track_id=link.track_id,
+                            position=position,
+                        )
+                    )
+            self.playlists.session.commit()
+        except IntegrityError as exc:
+            self.playlists.session.rollback()
+            raise ConflictError("A playlist with that name already exists.") from exc
+        return self.get_playlist(duplicate.id)
+
+    def clear_playlist(self, playlist_id: int) -> PlaylistDetailResponse:
+        if not self.playlists.get(playlist_id):
+            raise ResourceNotFoundError("Playlist not found", details={"playlist_id": playlist_id})
+        for _, link in self._ordered_playlist_links(playlist_id):
+            self.playlists.session.delete(link)
+        self.playlists.session.commit()
+        return self.get_playlist(playlist_id)
+
+    def reorder_playlist(
+        self,
+        playlist_id: int,
+        request: PlaylistReorderRequest,
+    ) -> PlaylistDetailResponse:
+        if not self.playlists.get(playlist_id):
+            raise ResourceNotFoundError("Playlist not found", details={"playlist_id": playlist_id})
+
+        current = self._playlist_link_map(playlist_id)
+        requested_keys = [(item.item_type, item.item_id) for item in request.items]
+        requested_set = set(requested_keys)
+        current_set = set(current)
+        if len(requested_keys) != len(requested_set) or requested_set != current_set:
+            raise ConflictError(
+                "Playlist items changed. Refresh the playlist and submit its complete item order.",
+                details={
+                    "missing_items": self._playlist_keys_payload(current_set - requested_set),
+                    "unexpected_items": self._playlist_keys_payload(requested_set - current_set),
+                },
+            )
+
+        try:
+            self._assign_playlist_positions([current[key] for key in requested_keys])
+            self.playlists.session.commit()
+        except IntegrityError as exc:
+            self.playlists.session.rollback()
+            raise ConflictError("The playlist changed while it was being reordered. Refresh it and try again.") from exc
+        return self.get_playlist(playlist_id)
+
+    def bulk_remove_playlist_items(
+        self,
+        playlist_id: int,
+        request: PlaylistBulkRemoveRequest,
+    ) -> PlaylistDetailResponse:
+        if not self.playlists.get(playlist_id):
+            raise ResourceNotFoundError("Playlist not found", details={"playlist_id": playlist_id})
+
+        current = self._playlist_link_map(playlist_id)
+        requested_keys = [(item.item_type, item.item_id) for item in request.items]
+        missing = set(requested_keys) - set(current)
+        if missing:
+            raise ResourceNotFoundError(
+                "One or more items are not in this playlist.",
+                details={"items": self._playlist_keys_payload(missing)},
+            )
+
+        removed = set(requested_keys)
+        for key in requested_keys:
+            self.playlists.session.delete(current[key])
+        remaining = [
+            link
+            for item_type, link in self._ordered_playlist_links(playlist_id)
+            if (item_type, self._playlist_link_id(item_type, link)) not in removed
+        ]
+        try:
+            self._assign_playlist_positions(remaining)
+            self.playlists.session.commit()
+        except IntegrityError as exc:
+            self.playlists.session.rollback()
+            raise ConflictError(
+                "The playlist changed while items were being removed. Refresh it and try again."
+            ) from exc
+        return self.get_playlist(playlist_id)
+
+    def export_playlist_m3u8(self, playlist_id: int) -> tuple[str, str]:
+        playlist = self.playlists.get(playlist_id)
+        if not playlist:
+            raise ResourceNotFoundError("Playlist not found", details={"playlist_id": playlist_id})
+
+        lines = ["#EXTM3U", f"#PLAYLIST:{self._m3u_text(playlist.name)}"]
+        for item_type, link in self._ordered_playlist_links(playlist_id):
+            if item_type == "song":
+                song = link.song
+                if not song:
+                    continue
+                duration = song.duration_seconds if song.duration_seconds is not None else -1
+                label = self._m3u_label(song.artist.name if song.artist else None, song.title)
+                location = f"/api/v1/media/songs/{song.id}/stream"
+            else:
+                track = link.track
+                if not track:
+                    continue
+                duration = track.duration_seconds if track.duration_seconds is not None else -1
+                label = self._m3u_label(track.artist_name, track.title)
+                if track.is_downloaded and track.relative_path:
+                    location = f"/api/v1/media/library-tracks/{track.id}/stream"
+                elif track.source == "youtube" and track.external_id:
+                    location = f"/api/v1/ytmusic/stream/{quote(track.external_id, safe='')}"
+                else:
+                    location = self._safe_remote_playlist_location(track.source_url)
+                    if location is None:
+                        continue
+            lines.extend((f"#EXTINF:{duration},{label}", location))
+
+        filename = self._safe_playlist_export_filename(playlist.id, playlist.name)
+        return filename, "\n".join(lines) + "\n"
+
     def delete_playlist(self, playlist_id: int) -> None:
         playlist = self.playlists.get(playlist_id)
         if not playlist:
             raise ResourceNotFoundError("Playlist not found", details={"playlist_id": playlist_id})
         self.playlists.delete(playlist)
         self.playlists.session.commit()
+
+    def _ordered_playlist_links(
+        self,
+        playlist_id: int,
+    ) -> list[tuple[str, PlaylistSong | PlaylistLibraryTrack]]:
+        song_links = self.playlists.session.scalars(
+            select(PlaylistSong)
+            .options(
+                joinedload(PlaylistSong.song).joinedload(Song.artist),
+                joinedload(PlaylistSong.song).joinedload(Song.album),
+            )
+            .where(PlaylistSong.playlist_id == playlist_id)
+        ).unique().all()
+        library_links = self.playlists.session.scalars(
+            select(PlaylistLibraryTrack)
+            .options(
+                joinedload(PlaylistLibraryTrack.track).joinedload(LibraryTrack.album),
+                joinedload(PlaylistLibraryTrack.track).joinedload(LibraryTrack.song),
+            )
+            .where(PlaylistLibraryTrack.playlist_id == playlist_id)
+        ).unique().all()
+        links: list[tuple[str, PlaylistSong | PlaylistLibraryTrack]] = [
+            *(("song", link) for link in song_links),
+            *(("library_track", link) for link in library_links),
+        ]
+        return sorted(links, key=lambda item: (item[1].position, 0 if item[0] == "song" else 1, item[1].id))
+
+    def _playlist_link_map(
+        self,
+        playlist_id: int,
+    ) -> dict[tuple[str, int], PlaylistSong | PlaylistLibraryTrack]:
+        return {
+            (item_type, self._playlist_link_id(item_type, link)): link
+            for item_type, link in self._ordered_playlist_links(playlist_id)
+        }
+
+    @staticmethod
+    def _playlist_link_id(item_type: str, link: PlaylistSong | PlaylistLibraryTrack) -> int:
+        return link.song_id if item_type == "song" else link.track_id
+
+    def _assign_playlist_positions(self, links: list[PlaylistSong | PlaylistLibraryTrack]) -> None:
+        if not links:
+            self.playlists.session.flush()
+            return
+        highest_position = max(link.position for link in links)
+        temporary_start = max(highest_position, len(links)) + len(links) + 1
+        for offset, link in enumerate(links):
+            link.position = temporary_start + offset
+        self.playlists.session.flush()
+        for position, link in enumerate(links):
+            link.position = position
+        self.playlists.session.flush()
+
+    def _next_playlist_copy_name(self, source_name: str) -> str:
+        suffix = " copy"
+        candidate = f"{source_name[:255 - len(suffix)]}{suffix}"
+        suffix_number = 2
+        while self.playlists.session.scalars(select(Playlist.id).where(Playlist.name == candidate)).first():
+            suffix = f" copy {suffix_number}"
+            candidate = f"{source_name[:255 - len(suffix)]}{suffix}"
+            suffix_number += 1
+        return candidate
+
+    @staticmethod
+    def _playlist_keys_payload(keys: set[tuple[str, int]]) -> list[dict[str, str | int]]:
+        return [
+            {"item_type": item_type, "item_id": item_id}
+            for item_type, item_id in sorted(keys)
+        ]
+
+    @classmethod
+    def _m3u_label(cls, artist: str | None, title: str) -> str:
+        title_text = cls._m3u_text(title) or "Unknown title"
+        artist_text = cls._m3u_text(artist)
+        return f"{artist_text} - {title_text}" if artist_text else title_text
+
+    @staticmethod
+    def _m3u_text(value: str | None) -> str:
+        if not value:
+            return ""
+        cleaned = "".join(
+            " " if unicodedata.category(character).startswith("C") else character
+            for character in str(value)
+        )
+        return " ".join(cleaned.split())
+
+    @staticmethod
+    def _safe_remote_playlist_location(value: str | None) -> str | None:
+        if not value or any(ord(character) < 32 or ord(character) == 127 for character in value):
+            return None
+        try:
+            parsed = urlsplit(value)
+            if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+                return None
+        except ValueError:
+            return None
+        return value
+
+    @staticmethod
+    def _safe_playlist_export_filename(playlist_id: int, name: str) -> str:
+        normalized = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode("ascii")
+        slug = re.sub(r"[^A-Za-z0-9._-]+", "-", normalized).strip("._-")[:120]
+        stem = f"playlist-{playlist_id}"
+        if slug:
+            stem = f"{stem}-{slug}"
+        return f"{stem}.m3u8"
 
     def add_songs_to_playlist(self, playlist_id: int, request: PlaylistAddSongsRequest) -> PlaylistDetailResponse:
         if not self.playlists.get(playlist_id):

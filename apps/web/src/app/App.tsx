@@ -20,6 +20,7 @@ const PlaylistsPage = lazy(() => import("@/features/library/playlists-page").the
 const SmartCollectionPage = lazy(() => import("@/features/library/smart-collection-page").then((module) => ({ default: module.SmartCollectionPage })));
 const SongsLibraryPage = lazy(() => import("@/features/library/songs-library-page").then((module) => ({ default: module.SongsLibraryPage })));
 const SettingsPage = lazy(() => import("@/features/settings/settings-page").then((module) => ({ default: module.SettingsPage })));
+const InsightsPage = lazy(() => import("@/features/insights/insights-page").then((module) => ({ default: module.InsightsPage })));
 const LegacyOnlineAlbumRedirect = lazy(() => import("@/features/library/legacy-album-redirect").then((module) => ({ default: module.LegacyOnlineAlbumRedirect })));
 const LegacySavedAlbumRedirect = lazy(() => import("@/features/library/legacy-album-redirect").then((module) => ({ default: module.LegacySavedAlbumRedirect })));
 const LegacyLocalAlbumRedirect = lazy(() => import("@/features/library/legacy-album-redirect").then((module) => ({ default: module.LegacyLocalAlbumRedirect })));
@@ -63,6 +64,7 @@ export function App() {
           <Route path="smart/:collectionId" element={<SmartCollectionPage />} />
         </Route>
         <Route path="settings" element={<SettingsPage />} />
+        <Route path="insights" element={<InsightsPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

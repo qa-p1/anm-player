@@ -1,4 +1,4 @@
-from sqlalchemy import func, select, text
+from sqlalchemy import String, and_, case, cast, func, literal, select, text
 from sqlalchemy import update
 from sqlalchemy.orm import Session, joinedload, selectinload
 
@@ -340,22 +340,39 @@ class HistoryRepository(Repository[History]):
         return self._dedupe_history(entries, limit=limit)
 
     def get_most_played_history(self, *, limit: int = 50) -> list[History]:
+        track_key = case(
+            (
+                and_(History.source == "youtube", History.external_id.is_not(None)),
+                literal("youtube:") + History.external_id,
+            ),
+            (History.song_id.is_not(None), literal("local:") + cast(History.song_id, String)),
+            (
+                and_(History.source == "local", History.external_id.is_not(None)),
+                literal("local:") + History.external_id,
+            ),
+            else_=literal("history:") + cast(History.id, String),
+        )
+        ranked = (
+            select(
+                History.id.label("history_id"),
+                func.count(History.id).over(partition_by=track_key).label("play_count"),
+                func.row_number().over(
+                    partition_by=track_key,
+                    order_by=[History.played_at.desc(), History.id.desc()],
+                ).label("recency_rank"),
+            )
+            .where(History.event_type == "played")
+            .subquery()
+        )
         statement = (
             select(History)
             .options(joinedload(History.song).joinedload(Song.artist), joinedload(History.song).joinedload(Song.album))
-            .where(History.event_type == "played")
-            .order_by(History.played_at.desc())
-            .limit(max(limit * 20, 300))
+            .join(ranked, History.id == ranked.c.history_id)
+            .where(ranked.c.recency_rank == 1)
+            .order_by(ranked.c.play_count.desc(), History.played_at.desc(), History.id.desc())
+            .limit(limit)
         )
-        entries = list(self.session.scalars(statement).unique())
-        counts: dict[str, int] = {}
-        latest: dict[str, History] = {}
-        for entry in entries:
-            key = self._history_key(entry)
-            counts[key] = counts.get(key, 0) + 1
-            if key not in latest or entry.played_at > latest[key].played_at:
-                latest[key] = entry
-        return sorted(latest.values(), key=lambda entry: (counts[self._history_key(entry)], entry.played_at), reverse=True)[:limit]
+        return list(self.session.scalars(statement).unique())
 
     def get_most_played_songs(self, *, limit: int = 50) -> list[Song]:
         subquery = (
@@ -393,6 +410,8 @@ class HistoryRepository(Repository[History]):
             return f"youtube:{entry.external_id}"
         if entry.song_id:
             return f"local:{entry.song_id}"
+        if entry.source == "local" and entry.external_id:
+            return f"local:{entry.external_id}"
         return f"history:{entry.id}"
 
 

@@ -1,196 +1,42 @@
-import {
-  DndContext,
-  DragOverlay,
-  KeyboardSensor,
-  PointerSensor,
-  TouchSensor,
-  closestCenter,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-  type DragStartEvent,
-} from "@dnd-kit/core";
-import {
-  SortableContext,
-  arrayMove,
-  sortableKeyboardCoordinates,
-  useSortable,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
 import { AnimatePresence, motion, type PanInfo } from "framer-motion";
 import {
-  ChevronDown,
-  GripVertical,
   Heart,
+  LoaderCircle,
   ListMusic,
   MessageSquareText,
   Pause,
   Play,
-  Repeat,
-  Repeat1,
+  Settings2,
   Shuffle,
   SkipBack,
   SkipForward,
-  Trash2,
   Volume1,
   Volume2,
   VolumeX,
+  WifiOff,
 } from "lucide-react";
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { useNavigate } from "react-router";
 
 import { TrackActionsMenu } from "@/components/menus/track-actions-menu";
 import { ArtworkImage } from "@/components/cards/artwork-image";
 import { LyricsPanel } from "@/components/player/lyrics-panel";
-import { Button } from "@/components/ui/button";
+import { PlayerToolsPanel } from "@/components/player/player-tools-panel";
+import { QueuePanel } from "@/components/player/queue-panel";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import { cachedArtworkUrl } from "@/services/api-client";
 import { audioService } from "@/services/audio-service";
 import { toggleFavorite as toggleFavoriteApi } from "@/services/music-api";
 import { usePlayerStore } from "@/stores/player-store";
+import { useUiStore } from "@/stores/ui-store";
 import type { PlayerTrack } from "@/types/player";
 import { formatTime } from "@/utils/format";
 
-type PlayerView = "player" | "lyrics" | "queue";
+type PlayerView = "player" | "lyrics" | "queue" | "tools";
 
 interface FullScreenPlayerProps {
   onClose: () => void;
-}
-
-interface QueueEntry {
-  id: string;
-  song: PlayerTrack;
-  queueIndex: number;
-}
-
-interface SortableQueueProps {
-  queue: PlayerTrack[];
-  onReorder: (queue: PlayerTrack[]) => void;
-  onRemove: (index: number) => void;
-}
-
-function SortableQueue({ queue, onReorder, onRemove }: SortableQueueProps) {
-  const [activeId, setActiveId] = useState<string | null>(null);
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 120, tolerance: 8 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-  );
-  const entries = useMemo(() => {
-    const occurrences = new Map<string, number>();
-    return queue.map((song, queueIndex) => {
-      const baseId = `${song.source}:${song.id}`;
-      const occurrence = occurrences.get(baseId) ?? 0;
-      occurrences.set(baseId, occurrence + 1);
-      return { id: `${baseId}:${occurrence}`, song, queueIndex };
-    });
-  }, [queue]);
-  const activeEntry = entries.find((entry) => entry.id === activeId) ?? null;
-
-  function handleDragStart(event: DragStartEvent) {
-    setActiveId(String(event.active.id));
-  }
-
-  function handleDragEnd(event: DragEndEvent) {
-    setActiveId(null);
-    if (!event.over || event.active.id === event.over.id) return;
-    const fromIndex = entries.findIndex((entry) => entry.id === event.active.id);
-    const toIndex = entries.findIndex((entry) => entry.id === event.over?.id);
-    if (fromIndex < 0 || toIndex < 0) return;
-    onReorder(arrayMove(queue, fromIndex, toIndex));
-  }
-
-  return (
-    <DndContext
-      sensors={sensors}
-      collisionDetection={closestCenter}
-      onDragStart={handleDragStart}
-      onDragCancel={() => setActiveId(null)}
-      onDragEnd={handleDragEnd}
-    >
-      <SortableContext items={entries.map((entry) => entry.id)} strategy={verticalListSortingStrategy}>
-        <ul className="space-y-2">
-          {entries.map((entry) => (
-            <SortableQueueRow key={entry.id} entry={entry} onRemove={onRemove} />
-          ))}
-        </ul>
-      </SortableContext>
-      <DragOverlay adjustScale={false} dropAnimation={{ duration: 260, easing: "cubic-bezier(0.22, 1, 0.36, 1)" }}>
-        {activeEntry ? <QueueDragPreview song={activeEntry.song} /> : null}
-      </DragOverlay>
-    </DndContext>
-  );
-}
-
-function SortableQueueRow({ entry, onRemove }: { entry: QueueEntry; onRemove: (index: number) => void }) {
-  const { attributes, listeners, setActivatorNodeRef, setNodeRef, transform, transition, isDragging } = useSortable({ id: entry.id });
-  const { song, queueIndex } = entry;
-  const style: CSSProperties = {
-    transform: CSS.Transform.toString(transform),
-    transition: transition ?? "transform 240ms cubic-bezier(0.22, 1, 0.36, 1)",
-    opacity: isDragging ? 0.28 : 1,
-  };
-
-  return (
-    <li
-      ref={setNodeRef}
-      style={style}
-      className={cn(
-        "flex items-center gap-3 rounded-2xl bg-white/10 p-3 backdrop-blur-xl will-change-transform",
-        isDragging && "ring-1 ring-white/15",
-      )}
-    >
-      <button
-        ref={setActivatorNodeRef}
-        type="button"
-        {...attributes}
-        {...listeners}
-        aria-label={`Drag ${song.title} to reorder`}
-        className="-ml-1 grid h-10 w-8 shrink-0 touch-none cursor-grab place-items-center rounded-lg text-white/40 transition hover:bg-white/10 hover:text-white/80 active:cursor-grabbing"
-      >
-        <GripVertical className="h-5 w-5" aria-hidden="true" />
-      </button>
-      <QueueSongDetails song={song} />
-      <button
-        type="button"
-        onPointerDown={(event) => event.stopPropagation()}
-        onClick={() => onRemove(queueIndex)}
-        aria-label={`Remove ${song.title} from queue`}
-        className="shrink-0 rounded-lg p-1 text-white/60 transition hover:bg-white/10 hover:text-red-300"
-      >
-        <Trash2 className="h-4 w-4" />
-      </button>
-    </li>
-  );
-}
-
-function QueueDragPreview({ song }: { song: PlayerTrack }) {
-  return (
-    <div className="flex cursor-grabbing items-center gap-3 rounded-2xl border border-white/25 bg-white/20 p-3 shadow-2xl shadow-black/45 backdrop-blur-2xl">
-      <div className="-ml-1 grid h-10 w-8 shrink-0 place-items-center text-white/75">
-        <GripVertical className="h-5 w-5" aria-hidden="true" />
-      </div>
-      <QueueSongDetails song={song} />
-      <div className="h-6 w-6 shrink-0" />
-    </div>
-  );
-}
-
-function QueueSongDetails({ song }: { song: PlayerTrack }) {
-  return (
-    <>
-      <div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-white/10">
-        <ArtworkImage src={song.artworkUrl} alt="" className="h-full w-full object-cover" />
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-semibold">{song.title}</p>
-        <p className="truncate text-xs text-white/55">{song.artistName || "Unknown Artist"}</p>
-      </div>
-      <span className="shrink-0 text-xs tabular-nums text-white/45">{formatTime(song.durationSeconds ?? 0)}</span>
-    </>
-  );
 }
 
 function playerTrackFavoriteState(track: PlayerTrack | null | undefined): boolean {
@@ -208,20 +54,20 @@ export function FullScreenPlayer({ onClose }: FullScreenPlayerProps) {
     volume,
     isMuted,
     shuffle,
-    repeat,
-    queue,
+    playbackStatus,
+    playbackError,
+    retryAttempt,
     setIsPlaying,
     setVolume,
     toggleMute,
     toggleShuffle,
-    cycleRepeat,
-    playNextSong,
+    retryCurrentSong,
+    playNextManually,
     playPreviousSong,
-    removeFromQueue,
-    setQueueOrder,
-    clearQueue,
   } = usePlayerStore();
   const [view, setView] = useState<PlayerView>("player");
+  const requestedPlayerView = useUiStore((state) => state.requestedPlayerView);
+  const consumePlayerViewRequest = useUiStore((state) => state.consumePlayerViewRequest);
   const [isFavorited, setIsFavorited] = useState(playerTrackFavoriteState(currentSong));
   const palette = useDominantArtworkPalette(currentSong?.artworkUrl ?? null);
 
@@ -245,12 +91,17 @@ export function FullScreenPlayer({ onClose }: FullScreenPlayerProps) {
     };
   }, [onClose, view]);
 
+  useEffect(() => {
+    if (!requestedPlayerView) return;
+    setView(requestedPlayerView);
+    consumePlayerViewRequest();
+  }, [consumePlayerViewRequest, requestedPlayerView]);
+
   if (!currentSong) return null;
 
   const progress = duration > 0 ? Math.min(100, Math.max(0, (currentTime / duration) * 100)) : 0;
   const volumeProgress = isMuted ? 0 : volume * 100;
   const PlayIcon = isPlaying ? Pause : Play;
-  const RepeatIcon = repeat === "one" ? Repeat1 : Repeat;
 
   function handlePlayPause() {
     setIsPlaying(!isPlaying);
@@ -266,7 +117,7 @@ export function FullScreenPlayer({ onClose }: FullScreenPlayerProps) {
   }
 
   function handleNext() {
-    const next = playNextSong();
+    const next = playNextManually();
     if (next) setIsPlaying(true);
   }
 
@@ -351,44 +202,33 @@ export function FullScreenPlayer({ onClose }: FullScreenPlayerProps) {
               onClose={() => setView("player")}
             />
           </motion.div>
-        ) : view === "queue" ? (
-          <motion.section
-            key="queue"
-            className="relative mx-auto flex h-full w-full max-w-2xl flex-col px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-[max(0.75rem,env(safe-area-inset-top))] sm:px-8"
+        ) : view === "tools" ? (
+          <motion.div
+            key="tools"
+            className="relative h-full"
             initial={{ opacity: 0, x: 24 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -24 }}
             transition={{ duration: 0.2, ease: "easeOut" }}
           >
-            <PlayerSheetHeader title="Up Next" onClose={() => setView("player")} />
-            <div className="mb-5 flex items-center justify-center gap-3">
-              <Button variant="glass" onClick={toggleShuffle} className={cn("border-white/15 bg-white/10 text-white", shuffle && "bg-white text-black hover:bg-white/90")}>
-                <Shuffle className="h-4 w-4" />
-                Shuffle
-              </Button>
-              <Button variant="glass" onClick={cycleRepeat} className={cn("border-white/15 bg-white/10 text-white", repeat !== "off" && "bg-white text-black hover:bg-white/90")}>
-                <RepeatIcon className="h-4 w-4" />
-                {repeat === "one" ? "Repeat one" : repeat === "all" ? "Repeat all" : "Repeat"}
-              </Button>
-              {queue.length > 0 && (
-                <Button variant="glass" onClick={clearQueue} className="border-white/15 bg-white/10 text-white">
-                  <Trash2 className="h-4 w-4" />
-                  Clear
-                </Button>
-              )}
-            </div>
-            <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto pb-4">
-              {queue.length === 0 ? (
-                <div className="flex h-full flex-col items-center justify-center text-center">
-                  <ListMusic className="mb-4 h-10 w-10 text-white/45" />
-                  <p className="text-lg font-bold">Your queue is empty</p>
-                  <p className="mt-1 text-sm text-white/55">Add a track from any song menu.</p>
-                </div>
-              ) : (
-                <SortableQueue queue={queue} onReorder={setQueueOrder} onRemove={removeFromQueue} />
-              )}
-            </div>
-          </motion.section>
+            <PlayerToolsPanel
+              trackId={currentSong.id}
+              currentTime={currentTime}
+              duration={duration}
+              onClose={() => setView("player")}
+            />
+          </motion.div>
+        ) : view === "queue" ? (
+          <motion.div
+            key="queue"
+            className="relative h-full"
+            initial={{ opacity: 0, x: 24 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -24 }}
+            transition={{ duration: 0.2, ease: "easeOut" }}
+          >
+            <QueuePanel onClose={() => setView("player")} />
+          </motion.div>
         ) : (
           <motion.main
             key="player"
@@ -458,6 +298,13 @@ export function FullScreenPlayer({ onClose }: FullScreenPlayerProps) {
               </div>
 
               <div className="mt-5 sm:mt-7">
+                {(playbackStatus === "loading" || playbackStatus === "buffering" || playbackStatus === "stalled" || playbackStatus === "error") && (
+                  <div className={cn("mb-3 flex items-center justify-center gap-2 rounded-xl bg-black/15 px-3 py-2 text-xs font-semibold text-white/70", playbackStatus === "error" && "text-red-200")} role="status">
+                    {playbackStatus === "error" ? <WifiOff className="h-4 w-4" /> : <LoaderCircle className="h-4 w-4 animate-spin" />}
+                    <span>{playbackStatus === "loading" ? "Loading audio…" : playbackStatus === "buffering" ? "Buffering…" : playbackStatus === "stalled" ? "The connection stalled…" : playbackError || "Playback could not continue"}{retryAttempt > 0 && playbackStatus !== "error" ? ` · retry ${retryAttempt}` : ""}</span>
+                    {playbackStatus === "error" && <button type="button" className="rounded-full bg-white/12 px-2 py-1 text-white hover:bg-white/20" onClick={() => { if (retryCurrentSong()) setIsPlaying(true); }}>Retry</button>}
+                  </div>
+                )}
                 <input
                   type="range"
                   min={0}
@@ -501,10 +348,11 @@ export function FullScreenPlayer({ onClose }: FullScreenPlayerProps) {
                 <Volume2 className="h-[1.1rem] w-[1.1rem]" />
               </div>
 
-              <div className="mt-4 grid grid-cols-3 items-center sm:mt-6">
+              <div className="mt-4 grid grid-cols-4 items-center sm:mt-6">
                 <PlayerFooterButton label="Open lyrics full screen" active={false} onClick={() => setView("lyrics")}><MessageSquareText className="h-[1.35rem] w-[1.35rem]" /></PlayerFooterButton>
                 <PlayerFooterButton label={shuffle ? "Disable shuffle" : "Enable shuffle"} active={shuffle} onClick={toggleShuffle}><Shuffle className="h-[1.35rem] w-[1.35rem]" /></PlayerFooterButton>
                 <PlayerFooterButton label="Show queue" active={false} onClick={() => setView("queue")}><ListMusic className="h-[1.35rem] w-[1.35rem]" /></PlayerFooterButton>
+                <PlayerFooterButton label="Open playback studio" active={false} onClick={() => setView("tools")}><Settings2 className="h-[1.35rem] w-[1.35rem]" /></PlayerFooterButton>
               </div>
             </section>
           </motion.main>
@@ -527,18 +375,6 @@ function PlayerFooterButton({ label, active, onClick, children }: { label: strin
     <button type="button" aria-label={label} aria-pressed={active} onClick={onClick} className={cn("mx-auto flex h-10 w-12 items-center justify-center rounded-full text-white/65 transition hover:bg-white/10 hover:text-white", active && "bg-white/15 text-white")}>
       {children}
     </button>
-  );
-}
-
-function PlayerSheetHeader({ title, onClose }: { title: string; onClose: () => void }) {
-  return (
-    <header className="mb-4 grid shrink-0 grid-cols-[2.75rem_1fr_2.75rem] items-center">
-      <button type="button" aria-label="Return to player" onClick={onClose} className="flex h-11 w-11 items-center justify-center rounded-full text-white/80 hover:bg-white/10 hover:text-white">
-        <ChevronDown className="h-6 w-6" />
-      </button>
-      <h2 className="text-center text-base font-bold">{title}</h2>
-      <span />
-    </header>
   );
 }
 

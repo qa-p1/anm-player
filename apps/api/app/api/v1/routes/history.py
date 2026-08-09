@@ -1,8 +1,11 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, status
+from sqlalchemy import delete
 
-from app.api.deps import LimitQuery, OffsetQuery, get_catalog_service
+from app.api.deps import DbSession, LimitQuery, OffsetQuery, ResourceId, get_catalog_service
+from app.core.exceptions import ResourceNotFoundError
+from app.models import History
 from app.schemas.music import HistoryCreateRequest, HistoryResponse
 from app.services import CatalogService
 
@@ -40,3 +43,19 @@ def most_played_history(
     limit: LimitQuery = 50,
 ) -> list[HistoryResponse]:
     return service.get_most_played_history(limit=limit)
+
+
+@router.delete("/{history_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete a history entry")
+def delete_history_entry(session: DbSession, history_id: ResourceId) -> None:
+    entry = session.get(History, history_id)
+    if entry is None:
+        raise ResourceNotFoundError("History entry not found", details={"history_id": history_id})
+    session.delete(entry)
+    session.commit()
+
+
+@router.delete("", response_model=dict[str, int], summary="Clear listening history")
+def clear_history(session: DbSession) -> dict[str, int]:
+    result = session.execute(delete(History))
+    session.commit()
+    return {"deleted": max(0, result.rowcount or 0)}

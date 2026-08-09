@@ -11,6 +11,7 @@ from app.api.v1.routes import (
     favorites,
     health,
     history,
+    insights,
     library,
     lyrics,
     media,
@@ -33,6 +34,7 @@ protected_router.include_router(albums.router, prefix="/albums", tags=["albums"]
 protected_router.include_router(songs.router, prefix="/songs", tags=["songs"])
 protected_router.include_router(favorites.router, prefix="/favorites", tags=["favorites"])
 protected_router.include_router(history.router, prefix="/history", tags=["history"])
+protected_router.include_router(insights.router, prefix="/insights", tags=["insights"])
 protected_router.include_router(media.router, prefix="/media", tags=["media"])
 protected_router.include_router(advanced_search.router, prefix="/advanced-search", tags=["advanced-search"])
 protected_router.include_router(metadata.router, prefix="/metadata", tags=["metadata"])

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -147,3 +148,37 @@ def test_external_cache_path_must_remain_contained(tmp_path) -> None:
         service = StreamCacheService(session, tmp_path / "cache", quality="high")
         with pytest.raises(ValueError):
             service._resolve_cache_path(str(tmp_path / "outside.webm"))
+
+
+def test_background_cache_deduplicates_inflight_quality_and_releases_key(monkeypatch) -> None:
+    Session = make_session_factory()
+    pending: list[object] = []
+    cached: list[tuple[str, str]] = []
+
+    class CapturedThread:
+        def __init__(self, *, target, name: str, daemon: bool) -> None:
+            assert name == "stream-cache-video-id"
+            assert daemon is True
+            pending.append(target)
+
+        def start(self) -> None:
+            return None
+
+    monkeypatch.setattr(stream_module.threading, "Thread", CapturedThread)
+    monkeypatch.setattr("app.database.session.SessionLocal", Session)
+    monkeypatch.setattr("app.storage.coordinator.storage_coordinator.filesystem_write", nullcontext)
+    monkeypatch.setattr(
+        StreamCacheService,
+        "cache_youtube_stream",
+        lambda self, video_id, _playback: cached.append((video_id, self.quality)),
+    )
+    stream_module._background_cache_active.clear()
+
+    StreamCacheService.start_background_cache("video-id", playback(), quality="low")
+    StreamCacheService.start_background_cache("video-id", playback(), quality="low")
+
+    assert len(pending) == 1
+    assert stream_module._background_cache_active == {"video-id:low"}
+    pending[0]()
+    assert cached == [("video-id", "low")]
+    assert stream_module._background_cache_active == set()

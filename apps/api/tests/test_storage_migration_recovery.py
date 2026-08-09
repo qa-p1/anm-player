@@ -17,10 +17,15 @@ class FakeStateStore:
             "schema_version": 1,
             "data_root": str(root.resolve()),
             "migration": copy.deepcopy(migration),
+            "last_operation": None,
         }
 
     def read(self) -> dict:
         return copy.deepcopy(self.state)
+
+    def update(self, **changes) -> dict:
+        self.state.update(copy.deepcopy(changes))
+        return self.read()
 
     def set_migration(self, migration: dict | None) -> dict:
         self.state["migration"] = copy.deepcopy(migration)
@@ -92,6 +97,16 @@ def migration_for(old: Path, target: Path, *, mode: str, phase: str) -> dict:
         "cleanup_warning": None,
         "started_at": 1.0,
     }
+
+
+def reset_for(old: Path, target: Path, *, phase: str = "prepared") -> dict:
+    operation = migration_for(old, target, mode="reset", phase=phase)
+    operation.update(
+        operation_kind="reset",
+        files_total=0,
+        bytes_total=0,
+    )
+    return operation
 
 
 @pytest.fixture
@@ -218,7 +233,10 @@ def test_failed_cleanup_keeps_recovery_state_and_both_copies(tmp_path, isolated_
     persisted = state.read()
     assert Path(persisted["data_root"]) == target.resolve()
     assert persisted["migration"]["phase"] == "cleanup"
-    assert "locked" in persisted["migration"]["cleanup_warning"]
+    assert persisted["migration"]["cleanup_warning"] == (
+        "ANM Player is using the new root, but the previous data folder could not be fully removed."
+    )
+    assert "locked" not in persisted["migration"]["cleanup_warning"]
     assert old.is_dir() and target.is_dir()
 
 
@@ -393,6 +411,157 @@ def test_successful_validation_and_migration_start_checkpoint(tmp_path, isolated
     coordinator._unlock()
 
 
+def test_fresh_start_records_a_gated_reset_operation(tmp_path, isolated_coordinator, monkeypatch) -> None:
+    old = tmp_path / "old"
+    target = tmp_path / "target"
+    valid_database(old / "aura.db")
+    target.mkdir()
+    coordinator, state, _, _ = isolated_coordinator(old)
+    started: list[str] = []
+
+    class FakeThread:
+        def __init__(self, *, target, args, name: str, daemon: bool) -> None:
+            assert target == coordinator._run_guarded
+            assert len(args) == 1
+            assert daemon is True
+            self.name = name
+
+        def start(self) -> None:
+            started.append(self.name)
+
+    monkeypatch.setattr(coordinator_module.threading, "Thread", FakeThread)
+
+    operation_id = coordinator.start_reset(target)
+    persisted = state.read()["migration"]
+
+    assert operation_id == persisted["operation_id"]
+    assert persisted["operation_kind"] == "reset"
+    assert persisted["copy_mode"] == "reset"
+    assert persisted["phase"] == "prepared"
+    assert coordinator.status()["percent"] == 10
+    assert coordinator.gated.is_set()
+    assert started == [f"aura-storage-reset-{operation_id[:8]}"]
+    coordinator._migration_lock.release()
+    coordinator._unlock()
+
+
+def test_fresh_start_replaces_managed_data_but_preserves_unrelated_files(
+    tmp_path, isolated_coordinator, monkeypatch
+) -> None:
+    old = tmp_path / "old"
+    target = tmp_path / "target"
+    valid_database(old / "aura.db")
+    for name in coordinator_module.RESET_MANAGED_DIRECTORIES:
+        directory = old / name
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / "owned.txt").write_text("owned", encoding="utf-8")
+    for name in coordinator_module.RESET_MANAGED_FILES[1:]:
+        (old / name).write_bytes(b"sqlite sidecar")
+    unrelated = old / "keep-me.txt"
+    unrelated.write_text("operator data", encoding="utf-8")
+    target.mkdir()
+    operation = reset_for(old, target)
+    coordinator, state, _, engine = isolated_coordinator(old, operation)
+
+    monkeypatch.setattr(coordinator, "_upgrade_database", lambda: valid_database(target / "aura.db"))
+
+    def verify_new_root(root: Path) -> None:
+        assert root == target
+        assert (root / "aura.db").is_file()
+
+    monkeypatch.setattr(coordinator, "_verify_switched", verify_new_root)
+
+    coordinator._run_reset(operation)
+
+    persisted = state.read()
+    assert Path(persisted["data_root"]) == target.resolve()
+    assert persisted["migration"] is None
+    assert persisted["last_operation"]["operation_kind"] == "reset"
+    assert unrelated.read_text(encoding="utf-8") == "operator data"
+    assert not any((old / name).exists() for name in coordinator_module.RESET_MANAGED_DIRECTORIES)
+    assert not any((old / name).exists() for name in coordinator_module.RESET_MANAGED_FILES)
+    assert (target / "aura.db").is_file()
+    assert target / "aura.db" in engine.bound
+
+
+def test_failed_fresh_start_restores_source_and_discards_only_owned_target(
+    tmp_path, isolated_coordinator, monkeypatch
+) -> None:
+    old = tmp_path / "old"
+    target = tmp_path / "target"
+    valid_database(old / "aura.db")
+    target.mkdir()
+    operation = reset_for(old, target)
+    coordinator, state, _, _ = isolated_coordinator(old, operation)
+    monkeypatch.setattr(
+        coordinator,
+        "_upgrade_database",
+        lambda: (_ for _ in ()).throw(RuntimeError("migration failed")),
+    )
+
+    coordinator._run_guarded(operation["operation_id"])
+
+    persisted = state.read()
+    assert Path(persisted["data_root"]) == old.resolve()
+    assert persisted["migration"] is None
+    assert persisted["last_operation"]["operation_kind"] == "reset"
+    assert "kept the previous verified" in persisted["last_operation"]["error"]
+    assert (old / "aura.db").is_file()
+    assert target.is_dir() and not any(target.iterdir())
+    assert not coordinator.gated.is_set()
+
+
+def test_reset_cleanup_recovery_sanitizes_failures_and_keeps_both_roots(
+    tmp_path, isolated_coordinator, monkeypatch
+) -> None:
+    old = tmp_path / "old"
+    target = tmp_path / "target"
+    valid_database(old / "aura.db")
+    valid_database(target / "aura.db")
+    operation = reset_for(old, target, phase="cleanup")
+    coordinator, state, _, _ = isolated_coordinator(target, operation)
+    coordinator._set_gate()
+    monkeypatch.setattr(coordinator, "_verify_switched", lambda _root: None)
+    monkeypatch.setattr(
+        coordinator,
+        "_delete_reset_managed_data",
+        lambda _root: (_ for _ in ()).throw(OSError("secret locked path")),
+    )
+
+    coordinator._run_reset(operation)
+
+    persisted = state.read()["migration"]
+    assert persisted["phase"] == "cleanup"
+    assert persisted["cleanup_warning"] == (
+        "ANM Player is fresh and using the new location, but the previous data folder could not be fully removed."
+    )
+    assert "secret locked path" not in persisted["cleanup_warning"]
+    assert old.is_dir() and target.is_dir()
+    assert not coordinator.gated.is_set()
+
+
+def test_reset_recovery_refuses_unowned_or_overlapping_locations(tmp_path, isolated_coordinator) -> None:
+    old = tmp_path / "old"
+    target = tmp_path / "target"
+    valid_database(old / "aura.db")
+    target.mkdir()
+    operation = reset_for(old, target)
+    coordinator, _, _, _ = isolated_coordinator(old, operation)
+
+    (target / "unexpected.txt").write_text("operator data", encoding="utf-8")
+    with pytest.raises(StorageMigrationError, match="no longer empty"):
+        coordinator._prepare_reset_target(operation, target)
+
+    coordinator._reset_marker(operation, target).write_text(operation["operation_id"], encoding="utf-8")
+    with pytest.raises(StorageMigrationError, match="did not create"):
+        coordinator._prepare_reset_target(operation, target)
+
+    with pytest.raises(StorageMigrationError, match="overlap"):
+        coordinator._assert_safe_reset_source(old, old / "child")
+    with pytest.raises(StorageMigrationError, match="unavailable"):
+        coordinator._restore_reset_source(tmp_path / "missing")
+
+
 def test_recover_and_guarded_dispatch_use_persisted_mode(tmp_path, isolated_coordinator, monkeypatch) -> None:
     root = tmp_path / "root"
     target = tmp_path / "target"
@@ -463,4 +632,55 @@ def test_directory_grants_expire_and_filesystem_roots_are_real(tmp_path, isolate
     with pytest.raises(StorageMigrationError, match="expired"):
         coordinator.resolve_directory(token)
 
+    monkeypatch.setattr(coordinator_module.time, "monotonic", lambda: 1.0)
+    consumed_token = coordinator.issue_directory(selected)
+    assert coordinator.consume_directory(consumed_token) == selected.absolute()
+    with pytest.raises(StorageMigrationError, match="expired"):
+        coordinator.resolve_directory(consumed_token)
+
     assert all(path.exists() for path in coordinator.filesystem_roots())
+
+
+def test_quiesced_revalidation_recovers_partial_layouts_and_refreshes_totals(
+    tmp_path, isolated_coordinator, monkeypatch
+) -> None:
+    old = tmp_path / "old"
+    target = tmp_path / "target"
+    valid_database(old / "aura.db")
+    migration = migration_for(old, target, mode="rename", phase="prepared")
+    coordinator, state, _, _ = isolated_coordinator(old, migration)
+
+    coordinator._revalidate_quiesced(migration)
+    assert target.is_dir()
+
+    target.rmdir()
+    old.rename(target)
+    coordinator._revalidate_quiesced(migration)
+
+    target.rename(old)
+    target.mkdir()
+    migration.update(copy_mode="copy", phase="copying")
+    coordinator._revalidate_quiesced(migration)
+
+    target.rmdir()
+    migration.update(phase="prepared", files_total=0, bytes_total=0)
+
+    def changed_validation(_target: Path) -> dict:
+        return {"files_total": 1, "bytes_total": 8192}
+
+    monkeypatch.setattr(coordinator, "validate_target", changed_validation)
+    coordinator._revalidate_quiesced(migration)
+    persisted = state.read()["migration"]
+    assert persisted["files_total"] == 1
+    assert persisted["bytes_total"] == 8192
+
+    def disappearing_validation(_target: Path) -> dict:
+        coordinator_module.shutil.rmtree(old)
+        return {"files_total": 1, "bytes_total": 8192}
+
+    monkeypatch.setattr(coordinator, "validate_target", disappearing_validation)
+    with pytest.raises(StorageMigrationError, match="disappeared"):
+        coordinator._revalidate_quiesced(migration)
+
+    with pytest.raises(StorageMigrationError, match="missing"):
+        coordinator._sqlite_quick_check(tmp_path / "missing.db")

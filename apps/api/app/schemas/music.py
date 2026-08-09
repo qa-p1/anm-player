@@ -1,8 +1,8 @@
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 from urllib.parse import urlsplit
 
-from pydantic import BaseModel, Field, HttpUrl, field_validator
+from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
 
 from app.schemas.artwork import ArtworkResponseModel
 from app.schemas.library import LibraryAlbumResponse, LibraryTrackResponse, MixedPlaylistTrackResponse
@@ -118,6 +118,70 @@ class PlaylistCreateRequest(BaseModel):
 
 
 PositiveId = Annotated[int, Field(gt=0, le=2_147_483_647)]
+
+
+class PlaylistUpdateRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    description: str | None = Field(default=None, max_length=2000)
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        if not value:
+            raise ValueError("Playlist name cannot be blank")
+        return value
+
+    @model_validator(mode="after")
+    def validate_patch(self) -> "PlaylistUpdateRequest":
+        if not self.model_fields_set:
+            raise ValueError("At least one playlist field must be provided")
+        if "name" in self.model_fields_set and self.name is None:
+            raise ValueError("Playlist name cannot be null")
+        return self
+
+
+class PlaylistDuplicateRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        if not value:
+            raise ValueError("Playlist name cannot be blank")
+        return value
+
+
+class PlaylistItemReference(BaseModel):
+    item_type: Literal["song", "library_track"]
+    item_id: PositiveId
+
+
+class PlaylistReorderRequest(BaseModel):
+    items: list[PlaylistItemReference] = Field(default_factory=list, max_length=2000)
+
+    @model_validator(mode="after")
+    def validate_unique_items(self) -> "PlaylistReorderRequest":
+        keys = [(item.item_type, item.item_id) for item in self.items]
+        if len(keys) != len(set(keys)):
+            raise ValueError("Playlist order cannot contain duplicate items")
+        return self
+
+
+class PlaylistBulkRemoveRequest(BaseModel):
+    items: list[PlaylistItemReference] = Field(min_length=1, max_length=1000)
+
+    @model_validator(mode="after")
+    def validate_unique_items(self) -> "PlaylistBulkRemoveRequest":
+        keys = [(item.item_type, item.item_id) for item in self.items]
+        if len(keys) != len(set(keys)):
+            raise ValueError("Bulk removal cannot contain duplicate items")
+        return self
 
 
 class PlaylistAddSongsRequest(BaseModel):

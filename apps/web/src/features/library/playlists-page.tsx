@@ -20,6 +20,7 @@ export function PlaylistsPage() {
   const createPlaylistMutation = useCreatePlaylist();
   
   const [newPlaylistName, setNewPlaylistName] = useState("");
+  const [newPlaylistDescription, setNewPlaylistDescription] = useState("");
   const [importUrl, setImportUrl] = useState("");
   const [isImporting, setIsImporting] = useState(false);
 
@@ -28,8 +29,9 @@ export function PlaylistsPage() {
     if (!newPlaylistName.trim()) return;
 
     try {
-      await createPlaylistMutation.mutateAsync({ name: newPlaylistName.trim() });
+      await createPlaylistMutation.mutateAsync({ name: newPlaylistName.trim(), description: newPlaylistDescription.trim() || null });
       setNewPlaylistName("");
+      setNewPlaylistDescription("");
       toast("Playlist created", "success");
     } catch (error) {
       toast(error instanceof Error ? error.message : "Could not create playlist", "error");
@@ -66,16 +68,12 @@ export function PlaylistsPage() {
 
       <section className="rounded-2xl border border-white/10 bg-card/55 p-4 shadow-glass sm:p-5">
         <h2 className="mb-4 text-lg font-bold">Create New Playlist</h2>
-        <form onSubmit={handleCreatePlaylist} className="flex flex-col gap-3 sm:flex-row">
-          <Input
-            value={newPlaylistName}
-            aria-label="Playlist name"
-            onChange={(e) => setNewPlaylistName(e.target.value)}
-            placeholder="Playlist name"
-            className="flex-1"
-            disabled={createPlaylistMutation.isPending}
-          />
-          <Button type="submit" disabled={createPlaylistMutation.isPending || !newPlaylistName.trim()}>
+        <form onSubmit={handleCreatePlaylist} className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+          <div className="space-y-3">
+            <Input value={newPlaylistName} aria-label="Playlist name" onChange={(e) => setNewPlaylistName(e.target.value)} placeholder="Playlist name" disabled={createPlaylistMutation.isPending} />
+            <textarea value={newPlaylistDescription} aria-label="Playlist description" onChange={(event) => setNewPlaylistDescription(event.target.value)} placeholder="Description (optional)" maxLength={2000} rows={2} disabled={createPlaylistMutation.isPending} className="w-full resize-y rounded-2xl border border-input bg-card/80 p-4 text-sm outline-none transition placeholder:text-muted-foreground focus:border-primary/70 focus:ring-4 focus:ring-primary/15 disabled:opacity-50" />
+          </div>
+          <Button type="submit" className="sm:self-start" disabled={createPlaylistMutation.isPending || !newPlaylistName.trim()}>
             <Plus className="h-4 w-4" />
             {createPlaylistMutation.isPending ? "Creating..." : "Create"}
           </Button>

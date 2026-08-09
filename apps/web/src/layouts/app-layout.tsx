@@ -7,6 +7,8 @@ import { DownloadQueueDialog, DownloadQueueTrigger } from "@/components/download
 import { Sidebar } from "@/components/navigation/sidebar";
 import { FloatingPlayerPlaceholder } from "@/layouts/floating-player-placeholder";
 import { StorageMigrationOverlay } from "@/features/settings/storage-migration-overlay";
+import { ShortcutHelpDialog } from "@/components/player/shortcut-help-dialog";
+import { ConnectionStatus } from "@/components/connection-status";
 
 export function AppLayout() {
   const location = useLocation();
@@ -28,6 +30,8 @@ export function AppLayout() {
       <DownloadQueueDialog />
       <BottomNav />
       <StorageMigrationOverlay />
+      <ShortcutHelpDialog />
+      <ConnectionStatus />
     </div>
   );
 }

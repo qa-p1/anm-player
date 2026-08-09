@@ -1,4 +1,4 @@
-import { apiDelete, apiGet, apiPost, apiPut } from "@/services/api-client";
+import { apiDelete, apiGet, apiPatch, apiPost, apiPut } from "@/services/api-client";
 import type {
   Artist,
   ArtistDetail,
@@ -12,11 +12,15 @@ import type {
   FavoritesResponse,
   HistoryCreateRequest,
   HistoryEntry,
+  ListeningInsights,
   Playlist,
   PlaylistAddSongsRequest,
   PlaylistAddOnlineTrackRequest,
   PlaylistCreateRequest,
+  PlaylistBulkRemoveRequest,
   PlaylistDetail,
+  PlaylistReorderRequest,
+  PlaylistUpdateRequest,
   Song,
   OnlineHomeResponse,
   OnlineRelatedResponse,
@@ -148,6 +152,30 @@ export function deletePlaylist(playlistId: number) {
   return apiDelete<void>(`/playlists/${playlistId}`);
 }
 
+export function updatePlaylist(playlistId: number, request: PlaylistUpdateRequest) {
+  return apiPatch<PlaylistDetail, PlaylistUpdateRequest>(`/playlists/${playlistId}`, request);
+}
+
+export function duplicatePlaylist(playlistId: number, name?: string) {
+  return apiPost<PlaylistDetail, { name?: string }>(`/playlists/${playlistId}/duplicate`, name ? { name } : {});
+}
+
+export function reorderPlaylist(playlistId: number, request: PlaylistReorderRequest) {
+  return apiPut<PlaylistDetail, PlaylistReorderRequest>(`/playlists/${playlistId}/reorder`, request);
+}
+
+export function bulkRemovePlaylistItems(playlistId: number, request: PlaylistBulkRemoveRequest) {
+  return apiPost<PlaylistDetail, PlaylistBulkRemoveRequest>(`/playlists/${playlistId}/items/bulk-remove`, request);
+}
+
+export function clearPlaylistItems(playlistId: number) {
+  return apiDelete<PlaylistDetail>(`/playlists/${playlistId}/items`);
+}
+
+export function getPlaylistExportUrl(playlistId: number) {
+  return `/api/v1/playlists/${playlistId}/export.m3u8`;
+}
+
 export function addSongsToPlaylist(playlistId: number, request: PlaylistAddSongsRequest) {
   return apiPost<PlaylistDetail, PlaylistAddSongsRequest>(`/playlists/${playlistId}/songs`, request);
 }
@@ -180,6 +208,22 @@ export function getRecentlyPlayedHistory(limit = 50, signal?: AbortSignal) {
 
 export function getMostPlayedHistory(limit = 50, signal?: AbortSignal) {
   return apiGet<HistoryEntry[]>(`/history/most-played?limit=${limit}`, { signal });
+}
+
+export function listHistory(limit = 100, offset = 0, signal?: AbortSignal) {
+  return apiGet<HistoryEntry[]>(`/history?limit=${limit}&offset=${offset}`, { signal });
+}
+
+export function deleteHistoryEntry(historyId: number) {
+  return apiDelete<void>(`/history/${historyId}`);
+}
+
+export function clearHistory() {
+  return apiDelete<{ deleted: number }>("/history");
+}
+
+export function getListeningInsights(days = 30, signal?: AbortSignal) {
+  return apiGet<ListeningInsights>(`/insights?days=${days}`, { signal });
 }
 
 // Media streaming

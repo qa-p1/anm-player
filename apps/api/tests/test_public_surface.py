@@ -18,7 +18,6 @@ REMOVED_PATHS = {
     "/api/v1/metadata/search",
     "/api/v1/metadata/providers",
     "/api/v1/metadata/albums/{album_id}/enrich",
-    "/api/v1/playlists/{playlist_id}/reorder",
     "/api/v1/songs/favorites",
     "/api/v1/songs/recently-played",
     "/api/v1/songs/most-played",
@@ -36,3 +35,15 @@ def test_removed_legacy_surfaces_are_absent_from_openapi() -> None:
     paths = set(app.openapi()["paths"])
 
     assert not (REMOVED_PATHS & paths)
+
+
+def test_complete_playlist_management_surface_is_present() -> None:
+    paths = app.openapi()["paths"]
+
+    assert "patch" in paths["/api/v1/playlists/{playlist_id}"]
+    assert "post" in paths["/api/v1/playlists/{playlist_id}/duplicate"]
+    assert "put" in paths["/api/v1/playlists/{playlist_id}/reorder"]
+    assert "post" in paths["/api/v1/playlists/{playlist_id}/items/bulk-remove"]
+    assert "delete" in paths["/api/v1/playlists/{playlist_id}/items"]
+    assert "post" in paths["/api/v1/playlists/{playlist_id}/clear"]
+    assert "get" in paths["/api/v1/playlists/{playlist_id}/export.m3u8"]
