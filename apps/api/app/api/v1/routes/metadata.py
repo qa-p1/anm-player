@@ -25,4 +25,4 @@ async def enrich_song(
     song = await metadata_service.enrich_song(song_id, request.provider)
     if not song:
         raise HTTPException(status_code=404, detail="Song not found")
-    return catalog_service._song_to_response(song)
+    return catalog_service.song_to_response(song)

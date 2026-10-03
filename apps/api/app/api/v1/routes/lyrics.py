@@ -25,16 +25,8 @@ class LyricsResponse(BaseModel):
     fetched_at: datetime | None = None
 
 
-class OnlineLyricsResponse(BaseModel):
-    song_id: int | None = None
-    video_id: str | None = None
-    lyrics: str | None
-    has_lyrics: bool
-    source: str | None = None
-    format: str | None = None
-    status: str
-    error_code: str | None = None
-    fetched_at: datetime | None = None
+# Online tracks share the response shape; the alias keeps OpenAPI names stable.
+OnlineLyricsResponse = LyricsResponse
 
 
 class LyricsSaveRequest(BaseModel):
@@ -89,10 +81,8 @@ def save_song_lyrics(
     """Save lyrics to a song."""
     service = LyricsService(session)
     result = service.save_song_lyrics(song_id, request.lyrics)
-    
     if not result:
         raise HTTPException(status_code=500, detail="Failed to save lyrics")
-    
     return _song_response(song_id, result)
 
 
@@ -108,15 +98,15 @@ async def fetch_song_lyrics(
 
 
 @router.get("/youtube/{video_id}", response_model=OnlineLyricsResponse)
-async def get_youtube_lyrics(
+def get_youtube_lyrics(
     video_id: VideoId,
     session: DbSession,
-    title: str | None = Query(default=None, max_length=255),
-    artist: str | None = Query(default=None, max_length=255),
-    album: str | None = Query(default=None, max_length=255),
-    duration: int | None = Query(default=None, ge=0, le=86400),
 ) -> OnlineLyricsResponse:
-    """Get cached lyrics for an online YouTube Music track."""
+    """Get cached lyrics for an online YouTube Music track.
+
+    This is a synchronous cache read, so it runs in the threadpool instead of
+    blocking the event loop. Track details only matter when fetching.
+    """
     service = LyricsService(session)
     return _youtube_response(video_id, service.get_youtube_lyrics(video_id))
 

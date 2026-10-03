@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
+import { createPersistStorage } from "@/lib/persist-storage";
+
 interface SearchHistoryEntry {
   query: string;
   pinned: boolean;
@@ -40,6 +42,6 @@ export const useSearchHistoryStore = create<SearchHistoryState>()(
       removeSearch: (query) => set((state) => ({ entries: state.entries.filter((entry) => entry.query !== query) })),
       clearRecent: () => set((state) => ({ entries: state.entries.filter((entry) => entry.pinned) })),
     }),
-    { name: "anm-search-history", version: 1 },
+    { name: "anm-search-history", version: 1, storage: createPersistStorage() },
   ),
 );

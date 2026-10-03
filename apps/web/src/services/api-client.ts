@@ -1,7 +1,7 @@
 const API_BASE_PATH = "/api/v1";
 const DEFAULT_TIMEOUT_MS = 30_000;
 
-export interface ApiClientOptions {
+interface ApiClientOptions {
   signal?: AbortSignal;
   timeoutMs?: number;
 }

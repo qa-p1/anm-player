@@ -86,9 +86,9 @@ def test_most_played_local_songs_counts_only_play_events() -> None:
         session.add_all([History(song_id=actually_played.id, event_type="played") for _ in range(2)])
         session.commit()
 
-        results = HistoryRepository(session).get_most_played_songs()
+        results = HistoryRepository(session).get_most_played_history()
 
-    assert [song.title for song in results[:2]] == ["Played Twice", "Skipped Often"]
+        assert [entry.song.title for entry in results[:2]] == ["Played Twice", "Skipped Often"]
 
 
 def _statement_count(engine, operation) -> int:

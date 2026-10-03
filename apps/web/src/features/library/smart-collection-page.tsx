@@ -2,6 +2,7 @@ import { motion } from "framer-motion";
 import { Play } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
+import { useShallow } from "zustand/react/shallow";
 
 import { pageTransition } from "@/animations/page-motion";
 import { BackButton } from "@/components/navigation/back-button";
@@ -20,7 +21,7 @@ export function SmartCollectionPage() {
   const [collection, setCollection] = useState<SmartCollection | null>(null);
   const [historyEntries, setHistoryEntries] = useState<HistoryEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const { playAlbum } = usePlayerStore();
+  const { playAlbum } = usePlayerStore(useShallow((state) => ({ playAlbum: state.playAlbum })));
 
   useEffect(() => {
     if (!collectionId) return;

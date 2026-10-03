@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
+import { createPersistStorage } from "@/lib/persist-storage";
+
 export type LyricsFontSize = "compact" | "normal" | "large";
 
 interface LyricsPreferencesState {
@@ -39,6 +41,7 @@ export const useLyricsPreferencesStore = create<LyricsPreferencesState>()(
     }),
     {
       name: "anm-lyrics-preferences",
+      storage: createPersistStorage(),
       version: 1,
     },
   ),

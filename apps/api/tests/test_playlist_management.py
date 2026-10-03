@@ -359,3 +359,50 @@ def test_m3u8_export_is_ordered_utf8_and_safe_for_headers_and_directives(playlis
     assert response.text.index(f"/api/v1/media/songs/{playlist_api.first_song_id}/stream") < response.text.index(
         "/api/v1/ytmusic/stream/video%0A%23EXT-X-URL"
     )
+
+
+def test_adding_several_songs_in_one_request_appends_them_after_mixed_items(playlist_api: PlaylistApi) -> None:
+    response = playlist_api.client.post(
+        f"/api/v1/playlists/{playlist_api.other_playlist_id}/songs",
+        json={"song_ids": [playlist_api.second_song_id, playlist_api.first_song_id]},
+    )
+    assert response.status_code == 200, response.text
+    assert item_keys(response.json()) == [
+        ("song", playlist_api.second_song_id),
+        ("song", playlist_api.first_song_id),
+    ]
+    assert [item["position"] for item in response.json()["items"]] == [0, 1]
+
+    # A mixed playlist already uses positions 0-2 across both link tables.
+    playlist_api.client.delete(f"/api/v1/playlists/{playlist_api.playlist_id}/songs/{playlist_api.second_song_id}")
+    extra = Song(title="Third song")
+    playlist_api.session.add(extra)
+    playlist_api.session.commit()
+    # The fixture shares one session across requests; production uses one per request.
+    playlist_api.session.expire_all()
+    response = playlist_api.client.post(
+        f"/api/v1/playlists/{playlist_api.playlist_id}/songs",
+        json={"song_ids": [playlist_api.second_song_id, extra.id]},
+    )
+    assert response.status_code == 200, response.text
+    positions = [item["position"] for item in response.json()["items"]]
+    assert len(positions) == len(set(positions)) == 4
+
+
+def test_removing_single_items_keeps_mixed_positions_dense(playlist_api: PlaylistApi) -> None:
+    response = playlist_api.client.delete(
+        f"/api/v1/playlists/{playlist_api.playlist_id}/songs/{playlist_api.first_song_id}"
+    )
+    assert response.status_code == 200, response.text
+    assert [item["position"] for item in response.json()["items"]] == [0, 1]
+    assert persisted_item_order(playlist_api) == [
+        ("song", playlist_api.second_song_id, 0),
+        ("library_track", playlist_api.library_track_id, 1),
+    ]
+
+    playlist_api.session.expire_all()
+    response = playlist_api.client.delete(
+        f"/api/v1/playlists/{playlist_api.playlist_id}/tracks/{playlist_api.library_track_id}"
+    )
+    assert response.status_code == 200, response.text
+    assert persisted_item_order(playlist_api) == [("song", playlist_api.second_song_id, 0)]

@@ -5,3 +5,9 @@
 *.cmd text eol=crlf
 *.Dockerfile text eol=lf
 Dockerfile text eol=lf
+
+# Audio fixtures must never be newline-normalized.
+*.mp3 binary
+*.m4a binary
+*.flac binary
+*.opus binary

@@ -5,7 +5,7 @@ from app.core.exceptions import ConflictError, ResourceNotFoundError
 from app.models import DownloadJob, QueueItem
 from app.repositories.music import DownloadJobRepository, QueueItemRepository
 from app.schemas.music import DownloadCreateRequest, DownloadGroupRef, DownloadJobResponse
-from app.services.download_state import sync_linked_album_download
+from app.services.download_state import is_job_owned, sync_linked_album_download
 from app.services.websocket_manager import download_progress_hub
 from app.services.settings import SettingsService
 
@@ -18,7 +18,7 @@ class DownloadService:
     def list_jobs(self, *, limit: int = 50, offset: int = 0) -> list[DownloadJobResponse]:
         return [
             self._response(job)
-            for job in self.downloads.list(limit=limit, offset=offset)
+            for job in self.downloads.list_in_queue_order(limit=limit, offset=offset)
         ]
 
     def enqueue(self, request: DownloadCreateRequest) -> DownloadJobResponse:
@@ -97,6 +97,22 @@ class DownloadService:
                 "Only failed or cancelled downloads can be retried.",
                 details={"download_job_id": job.id, "status": job.status},
             )
+        self._requeue(job)
+        self.downloads.session.commit()
+        download_progress_hub.publish_threadsafe(job.id, self._to_event(job))
+        return self._response(job)
+
+    def retry_failed(self) -> list[DownloadJobResponse]:
+        """Requeue every failed download in one transaction (cancelled ones stay cancelled)."""
+        jobs = self.downloads.list_by_statuses([DownloadStatus.FAILED], limit=10_000)
+        for job in jobs:
+            self._requeue(job)
+        self.downloads.session.commit()
+        for job in jobs:
+            download_progress_hub.publish_threadsafe(job.id, self._to_event(job))
+        return [self._response(job) for job in jobs]
+
+    def _requeue(self, job: DownloadJob) -> None:
         job.status = DownloadStatus.QUEUED
         job.stage = DownloadStage.QUEUED
         job.progress = 0
@@ -108,9 +124,6 @@ class DownloadService:
         else:
             self.queue_items.add(QueueItem(download_job=job, status=DownloadStatus.QUEUED, item_type="download"))
         sync_linked_album_download(self.downloads.session, job)
-        self.downloads.session.commit()
-        download_progress_hub.publish_threadsafe(job.id, self._to_event(job))
-        return self._response(job)
 
     def pause(self, job_id: int) -> DownloadJobResponse:
         job = self._get_job(job_id)
@@ -133,7 +146,13 @@ class DownloadService:
         job = self._get_job(job_id)
         if job.status != DownloadStatus.PAUSED:
             raise ConflictError("Only paused downloads can be resumed.", details={"download_job_id": job.id, "status": job.status})
-        resumed_status = DownloadStatus.DOWNLOADING if job.progress > 0 else DownloadStatus.QUEUED
+        # Only a job still held by a live worker thread can continue in place.
+        # A job paused before a restart has no owner and must be claimed again.
+        resumed_status = (
+            DownloadStatus.DOWNLOADING
+            if job.progress > 0 and is_job_owned(job.id)
+            else DownloadStatus.QUEUED
+        )
         job.status = resumed_status
         job.stage = DownloadStage.DOWNLOADING if resumed_status == DownloadStatus.DOWNLOADING else DownloadStage.QUEUED
         if job.queue_item:
@@ -168,12 +187,16 @@ class DownloadService:
         return self._response(job).model_dump(mode="json")
 
     def _response(self, job: DownloadJob) -> DownloadJobResponse:
-        response = DownloadJobResponse.model_validate(job, from_attributes=True)
-        if job.search_query and job.search_query.startswith("album:"):
-            public_id = job.search_query.removeprefix("album:")
-            response.group = DownloadGroupRef(
-                album_id=public_id,
-                title=job.album or "Album download",
-                canonical_url=f"/albums/{public_id}",
-            )
-        return response
+        return download_job_response(job)
+
+
+def download_job_response(job: DownloadJob) -> DownloadJobResponse:
+    response = DownloadJobResponse.model_validate(job, from_attributes=True)
+    if job.search_query and job.search_query.startswith("album:"):
+        public_id = job.search_query.removeprefix("album:")
+        response.group = DownloadGroupRef(
+            album_id=public_id,
+            title=job.album or "Album download",
+            canonical_url=f"/albums/{public_id}",
+        )
+    return response

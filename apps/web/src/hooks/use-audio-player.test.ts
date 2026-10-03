@@ -260,4 +260,27 @@ describe("useAudioPlayer", () => {
     await waitFor(() => expect(usePlayerStore.getState().currentSong?.id).toBe("youtube:second"));
     expect(mocks.getYouTubeRelated).toHaveBeenCalledWith("first");
   });
+
+  it("does not re-render its host on playback-progress ticks", async () => {
+    let renders = 0;
+    renderHook(() => {
+      renders += 1;
+      useAudioPlayer();
+    });
+    act(() => usePlayerStore.getState().playSong(first));
+    await waitFor(() => expect(mocks.audioService.play).toHaveBeenCalled());
+    const settledRenders = renders;
+
+    // The hook is mounted at the application root, so any re-render here
+    // re-renders every route below it.
+    for (let tick = 1; tick <= 20; tick += 1) {
+      act(() => {
+        usePlayerStore.getState().setCurrentTime(tick);
+        usePlayerStore.getState().setBufferedUntil(tick + 5);
+      });
+    }
+    act(() => usePlayerStore.getState().setDuration(240));
+
+    expect(renders).toBe(settledRenders);
+  });
 });

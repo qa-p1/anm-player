@@ -43,4 +43,4 @@ def advanced_search_songs(
         limit=limit,
         offset=offset,
     )
-    return [catalog._song_to_response(song) for song in search.search_songs(filters)]
+    return catalog.songs_to_response(search.search_songs(filters))

@@ -13,11 +13,11 @@ There is no current screenshot in the repository; I would rather leave this sect
 - Advanced playback controls including speed, pitch preservation, configurable seek steps, output-device selection, A-B repeat, bookmarks, and sleep/stop timers
 - A ten-band equalizer with presets, preamp, stereo balance, mono downmix, and normalization
 - Media Session controls, an expanded keyboard shortcut system, a rich mini player, and offline/reconnection feedback
-- Background downloads through yt-dlp and FFmpeg, with live progress and retry/cancel controls
+- Background downloads through yt-dlp and FFmpeg, with live progress, pause/resume, cancel, and single or bulk retry
 - Local songs, artists, albums, saved online albums, favorites, and mixed local/online playlists with editing, duplication, drag reordering, bulk actions, sharing, and M3U8 export
 - Synced lyrics with per-track timing offsets and display controls, plus editable local lyrics, metadata, and artwork enrichment
 - Listening insights for time, streaks, daily/hourly activity, and top tracks, artists, and albums, with replayable and manageable history
-- Managed SQLite storage with in-app reconciliation, usage reporting, cache cleanup, verified moves, and a guarded fresh start
+- Managed SQLite storage with in-app reconciliation, usage reporting, cache cleanup, live database backups, verified moves, and a guarded fresh start
 - Responsive desktop and narrow layouts with reduced-motion support
 
 See [CHANGELOG.md](CHANGELOG.md) for the complete v0.2.0 expansion list.
@@ -135,7 +135,9 @@ logs/
 
 The small state file at `.aura/storage-state.json` points to the active root. Docker uses the `aura-data` and `aura-state` named volumes under the Compose project prefix.
 
-Stop ANM Player before a backup. Copy or archive both the complete data root and the state file together. For Docker, stop the stack and back up both named volumes with the volume-backup method used by your Docker installation. Verify that the archive contains `aura.db`, then retain an older known-good backup before testing a restore.
+For the library database alone, **Download Database Backup** in Settings saves a consistent snapshot without stopping ANM Player. It does not include music files or caches.
+
+For a complete backup, stop ANM Player first. Copy or archive both the complete data root and the state file together. For Docker, stop the stack and back up both named volumes with the volume-backup method used by your Docker installation. Verify that the archive contains `aura.db`, then retain an older known-good backup before testing a restore.
 
 Storage moves started from Settings are gated while active. Same-device moves are renamed and verified; cross-device moves are copied with a full SHA-256 manifest and SQLite `PRAGMA quick_check` before ANM Player switches roots. The old root is not removed before verification. If cleanup fails, ANM Player keeps recovery state and leaves both copies in place.
 
@@ -185,7 +187,8 @@ npm run typecheck
 npm run test:coverage
 npm run build
 npm run check:bundle
-npm audit --audit-level=high
+npm audit --omit=dev --audit-level=high
+npm audit --audit-level=critical
 docker compose config --quiet
 docker compose -f docker-compose.dev.yml config --quiet
 ```

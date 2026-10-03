@@ -34,6 +34,11 @@ def queue_download_batch(
     return service.enqueue_batch(request.items)
 
 
+@router.post("/retry-failed", response_model=list[DownloadJobResponse], summary="Retry every failed download", dependencies=[Depends(require_operator)])
+def retry_failed_downloads(service: Annotated[DownloadService, Depends(get_download_service)]) -> list[DownloadJobResponse]:
+    return service.retry_failed()
+
+
 @router.post("/{job_id}/cancel", response_model=DownloadJobResponse, summary="Cancel a download", dependencies=[Depends(require_operator)])
 def cancel_download(
     job_id: ResourceId,

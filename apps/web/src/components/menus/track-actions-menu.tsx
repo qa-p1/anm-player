@@ -15,6 +15,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -37,7 +38,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/toast";
-import { useAddOnlineTrackToPlaylist, useAddSongsToPlaylist, useAllPlaylists, useCreatePlaylist } from "@/hooks/use-music-queries";
+import { musicKeys, useAddOnlineTrackToPlaylist, useAddSongsToPlaylist, useAllPlaylists, useCreatePlaylist } from "@/hooks/use-music-queries";
+import { queryClient } from "@/lib/query-client";
 import { cn } from "@/lib/utils";
 import { isRequestCancelled } from "@/services/api-client";
 import { addLibraryTracksToPlaylist, getLibraryTrackStatuses, queueDownload } from "@/services/music-api";
@@ -75,7 +77,7 @@ export function TrackActionsMenu({
   triggerVariant = "ghost",
   iconClassName,
 }: TrackActionsMenuProps) {
-  const { addToQueue, playNext, playSong } = usePlayerStore();
+  const { addToQueue, playNext, playSong } = usePlayerStore(useShallow((state) => ({ addToQueue: state.addToQueue, playNext: state.playNext, playSong: state.playSong })));
   const [isOpen, setIsOpen] = useState(false);
   const [resolvedDownloaded, setResolvedDownloaded] = useState(isDownloaded ?? false);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
@@ -162,6 +164,7 @@ export function TrackActionsMenu({
         thumbnail_url: track.rawItem.thumbnail,
         search_query: "track-menu",
       });
+      void queryClient.invalidateQueries({ queryKey: musicKeys.downloadsList() });
       toast("Download queued", "success");
       setIsOpen(false);
     } catch (error) {

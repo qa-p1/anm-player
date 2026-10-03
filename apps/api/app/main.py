@@ -25,6 +25,9 @@ from app.workers.downloads.worker import download_worker
 
 logger = logging.getLogger(__name__)
 LIBRARY_RECONCILE_INTERVAL_SECONDS = 30
+# The event loop keeps only weak references to tasks; hold fire-and-forget
+# scans here so one cannot be garbage-collected mid-run.
+_background_tasks: set[asyncio.Task] = set()
 
 
 def _startup_scan() -> None:
@@ -78,7 +81,9 @@ async def _schedule_scan_if_enabled() -> None:
     with SessionLocal() as session:
         enabled = SettingsService(session).get_bool("startup_scan_enabled", True)
     if enabled:
-        asyncio.create_task(asyncio.to_thread(_startup_scan), name="aura-startup-library-scan")
+        task = asyncio.create_task(asyncio.to_thread(_startup_scan), name="aura-startup-library-scan")
+        _background_tasks.add(task)
+        task.add_done_callback(_background_tasks.discard)
 
 
 async def _finish_recovery_then_start() -> None:

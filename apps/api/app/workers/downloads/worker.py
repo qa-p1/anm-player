@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 import secrets
@@ -15,7 +16,13 @@ from app.core.enums import DownloadStage, DownloadStatus
 from app.database.session import SessionLocal
 from app.models import AlbumDownloadItem, DownloadJob, LibraryAlbum, Song
 from app.repositories.music import AlbumRepository, ArtistRepository, DownloadJobRepository, SongRepository
-from app.services.download_state import sync_linked_album_download
+from app.services.download_state import (
+    claim_job_ownership,
+    release_job_ownership,
+    requeue_orphaned_downloads,
+    sync_linked_album_download,
+)
+from app.services.downloads import download_job_response
 from app.services.file_paths import library_storage_path
 from app.services.library_scanner import library_sync_guard
 from app.services.naming import NamingService
@@ -30,12 +37,17 @@ from app.storage.coordinator import StorageMigrationError, storage_coordinator
 
 logger = logging.getLogger(__name__)
 
+# yt-dlp calls progress hooks many times per second. Persist and broadcast an
+# unchanged percentage at most this often; status changes always go through.
+PROGRESS_WRITE_INTERVAL_SECONDS = 1.0
+
 
 class DownloadWorker:
     def __init__(self) -> None:
         self._stop_event = threading.Event()
         self._claim_lock = threading.Lock()
         self._threads: list[threading.Thread] = []
+        self._progress_written_at: dict[int, float] = {}
         self.naming = NamingService()
         self.tagging = AudioTaggingService()
 
@@ -43,6 +55,7 @@ class DownloadWorker:
         if any(thread.is_alive() for thread in self._threads):
             return
         worker_count = 8
+        self._recover_orphaned_jobs()
         self._stop_event.clear()
         self._threads = [
             threading.Thread(target=self._run, name=f"aura-download-worker-{index + 1}", daemon=True)
@@ -51,6 +64,18 @@ class DownloadWorker:
         for thread in self._threads:
             thread.start()
         logger.info("download worker started")
+
+    def _recover_orphaned_jobs(self) -> None:
+        try:
+            with SessionLocal() as session:
+                recovered = requeue_orphaned_downloads(session)
+        except Exception:
+            logger.exception("could not requeue interrupted downloads")
+            return
+        if recovered:
+            logger.info("returned %s interrupted downloads to the queue", len(recovered))
+            for job_id in recovered:
+                self._publish(job_id)
 
     def stop(self) -> None:
         self._stop_event.set()
@@ -78,6 +103,8 @@ class DownloadWorker:
                     logger.exception("download failed", extra={"job_id": job_id})
                     self._mark_failed(job_id, exc)
                 finally:
+                    release_job_ownership(job_id)
+                    self._progress_written_at.pop(job_id, None)
                     shutil.rmtree(self._download_jobs_dir() / str(job_id), ignore_errors=True)
         except StorageMigrationError:
             return
@@ -105,6 +132,7 @@ class DownloadWorker:
             job_id = downloads.claim_next_queued()
             if job_id is None:
                 return None
+            claim_job_ownership(job_id)
             job = downloads.get(job_id)
             if job:
                 if job.queue_item:
@@ -181,9 +209,18 @@ class DownloadWorker:
 
             status = payload.get("status")
             if status == "downloading":
+                progress = self._percent(payload)
+                now = time.monotonic()
+                if (
+                    hook_job.status == DownloadStatus.DOWNLOADING
+                    and progress == hook_job.progress
+                    and now - self._progress_written_at.get(job_id, 0.0) < PROGRESS_WRITE_INTERVAL_SECONDS
+                ):
+                    return
+                self._progress_written_at[job_id] = now
                 hook_job.status = DownloadStatus.DOWNLOADING
                 hook_job.stage = DownloadStage.DOWNLOADING
-                hook_job.progress = self._percent(payload)
+                hook_job.progress = progress
                 hook_job.speed = self._format_speed(payload.get("speed"))
                 hook_job.eta = self._format_eta(payload.get("eta"))
             elif status == "finished":
@@ -295,11 +332,11 @@ class DownloadWorker:
                 album.artwork_path = artwork_path
             if artwork_path:
                 artist.artwork_path = artwork_path
-            
+
             # Store library files relative to music_directory when possible.
             file_path_to_save = library_storage_path(target_path)
             
-            logger.info(f"Saving song with file_path: {file_path_to_save}")
+            logger.debug("Saving song with file_path: %s", file_path_to_save)
 
             album_item = session.query(AlbumDownloadItem).filter(
                 AlbumDownloadItem.download_job_id == fresh_job.id
@@ -470,17 +507,7 @@ class DownloadWorker:
             job = DownloadJobRepository(session).get(job_id)
             if not job:
                 return
-            from app.schemas.music import DownloadGroupRef, DownloadJobResponse
-
-            response = DownloadJobResponse.model_validate(job, from_attributes=True)
-            if job.search_query and job.search_query.startswith("album:"):
-                public_id = job.search_query.removeprefix("album:")
-                response.group = DownloadGroupRef(
-                    album_id=public_id,
-                    title=job.album or "Album download",
-                    canonical_url=f"/albums/{public_id}",
-                )
-            download_progress_hub.publish_threadsafe(job_id, response.model_dump(mode="json"))
+            download_progress_hub.publish_threadsafe(job_id, download_job_response(job).model_dump(mode="json"))
 
     def _find_output_file(self, work_dir: Path, audio_format: str) -> Path:
         for file_path in work_dir.glob(f"*.{audio_format}"):
@@ -532,66 +559,38 @@ class DownloadWorker:
         if "cancelled" in message.lower():
             return "Download was cancelled."
         return "Download failed. The video may be unavailable or unsupported."
-    
+
     def _cache_artwork(self, artwork_url: str | None) -> str | None:
         if not artwork_url:
             return None
         try:
-            import asyncio
-
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+            artwork_cache = ArtworkCacheService(storage_manager.paths.artwork_cache)
+            cached_path = asyncio.run(artwork_cache.download_and_cache(artwork_url))
+            if not cached_path:
+                return None
+            persistent_dir = storage_manager.paths.download_thumbnails
+            persistent_dir.mkdir(parents=True, exist_ok=True)
+            persistent_path = persistent_dir / cached_path.name
+            temporary = persistent_path.with_name(
+                f".{persistent_path.name}.{secrets.token_hex(6)}.tmp"
+            )
             try:
-                artwork_cache = ArtworkCacheService(storage_manager.paths.artwork_cache)
-                cached_path = loop.run_until_complete(artwork_cache.download_and_cache(artwork_url))
-                if not cached_path:
-                    return None
-                persistent_dir = storage_manager.paths.download_thumbnails
-                persistent_dir.mkdir(parents=True, exist_ok=True)
-                persistent_path = persistent_dir / cached_path.name
-                temporary = persistent_path.with_name(
-                    f".{persistent_path.name}.{secrets.token_hex(6)}.tmp"
-                )
-                try:
-                    shutil.copyfile(cached_path, temporary)
-                    os.replace(temporary, persistent_path)
-                finally:
-                    temporary.unlink(missing_ok=True)
-                return f"/api/v1/media/artwork/downloads/{persistent_path.name}"
+                shutil.copyfile(cached_path, temporary)
+                os.replace(temporary, persistent_path)
             finally:
-                loop.close()
-                asyncio.set_event_loop(None)
+                temporary.unlink(missing_ok=True)
+            return f"/api/v1/media/artwork/downloads/{persistent_path.name}"
         except Exception as exc:
-            logger.warning(f"Failed to cache artwork: {exc}")
+            logger.warning("Failed to cache artwork: %s", exc)
             return None
 
     def _fetch_lyrics(self, session, song_id: int) -> None:
         """Fetch and save lyrics from YouTube Music/LRCLIB after download."""
-        try:
-            import asyncio
-
-            lyrics_service = LyricsService(session)
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                loop.run_until_complete(lyrics_service.fetch_and_save_lyrics(song_id, embed=False))
-                logger.info(f"Finished lyrics lookup for song {song_id}")
-            finally:
-                loop.close()
-                asyncio.set_event_loop(None)
-        except Exception as exc:
-            logger.error(f"Lyrics lookup failed for song {song_id}: {exc}")
+        asyncio.run(LyricsService(session).fetch_and_save_lyrics(song_id, embed=False))
+        logger.debug("Finished lyrics lookup for song %s", song_id)
 
     def _enrich_song(self, session, song_id: int) -> None:
-        import asyncio
-
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            loop.run_until_complete(MetadataEnrichmentService(session).enrich_song(song_id))
-        finally:
-            loop.close()
-            asyncio.set_event_loop(None)
+        asyncio.run(MetadataEnrichmentService(session).enrich_song(song_id))
 
     def _download_jobs_dir(self) -> Path:
         return storage_manager.paths.download_jobs

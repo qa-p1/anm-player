@@ -88,12 +88,12 @@ class LibraryScannerService:
         result = LibraryScanResult()
         
         if not directory.exists():
-            logger.error(f"Directory does not exist: {directory}")
+            logger.error("Directory does not exist: %s", directory)
             raise FileNotFoundError(f"Library scan directory does not exist: {directory}")
         if not directory.is_dir():
             raise NotADirectoryError(f"Library scan path is not a directory: {directory}")
         
-        logger.info(f"Starting library scan: {directory}")
+        logger.debug("Starting library scan: %s", directory)
         self._recover_download_publications(directory, result)
         self._cleanup_pending_deletions(directory, result)
         
@@ -152,9 +152,17 @@ class LibraryScannerService:
         
         self.session.commit()
         
-        logger.info(
-            f"Scan complete: {result.added} added, {result.updated} updated, "
-            f"{result.removed} removed, {result.errors} errors"
+        # The background reconcile runs every 30 seconds; only report scans
+        # that actually changed something.
+        changed = result.added or result.updated or result.removed or result.reconciled or result.errors
+        logger.log(
+            logging.INFO if changed else logging.DEBUG,
+            "Scan complete: %s added, %s updated, %s removed, %s reconciled, %s errors",
+            result.added,
+            result.updated,
+            result.removed,
+            result.reconciled,
+            result.errors,
         )
         
         return result
@@ -308,17 +316,29 @@ class LibraryScannerService:
                 canonical.removed_at = None if canonical.is_in_library else canonical.removed_at
 
             existing = {track.song_id: track for track in canonical.tracks if track.song_id is not None}
-            for temporary_position, track in enumerate(canonical.tracks, start=1):
-                track.position = -temporary_position
-            self.session.flush()
             songs = sorted(
                 (song for song in album.songs if song.is_downloaded),
                 key=lambda song: (song.disc_number or 1, song.track_number or song.id, song.id),
             )
-            for position, song in enumerate(songs):
-                track = existing.get(song.id)
-                if track is None and canonical.source == "local":
-                    track = local_track_by_song_id.get(song.id)
+            planned = [
+                existing.get(song.id)
+                or (local_track_by_song_id.get(song.id) if canonical.source == "local" else None)
+                for song in songs
+            ]
+            # Moving positions through negative values avoids transient unique
+            # (album_id, position) collisions, but it rewrites every row. The
+            # background reconcile runs every 30 seconds, so skip it when the
+            # album is already in its settled order.
+            planned_ids = {id(track) for track in planned if track is not None}
+            already_ordered = all(
+                track is not None and track.album_id == canonical.id and track.position == position
+                for position, track in enumerate(planned)
+            ) and all(track.position < 0 for track in canonical.tracks if id(track) not in planned_ids)
+            if not already_ordered:
+                for temporary_position, track in enumerate(canonical.tracks, start=1):
+                    track.position = -temporary_position
+                self.session.flush()
+            for position, (song, track) in enumerate(zip(songs, planned)):
                 if track is None:
                     track = LibraryTrack(
                         album_id=canonical.id,
@@ -491,7 +511,7 @@ class LibraryScannerService:
             return metadata
             
         except Exception as exc:
-            logger.error(f"Failed to extract metadata from {file_path}: {exc}")
+            logger.error("Failed to extract metadata from %s: %s", file_path, exc)
             raise
     
     def _get_tag(self, tags, keys: list[str]) -> str | None:
@@ -549,7 +569,7 @@ class LibraryScannerService:
         )
         
         self.songs.add(song)
-        logger.info(f"Created song: {song.title}")
+        logger.info("Created song: %s", song.title)
         return song
     
     def _update_song_metadata(self, song: Song, metadata: dict) -> bool:
@@ -590,7 +610,6 @@ class LibraryScannerService:
                 album.year = metadata["year"]
             song.album_id = album.id
         
-        logger.info(f"Updated song: {song.title}")
         after = (
             song.is_downloaded,
             song.title,
@@ -601,4 +620,7 @@ class LibraryScannerService:
             song.album_id,
             self.session.get(Album, song.album_id).year if song.album_id else None,
         )
-        return before != after
+        changed = before != after
+        if changed:
+            logger.info("Updated song: %s", song.title)
+        return changed

@@ -5,6 +5,7 @@ import hashlib
 import json
 import logging
 import re
+import threading
 import time
 from dataclasses import dataclass, field, replace
 from typing import Any, Literal
@@ -585,6 +586,13 @@ class YouTubeMusicService:
         self.search_cache_ttl_seconds = 120.0
         self.home_cache_ttl_seconds = 600.0
         self.related_cache_ttl_seconds = 300.0
+        # Resolving a stream costs a player call plus validation range requests
+        # (or a slow yt-dlp fallback). The audio element issues a new range
+        # request on every seek, so reuse a resolved URL while it stays valid.
+        self._playback_cache: dict[tuple[str, str], tuple[float, PlaybackData]] = {}
+        self._playback_cache_lock = threading.Lock()
+        self.playback_cache_ttl_seconds = 1800.0
+        self.playback_cache_max_entries = 64
 
     async def home(self) -> OnlineHomeResponse:
         now = time.monotonic()
@@ -700,7 +708,31 @@ class YouTubeMusicService:
         return await asyncio.to_thread(self._artist_sync, browse_id)
 
     def playback(self, video_id: str, *, quality: str = "high") -> PlaybackData:
-        return self.client.playback(video_id, quality=quality)
+        key = (video_id, quality)
+        now = time.monotonic()
+        with self._playback_cache_lock:
+            cached = self._playback_cache.get(key)
+            if cached and cached[0] > now:
+                return cached[1]
+        resolved = self.client.playback(video_id, quality=quality)
+        ttl = self.playback_cache_ttl_seconds
+        if resolved.expires_in_seconds > 0:
+            # Leave a margin so a cached URL never expires mid-request.
+            ttl = min(ttl, max(0.0, resolved.expires_in_seconds - 600.0))
+        if ttl > 0:
+            with self._playback_cache_lock:
+                if len(self._playback_cache) >= self.playback_cache_max_entries:
+                    expired = [entry for entry, (expires_at, _) in self._playback_cache.items() if expires_at <= now]
+                    for entry in expired or [next(iter(self._playback_cache))]:
+                        self._playback_cache.pop(entry, None)
+                self._playback_cache[key] = (now + ttl, resolved)
+        return resolved
+
+    def invalidate_playback(self, video_id: str) -> None:
+        """Drop cached stream URLs for a video after the upstream rejects one."""
+        with self._playback_cache_lock:
+            for key in [key for key in self._playback_cache if key[0] == video_id]:
+                self._playback_cache.pop(key, None)
 
     async def lyrics(self, video_id: str) -> str | None:
         return await asyncio.to_thread(self._lyrics_sync, video_id)

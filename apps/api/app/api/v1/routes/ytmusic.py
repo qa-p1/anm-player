@@ -114,9 +114,12 @@ def _proxy_playback_stream(playback: PlaybackData, range_header: str | None, *, 
         response = build_opener().open(request, timeout=30)
     except HTTPError as exc:
         logger.warning("Upstream stream request failed with HTTP %s", exc.code)
+        # The cached URL may have been revoked; the next request re-resolves.
+        ytmusic_service.invalidate_playback(playback.video_id)
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Upstream audio service rejected the request") from exc
     except (OSError, URLError) as exc:
         logger.warning("Could not open upstream stream: %s", exc)
+        ytmusic_service.invalidate_playback(playback.video_id)
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Could not open upstream audio stream") from exc
 
     headers = {"Cache-Control": "no-store", "Accept-Ranges": "bytes", "X-ANM-Player-Playback-Source": source_kind}

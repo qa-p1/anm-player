@@ -52,7 +52,11 @@ jobs:
       - run: npm run knip
       - run: npm run build
       - run: npm run check:bundle
-      - run: npm audit --audit-level=high
+      # Shipped (production) dependencies must be free of high advisories.
+      # Build and test tooling is held to critical: its DoS-class advisories
+      # are not reachable from the static bundle the app serves.
+      - run: npm audit --omit=dev --audit-level=high
+      - run: npm audit --audit-level=critical
 
   integration:
     runs-on: ubuntu-latest

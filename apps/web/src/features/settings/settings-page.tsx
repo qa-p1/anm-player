@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/components/ui/toast";
 import { apiGet, apiPatch, apiPost } from "@/services/api-client";
+import { getDatabaseBackupUrl } from "@/services/music-api";
 import { applyAccent, accentValues, useThemeStore, type AccentTheme, type ThemeMode } from "@/stores/theme-store";
 
 type AudioFormat = "mp3" | "m4a" | "flac" | "opus" | "ogg";
@@ -270,7 +271,15 @@ export function SettingsPage() {
           <Usage label="Database" value={storage?.categories.database} />
           <Usage label="Downloads" value={storage?.categories.downloads} />
         </div>
-        <Button onClick={() => void openBrowser("migration")}><Folder className="h-4 w-4" />Change Data Location</Button>
+        <div className="flex flex-wrap gap-3">
+          <Button onClick={() => void openBrowser("migration")}><Folder className="h-4 w-4" />Change Data Location</Button>
+          <Button asChild variant="glass">
+            <a href={getDatabaseBackupUrl()} download>
+              <Download className="h-4 w-4" />Download Database Backup
+            </a>
+          </Button>
+        </div>
+        <p className="text-xs text-muted-foreground">The backup is a consistent copy of your library database, taken without stopping ANM Player. Music files are not included.</p>
       </SettingsSection>
 
       <SettingsSection icon={<RefreshCw />} title="Library">

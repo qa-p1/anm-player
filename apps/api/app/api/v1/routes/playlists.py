@@ -109,6 +109,8 @@ def clear_playlist_items(
     "/{playlist_id}/clear",
     response_model=PlaylistDetailResponse,
     summary="Clear all playlist items",
+    description="Deprecated alias of `DELETE /playlists/{playlist_id}/items`, kept for existing clients.",
+    deprecated=True,
 )
 def clear_playlist(
     service: Annotated[CatalogService, Depends(get_catalog_service)],

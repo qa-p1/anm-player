@@ -36,6 +36,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { useNavigate, useParams } from "react-router";
+import { useShallow } from "zustand/react/shallow";
 
 import { pageTransition } from "@/animations/page-motion";
 import { ArtworkImage } from "@/components/cards/artwork-image";
@@ -86,7 +87,7 @@ export function PlaylistDetailPage() {
   const [editOpen, setEditOpen] = useState(false);
   const [editName, setEditName] = useState("");
   const [editDescription, setEditDescription] = useState("");
-  const { playPlaylist, addToQueue } = usePlayerStore();
+  const { playPlaylist, addToQueue } = usePlayerStore(useShallow((state) => ({ playPlaylist: state.playPlaylist, addToQueue: state.addToQueue })));
   const artworkUrl = cachedArtworkUrl(playlist?.artwork_path);
 
   useEffect(() => {

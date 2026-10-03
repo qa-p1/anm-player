@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { UseQueryOptions, UseMutationOptions } from "@tanstack/react-query";
 
 import * as musicApi from "@/services/music-api";
+import { isActiveDownload } from "@/utils/downloads";
 import type {
   Song,
   Playlist,
@@ -23,20 +24,17 @@ export const musicKeys = {
   songsAll: () => [...musicKeys.songs(), "all"] as const,
   song: (id: number) => [...musicKeys.songs(), "detail", id] as const,
   songsSearchAll: (query: string) => [...musicKeys.songs(), "search-all", { query }] as const,
-  songsFavorites: (limit: number, offset: number) => [...musicKeys.songs(), "favorites", { limit, offset }] as const,
   historyRecentlyPlayed: (limit: number) => [...musicKeys.all, "history", "recently-played", { limit }] as const,
   historyMostPlayed: (limit: number) => [...musicKeys.all, "history", "most-played", { limit }] as const,
   
   // Artists
   artists: () => [...musicKeys.all, "artists"] as const,
   artist: (id: number) => [...musicKeys.artists(), "detail", id] as const,
-  artistsFavorites: (limit: number, offset: number) => [...musicKeys.artists(), "favorites", { limit, offset }] as const,
   
   // Albums
   albums: () => [...musicKeys.all, "albums"] as const,
   album: (id: number) => [...musicKeys.albums(), "detail", id] as const,
   unifiedAlbum: (id: string) => [...musicKeys.albums(), "unified", id] as const,
-  albumsFavorites: (limit: number, offset: number) => [...musicKeys.albums(), "favorites", { limit, offset }] as const,
   
   // Playlists
   playlists: () => [...musicKeys.all, "playlists"] as const,
@@ -105,8 +103,9 @@ export function useDownloads(options?: Omit<UseQueryOptions<DownloadJob[]>, "que
   return useQuery({
     queryKey: musicKeys.downloadsList(),
     queryFn: ({ signal }) => musicApi.listAllDownloads(signal),
-    // Refetch downloads more frequently
-    refetchInterval: 2000,
+    // Poll quickly only while something is in flight. Actions that create or
+    // restart downloads invalidate this query, which resumes fast polling.
+    refetchInterval: (query) => (query.state.data?.some(isActiveDownload) ? 2_000 : 15_000),
     ...options,
   });
 }
@@ -134,16 +133,13 @@ export function useToggleFavorite(options?: UseMutationOptions<{ is_favorited: b
   return useMutation({
     mutationFn: musicApi.toggleFavorite,
     onSuccess: (_, variables) => {
-      // Invalidate relevant queries based on entity type
+      // Song, album, and artist lists all carry is_favorited flags.
       if (variables.entity_type === "song") {
-        queryClient.invalidateQueries({ queryKey: musicKeys.songsFavorites(50, 0) });
-        queryClient.invalidateQueries({ queryKey: musicKeys.song(variables.entity_id) });
+        queryClient.invalidateQueries({ queryKey: musicKeys.songs() });
       } else if (variables.entity_type === "album") {
-        queryClient.invalidateQueries({ queryKey: musicKeys.albumsFavorites(50, 0) });
-        queryClient.invalidateQueries({ queryKey: musicKeys.album(variables.entity_id) });
+        queryClient.invalidateQueries({ queryKey: musicKeys.albums() });
       } else if (variables.entity_type === "artist") {
-        queryClient.invalidateQueries({ queryKey: musicKeys.artistsFavorites(50, 0) });
-        queryClient.invalidateQueries({ queryKey: musicKeys.artist(variables.entity_id) });
+        queryClient.invalidateQueries({ queryKey: musicKeys.artists() });
       }
     },
     ...options,

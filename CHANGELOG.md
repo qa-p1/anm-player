@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Download Database Backup** in Settings: a consistent snapshot of the library database taken with SQLite's online backup API while ANM Player keeps running (`GET /api/v1/settings/backup`).
+- **Retry failed** in the download queue requeues every failed download at once (`POST /api/v1/downloads/retry-failed`).
+
+### Fixed
+
+- Downloads interrupted by a crash, restart, or Ctrl+C are returned to the queue on startup instead of staying "downloading" forever, blocking the concurrency limit and re-queueing. Resuming a download paused before a restart now requeues it.
+- Saving lyrics no longer writes an ID3 header into M4A, FLAC, Opus, or Ogg files, which made them unreadable to the library scanner; embedded lyrics in those formats are now read too.
+- Adding several songs to a playlist in one request no longer always fails with a conflict.
+- Re-importing a YouTube Music playlist creates "Name (2)" instead of failing; the playlist list refreshes after an import.
+- The Content-Security-Policy and other security headers are now sent with the app shell and its assets, not only API responses.
+- Picking a track from a list with shuffle on now shuffles the whole list.
+- The download queue summary distinguishes failed from completed downloads.
+- Removing a single playlist item now closes the gap in positions, as bulk removal already did.
+
+### Performance
+
+- Playback progress no longer re-renders the whole app several times per second, and player state is persisted at most once per second.
+- The 30-second background library sync no longer rewrites every track row when nothing changed, and logs only when it changes something.
+- Resolved YouTube stream URLs are reused while valid, so seeking during a first listen no longer re-resolves the stream.
+- The download list polls every 2 seconds only while a download is active.
+
 ## 0.2.0 - 2026-08-09
 
 This release expands ANM Player with 30 standard and advanced music-player capabilities:

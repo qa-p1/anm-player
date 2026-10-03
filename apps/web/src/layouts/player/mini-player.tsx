@@ -1,6 +1,7 @@
 import { motion } from "framer-motion";
 import { LoaderCircle, Pause, Play, SkipBack, SkipForward } from "lucide-react";
 import type { CSSProperties } from "react";
+import { useShallow } from "zustand/react/shallow";
 
 import { ArtworkImage } from "@/components/cards/artwork-image";
 import { Button } from "@/components/ui/button";
@@ -21,7 +22,16 @@ export function MiniPlayer({ onOpen }: MiniPlayerProps) {
     playbackStatus,
     playPreviousSong,
     playNextManually,
-  } = usePlayerStore();
+  } = usePlayerStore(useShallow((state) => ({
+    currentSong: state.currentSong,
+    isPlaying: state.isPlaying,
+    setIsPlaying: state.setIsPlaying,
+    currentTime: state.currentTime,
+    duration: state.duration,
+    playbackStatus: state.playbackStatus,
+    playPreviousSong: state.playPreviousSong,
+    playNextManually: state.playNextManually,
+  })));
 
   // Don't show mini player if no song is loaded
   if (!currentSong) return null;

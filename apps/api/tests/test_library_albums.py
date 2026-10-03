@@ -457,3 +457,69 @@ def test_album_read_reports_missing_media_without_mutating_database(music_direct
     assert response.tracks[0].is_downloaded is False
     assert track.is_downloaded is True
     assert track.file_path == "missing.mp3"
+
+
+def test_downloaded_unified_track_stream_url_matches_a_real_media_route(music_directory) -> None:
+    from starlette.routing import Match
+
+    from app.main import app
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
+    preview = OnlineAlbumPreview(
+        external_id="stream-url-album",
+        title="Album",
+        tracks=[OnlineAlbumTrackPreview(external_id="track", title="Track", position=0)],
+    )
+
+    with Session() as session:
+        service = FakeLibraryAlbumService(session, {"stream-url-album": preview})
+        saved = asyncio.run(service.save_online_album("stream-url-album"))
+        track = session.get(LibraryTrack, saved.tracks[0].id)
+        (music_directory / "downloaded.mp3").write_bytes(b"audio")
+        track.file_path = "downloaded.mp3"
+        track.is_downloaded = True
+        session.commit()
+
+        response = asyncio.run(service.get_unified_album("stream-url-album"))
+
+    stream_url = response.tracks[0].stream_url
+    assert stream_url == f"/api/v1/media/library-tracks/{track.id}/stream"
+    scope = {"type": "http", "path": stream_url, "method": "GET", "root_path": ""}
+    assert any(route.matches(scope)[0] == Match.FULL for route in app.router.routes)
+
+
+def test_importing_the_same_playlist_twice_creates_distinct_playlists(monkeypatch) -> None:
+    import app.services.library_albums as library_albums_module
+    from app.models import Playlist
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
+    preview = OnlineAlbumPreview(
+        external_id="VLPLimport",
+        title="Road Trip",
+        tracks=[
+            OnlineAlbumTrackPreview(
+                external_id="video-1",
+                title="Song",
+                position=0,
+                source_url="https://music.youtube.com/watch?v=video-1",
+            )
+        ],
+    )
+
+    async def fake_album(_browse_id: str) -> OnlineAlbumPreview:
+        return preview
+
+    monkeypatch.setattr(library_albums_module.ytmusic_service, "album", fake_album)
+    url = "https://music.youtube.com/playlist?list=PLimport"
+    with Session() as session:
+        service = LibraryAlbumService(session)
+        first = asyncio.run(service.import_playlist_url(url=url))
+        second = asyncio.run(service.import_playlist_url(url=url))
+
+        names = [session.get(Playlist, result["playlist_id"]).name for result in (first, second)]
+
+    assert names == ["Road Trip", "Road Trip (2)"]
