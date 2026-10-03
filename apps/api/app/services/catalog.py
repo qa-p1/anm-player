@@ -825,7 +825,8 @@ class CatalogService:
             select(LibraryAlbum.local_album_id, LibraryAlbum.public_id).where(
                 LibraryAlbum.local_album_id.in_(ids)
             )
-        ).tuples()
+        )
+        # Rows unpack as tuples directly; Result.tuples() is deprecated in SQLAlchemy 2.1.
         return {local_id: public_id for local_id, public_id in rows}
 
     def songs_to_response(self, songs) -> list[SongResponse]:
