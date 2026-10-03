@@ -16,6 +16,7 @@
 - The Content-Security-Policy and other security headers are now sent with the app shell and its assets, not only API responses.
 - Picking a track from a list with shuffle on now shuffles the whole list.
 - The download queue summary distinguishes failed from completed downloads.
+- Removing a single playlist item now closes the gap in positions, as bulk removal already did.
 
 ### Performance
 

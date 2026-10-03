@@ -387,3 +387,22 @@ def test_adding_several_songs_in_one_request_appends_them_after_mixed_items(play
     assert response.status_code == 200, response.text
     positions = [item["position"] for item in response.json()["items"]]
     assert len(positions) == len(set(positions)) == 4
+
+
+def test_removing_single_items_keeps_mixed_positions_dense(playlist_api: PlaylistApi) -> None:
+    response = playlist_api.client.delete(
+        f"/api/v1/playlists/{playlist_api.playlist_id}/songs/{playlist_api.first_song_id}"
+    )
+    assert response.status_code == 200, response.text
+    assert [item["position"] for item in response.json()["items"]] == [0, 1]
+    assert persisted_item_order(playlist_api) == [
+        ("song", playlist_api.second_song_id, 0),
+        ("library_track", playlist_api.library_track_id, 1),
+    ]
+
+    playlist_api.session.expire_all()
+    response = playlist_api.client.delete(
+        f"/api/v1/playlists/{playlist_api.playlist_id}/tracks/{playlist_api.library_track_id}"
+    )
+    assert response.status_code == 200, response.text
+    assert persisted_item_order(playlist_api) == [("song", playlist_api.second_song_id, 0)]

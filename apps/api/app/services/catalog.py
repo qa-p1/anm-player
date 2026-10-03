@@ -330,22 +330,9 @@ class CatalogService:
                 details={"items": self._playlist_keys_payload(missing)},
             )
 
-        removed = set(requested_keys)
         for key in requested_keys:
             self.playlists.session.delete(current[key])
-        remaining = [
-            link
-            for item_type, link in self._ordered_playlist_links(playlist_id)
-            if (item_type, self._playlist_link_id(item_type, link)) not in removed
-        ]
-        try:
-            self._assign_playlist_positions(remaining)
-            self.playlists.session.commit()
-        except IntegrityError as exc:
-            self.playlists.session.rollback()
-            raise ConflictError(
-                "The playlist changed while items were being removed. Refresh it and try again."
-            ) from exc
+        self._compact_after_removal(playlist_id, set(requested_keys))
         return self.get_playlist(playlist_id)
 
     def export_playlist_m3u8(self, playlist_id: int) -> tuple[str, str]:
@@ -585,7 +572,7 @@ class CatalogService:
                 "Song is not in this playlist.",
                 details={"playlist_id": playlist_id, "song_id": song_id},
             )
-        self.playlists.session.commit()
+        self._compact_after_removal(playlist_id, {("song", song_id)})
         return self.get_playlist(playlist_id)
 
     def remove_library_track_from_playlist(
@@ -615,8 +602,22 @@ class CatalogService:
                 details={"playlist_id": playlist_id, "track_id": track_id},
             )
         self.playlists.session.delete(link)
-        self.playlists.session.commit()
+        self._compact_after_removal(playlist_id, {("library_track", track_id)})
         return self.get_playlist(playlist_id)
+
+    def _compact_after_removal(self, playlist_id: int, removed: set[tuple[str, int]]) -> None:
+        """Close the gap a removal leaves, as bulk removal and reordering do."""
+        remaining = [
+            link
+            for item_type, link in self._ordered_playlist_links(playlist_id)
+            if (item_type, self._playlist_link_id(item_type, link)) not in removed
+        ]
+        try:
+            self._assign_playlist_positions(remaining)
+            self.playlists.session.commit()
+        except IntegrityError as exc:
+            self.playlists.session.rollback()
+            raise ConflictError("The playlist changed while the item was being removed. Refresh it and try again.") from exc
 
     def _downloaded_song_file_exists(self, song) -> bool:
         if not song.is_downloaded or not song.relative_path:
