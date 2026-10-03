@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Changed
+
+- The Docker API image runs Python 3.14.7 (CI now tests 3.13 and 3.14) and the web image runs nginx 1.31.5.
+- Dependencies updated: lucide-react 1.x, @testing-library/jest-dom 7, jest-axe 11, typescript-eslint 8.67, SQLAlchemy 2.0.52, pydantic-settings 2.15, ruff 0.16, and others. Ruff's rule set is now pinned in `ruff.toml`.
+- CI audits shipped npm dependencies at `high` and the full tree at `critical`; Dependabot groups minor and patch updates.
+
 ### Added
 
 - **Download Database Backup** in Settings: a consistent snapshot of the library database taken with SQLite's online backup API while ANM Player keeps running (`GET /api/v1/settings/backup`).
