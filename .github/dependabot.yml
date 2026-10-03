@@ -18,6 +18,12 @@ updates:
     directory: /docker
     schedule:
       interval: weekly
+    ignore:
+      # A Python minor version (3.14 -> 3.15) is a new language release and
+      # Docker tags include release candidates; move between them on purpose,
+      # with CI updated to match. Patch releases still arrive automatically.
+      - dependency-name: python
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
     groups:
       minor-and-patch:
         update-types: [minor, patch]
