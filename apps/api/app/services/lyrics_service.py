@@ -8,14 +8,14 @@ import logging
 import asyncio
 import json
 import re
-from urllib.parse import parse_qs, urlencode, urlparse
+from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from mutagen import File as MutagenFile
 from sqlalchemy.orm import Session
 
 from app.models import Song
 from app.services.file_paths import resolve_library_path
+from app.services.tagging import AudioTaggingService
 from app.services.lyrics_cache import (
     LYRICS_STATUS_CACHED,
     LYRICS_STATUS_MISSING,
@@ -23,6 +23,7 @@ from app.services.lyrics_cache import (
     LyricsCacheResult,
     LyricsCacheService,
 )
+from app.core.youtube import youtube_video_id
 from app.services.ytmusic_service import ytmusic_service
 
 logger = logging.getLogger(__name__)
@@ -77,45 +78,18 @@ class LyricsService:
             logger.warning("Rejected invalid managed lyrics path for song %s", song_id)
             return None
         if not file_path.exists():
-            logger.warning(f"File not found: {file_path}")
+            logger.warning("Lyrics source file not found for song %s", song_id)
             return None
         
         try:
-            audio_file = MutagenFile(file_path)
-            if not audio_file:
-                return None
-            
-            # Try different tag formats
-            lyrics = None
-            
-            # ID3 (MP3)
-            if hasattr(audio_file, "tags") and audio_file.tags:
-                # USLT frame (Unsynchronized Lyrics)
-                uslt_frames = audio_file.tags.getall("USLT")
-                if uslt_frames:
-                    lyrics = str(uslt_frames[0].text)
-            
-            # Vorbis comments (OGG, FLAC)
-            if not lyrics and hasattr(audio_file, "get"):
-                lyrics = audio_file.get("LYRICS", [None])[0]
-                if not lyrics:
-                    lyrics = audio_file.get("UNSYNCEDLYRICS", [None])[0]
-            
-            # MP4 (M4A)
-            if not lyrics and hasattr(audio_file, "tags") and hasattr(audio_file.tags, "get"):
-                lyrics = audio_file.tags.get("©lyr", [None])[0]
-            
-            if lyrics:
-                logger.info(f"Extracted lyrics for song {song_id}")
-                return str(lyrics).strip()
-            
-            logger.info(f"No lyrics found for song {song_id}")
-            return None
-            
+            lyrics = AudioTaggingService().read_lyrics(file_path)
         except Exception as exc:
-            logger.error(f"Failed to extract lyrics for song {song_id}: {exc}")
+            logger.warning("Failed to extract lyrics for song %s: %s", song_id, exc)
             return None
-    
+        if lyrics:
+            logger.debug("Extracted embedded lyrics for song %s", song_id)
+        return lyrics
+
     def save_lyrics(self, song_id: int, lyrics: str) -> bool:
         """
         Save lyrics to song file tags.
@@ -139,34 +113,11 @@ class LyricsService:
             return False
         if not file_path.exists():
             return False
-        
-        try:
-            audio_file = MutagenFile(file_path)
-            if not audio_file:
-                return True
-            
-            # Save based on file type
-            if hasattr(audio_file, "tags"):
-                # ID3 (MP3)
-                from mutagen.id3 import ID3, ID3NoHeaderError, USLT
-                try:
-                    tags = ID3(file_path)
-                except ID3NoHeaderError:
-                    tags = ID3()
-                tags.delall("USLT")
-                tags.add(USLT(encoding=3, lang="eng", desc="", text=lyrics))
-                tags.save(file_path)
-            elif hasattr(audio_file, "__setitem__"):
-                # Vorbis (OGG, FLAC)
-                audio_file["LYRICS"] = lyrics
-                audio_file.save()
-            
-            logger.info(f"Saved lyrics for song {song_id}")
-            return True
-            
-        except Exception as exc:
-            logger.error(f"Failed to save lyrics for song {song_id}: {exc}")
-            return True
+
+        # The database copy is authoritative; embedding is best-effort.
+        if AudioTaggingService().write_lyrics(file_path, lyrics):
+            logger.info("Saved lyrics for song %s", song_id)
+        return True
 
     def save_song_lyrics(self, song_id: int, lyrics: str) -> LyricsCacheResult | None:
         if not self.save_lyrics(song_id, lyrics):
@@ -318,20 +269,10 @@ class LyricsService:
         return None
 
     def _video_id_from_url(self, source_url: str | None) -> str | None:
-        if not source_url:
-            return None
-        parsed = urlparse(source_url)
-        if parsed.hostname in {"youtu.be", "www.youtu.be"}:
-            return parsed.path.strip("/") or None
-        query = parse_qs(parsed.query)
-        video_id = (query.get("v") or [None])[0]
-        if video_id:
-            return video_id
-        match = re.search(r"^[A-Za-z0-9_-]{11}$", source_url)
-        return source_url if match else None
+        return youtube_video_id(source_url, allow_bare_id=True)
 
     def _clean_title(self, title: str) -> str:
-        return re.sub(r"\s+\((official|lyrics?|audio|video|visualizer).+?\)\s*$", "", title, flags=re.IGNORECASE).strip()
+        return re.sub(r"\s+\((official|lyrics?|audio|video|visualizer)[^)]*\)\s*$", "", title, flags=re.IGNORECASE).strip()
 
     def _has_lrc_timestamps(self, lyrics: str) -> bool:
         return bool(re.search(r"^\[\d{1,2}:\d{2}(?:\.\d{1,3})?\]", lyrics, flags=re.MULTILINE))

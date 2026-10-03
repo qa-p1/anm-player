@@ -5,7 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from mutagen.easyid3 import EasyID3
-from mutagen.id3 import ID3, ID3NoHeaderError
+from mutagen.id3 import ID3, ID3NoHeaderError, USLT
+from mutagen.mp4 import MP4
 from mutagen import File as MutagenFile
 
 logger = logging.getLogger(__name__)
@@ -92,6 +93,62 @@ class AudioTaggingService:
             return True
         except Exception:
             logger.exception("failed to write audio tags", extra={"file_path": str(path)})
+            return False
+
+    def read_lyrics(self, file_path: str | Path) -> str | None:
+        """Read embedded lyrics from ID3 USLT, MP4 ``\xa9lyr``, or Vorbis comments."""
+        audio = MutagenFile(Path(file_path))
+        if audio is None or not audio.tags:
+            return None
+        tags = audio.tags
+        value = None
+        if isinstance(tags, ID3):
+            frames = tags.getall("USLT")
+            value = frames[0].text if frames else None
+        elif isinstance(audio, MP4):
+            value = (tags.get("\xa9lyr") or [None])[0]
+        else:
+            for key in ("LYRICS", "UNSYNCEDLYRICS"):
+                value = (tags.get(key) or [None])[0]
+                if value:
+                    break
+        text = str(value).strip() if value else ""
+        return text or None
+
+    def write_lyrics(self, file_path: str | Path, lyrics: str) -> bool:
+        """Embed lyrics using the container's native field.
+
+        MP3 uses an ID3 USLT frame, MP4/M4A the ``\xa9lyr`` atom, and FLAC, Ogg,
+        and Opus a ``LYRICS`` Vorbis comment. Writing ID3 into anything but an
+        MP3 would prepend a foreign header and corrupt the container.
+        """
+        path = Path(file_path)
+        try:
+            audio = MutagenFile(path)
+            if audio is None:
+                return False
+            if isinstance(audio, MP4):
+                if audio.tags is None:
+                    audio.add_tags()
+                audio.tags["\xa9lyr"] = [lyrics]
+                audio.save()
+                return True
+            if path.suffix.lower() == ".mp3" or isinstance(audio.tags, ID3):
+                try:
+                    tags = ID3(path)
+                except ID3NoHeaderError:
+                    tags = ID3()
+                tags.delall("USLT")
+                tags.add(USLT(encoding=3, lang="eng", desc="", text=lyrics))
+                tags.save(path)
+                return True
+            if audio.tags is None:
+                audio.add_tags()
+            audio.tags["LYRICS"] = [lyrics]
+            audio.save()
+            return True
+        except Exception:
+            logger.warning("failed to embed lyrics", extra={"file_path": str(path)}, exc_info=True)
             return False
 
     def _set(self, tags: EasyID3, key: str, value: str | list[str] | None) -> None:

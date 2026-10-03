@@ -7,7 +7,7 @@ from app.models.history import Favorite, History
 from app.models.playlist import PlaylistSong
 from app.repositories.base import Repository
 from app.core.enums import DownloadStage, DownloadStatus
-from urllib.parse import parse_qs, urlparse
+from app.core.youtube import youtube_video_id
 
 
 class SongRepository(Repository[Song]):
@@ -119,12 +119,9 @@ class PlaylistRepository(Repository[Playlist]):
         )
         return self.session.scalars(statement).unique().first()
 
-    def add_song(self, playlist_id: int, song_id: int) -> PlaylistSong:
-        playlist = self.get(playlist_id)
-        if not playlist:
-            raise ValueError(f"Playlist {playlist_id} not found")
-
-        max_position_result = self.session.execute(
+    def next_position(self, playlist_id: int) -> int:
+        """Return the first free position across both song and library-track links."""
+        highest = self.session.execute(
             select(
                 func.max(
                     func.coalesce(
@@ -138,9 +135,14 @@ class PlaylistRepository(Repository[Playlist]):
                 )
             )
         ).scalar()
-        next_position = max_position_result + 1
+        return (highest if highest is not None else -1) + 1
 
-        playlist_song = PlaylistSong(playlist_id=playlist_id, song_id=song_id, position=next_position)
+    def add_song(self, playlist_id: int, song_id: int, *, position: int | None = None) -> PlaylistSong:
+        if position is None:
+            if not self.get(playlist_id):
+                raise ValueError(f"Playlist {playlist_id} not found")
+            position = self.next_position(playlist_id)
+        playlist_song = PlaylistSong(playlist_id=playlist_id, song_id=song_id, position=position)
         self.session.add(playlist_song)
         return playlist_song
 
@@ -154,42 +156,6 @@ class PlaylistRepository(Repository[Playlist]):
             return False
         self.session.delete(playlist_song)
         return True
-
-    def reorder_song(self, playlist_id: int, song_id: int, new_position: int) -> None:
-        statement = select(PlaylistSong).where(
-            PlaylistSong.playlist_id == playlist_id,
-            PlaylistSong.song_id == song_id,
-        )
-        playlist_song = self.session.scalars(statement).first()
-        if not playlist_song:
-            return
-
-        old_position = playlist_song.position
-
-        if new_position < old_position:
-            shift_statement = (
-                select(PlaylistSong)
-                .where(
-                    PlaylistSong.playlist_id == playlist_id,
-                    PlaylistSong.position >= new_position,
-                    PlaylistSong.position < old_position,
-                )
-            )
-            for song_to_shift in self.session.scalars(shift_statement):
-                song_to_shift.position += 1
-        elif new_position > old_position:
-            shift_statement = (
-                select(PlaylistSong)
-                .where(
-                    PlaylistSong.playlist_id == playlist_id,
-                    PlaylistSong.position > old_position,
-                    PlaylistSong.position <= new_position,
-                )
-            )
-            for song_to_shift in self.session.scalars(shift_statement):
-                song_to_shift.position -= 1
-
-        playlist_song.position = new_position
 
 
 class DownloadJobRepository(Repository[DownloadJob]):
@@ -250,6 +216,16 @@ class DownloadJobRepository(Repository[DownloadJob]):
                 return candidate_id
         self.session.rollback()
         return None
+
+    def list_in_queue_order(self, *, limit: int = 50, offset: int = 0) -> list[DownloadJob]:
+        """Oldest first, matching the worker's claim order; the ID keeps offset paging stable."""
+        statement = (
+            select(DownloadJob)
+            .order_by(DownloadJob.created_at.asc(), DownloadJob.id.asc())
+            .offset(offset)
+            .limit(limit)
+        )
+        return list(self.session.scalars(statement))
 
     def list_by_statuses(self, statuses: list[str], *, limit: int = 50, offset: int = 0) -> list[DownloadJob]:
         statement = (
@@ -416,14 +392,5 @@ class HistoryRepository(Repository[History]):
 
 
 def _download_source_key(source_url: str) -> str:
-    parsed = urlparse(source_url.strip())
-    host = (parsed.hostname or "").lower()
-    video_id = None
-    if host in {"youtu.be", "www.youtu.be"}:
-        video_id = parsed.path.strip("/").split("/")[0]
-    elif host == "youtube.com" or host.endswith(".youtube.com"):
-        if parsed.path == "/watch":
-            video_id = (parse_qs(parsed.query).get("v") or [None])[0]
-        elif parsed.path.startswith(("/shorts/", "/embed/")):
-            video_id = parsed.path.strip("/").split("/")[1]
+    video_id = youtube_video_id(source_url)
     return f"youtube:{video_id}" if video_id else source_url.strip().casefold()

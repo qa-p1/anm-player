@@ -3,7 +3,7 @@ import unicodedata
 from urllib.parse import quote, urlsplit
 
 from app.core.exceptions import ConflictError, ResourceNotFoundError
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload, selectinload
 
@@ -510,8 +510,11 @@ class CatalogService:
         ))
         if existing_ids:
             raise ConflictError("One or more songs are already in the playlist.", details={"song_ids": sorted(existing_ids)})
-        for song_id in song_ids:
-            self.playlists.add_song(playlist_id, song_id)
+        # Sessions do not autoflush, so positions are assigned up front instead
+        # of re-querying the maximum for every song in the request.
+        next_position = self.playlists.next_position(playlist_id)
+        for offset, song_id in enumerate(song_ids):
+            self.playlists.add_song(playlist_id, song_id, position=next_position + offset)
         try:
             self.playlists.session.commit()
         except IntegrityError as exc:
@@ -557,19 +560,11 @@ class CatalogService:
             )
         ).first()
         if not existing_link:
-            max_position = self.playlists.session.execute(
-                select(
-                    func.max(
-                        func.coalesce(select(func.max(PlaylistLibraryTrack.position)).where(PlaylistLibraryTrack.playlist_id == playlist_id).scalar_subquery(), -1),
-                        func.coalesce(select(func.max(PlaylistSong.position)).where(PlaylistSong.playlist_id == playlist_id).scalar_subquery(), -1),
-                    )
-                )
-            ).scalar()
             self.playlists.session.add(
                 PlaylistLibraryTrack(
                     playlist_id=playlist_id,
                     track_id=track.id,
-                    position=max_position + 1,
+                    position=self.playlists.next_position(playlist_id),
                 )
             )
         try:

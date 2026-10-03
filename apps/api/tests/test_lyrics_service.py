@@ -2,6 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import shutil
+from pathlib import Path
+
+import pytest
+from mutagen import File as MutagenFile
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -56,32 +61,38 @@ def test_get_save_and_cache_local_lyrics(music_directory) -> None:
         assert session.get(Song, song.id).lyrics == "Updated lyrics"
 
 
-def test_extract_lyrics_supports_id3_and_missing_files(music_directory, monkeypatch) -> None:
+AUDIO_FIXTURES = Path(__file__).parent / "fixtures" / "audio"
+
+
+@pytest.mark.parametrize("extension", ["mp3", "m4a", "flac", "opus"])
+def test_saved_lyrics_round_trip_without_corrupting_the_container(music_directory, extension) -> None:
     Session = make_session_factory()
-    audio_file = music_directory / "tagged.mp3"
-    audio_file.write_bytes(b"audio")
+    audio_file = music_directory / f"tagged.{extension}"
+    shutil.copyfile(AUDIO_FIXTURES / f"silence.{extension}", audio_file)
+    container = type(MutagenFile(audio_file)).__name__
     with Session() as session:
         song = create_song(session)
-        song.relative_path = "music/tagged.mp3"
+        song.relative_path = f"music/tagged.{extension}"
         session.commit()
         service = LyricsService(session)
 
-        class Frame:
-            text = " Embedded lyrics "
+        assert service.save_lyrics(song.id, "[00:01.00]Embedded line")
+        # Reading back from the file proves both the write and the
+        # per-container read path, independent of the database copy.
+        song.lyrics = None
+        session.commit()
 
-        class Tags:
-            def getall(self, key):
-                assert key == "USLT"
-                return [Frame()]
+        assert type(MutagenFile(audio_file)).__name__ == container
+        assert service.extract_lyrics(song.id) == "[00:01.00]Embedded line"
 
-        class Audio:
-            tags = Tags()
 
-        monkeypatch.setattr(lyrics_module, "MutagenFile", lambda _path: Audio())
-        assert service.extract_lyrics(song.id) == "Embedded lyrics"
-
+def test_extract_lyrics_handles_missing_files(music_directory) -> None:
+    Session = make_session_factory()
+    with Session() as session:
+        song = create_song(session)
         song.relative_path = "music/missing.mp3"
         session.commit()
+        service = LyricsService(session)
         assert service.extract_lyrics(song.id) is None
         song.relative_path = None
         session.commit()

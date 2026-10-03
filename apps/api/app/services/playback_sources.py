@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from collections.abc import Callable
 from typing import Literal
-from urllib.parse import parse_qs, urlparse
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -14,6 +13,7 @@ from app.models import LibraryTrack, Song
 from app.services.file_paths import resolve_library_path
 from app.services.settings import SettingsService
 from app.services.stream_cache import StreamCacheService
+from app.core.youtube import youtube_video_id
 from app.services.ytmusic_service import PlaybackData, ytmusic_service
 
 
@@ -85,7 +85,7 @@ class PlaybackSourceService:
             )
         ).all()
         for song in songs:
-            if self._youtube_video_id(song.source_url) != video_id:
+            if youtube_video_id(song.source_url) != video_id:
                 continue
             resolved = self._validated_file(song.relative_path)
             if resolved:
@@ -115,19 +115,3 @@ class PlaybackSourceService:
             path=path,
             media_type=mimetypes.guess_type(path.name)[0] or "application/octet-stream",
         )
-
-    @staticmethod
-    def _youtube_video_id(source_url: str | None) -> str | None:
-        if not source_url:
-            return None
-        parsed = urlparse(source_url)
-        host = (parsed.hostname or "").lower()
-        if host in {"youtu.be", "www.youtu.be"}:
-            return parsed.path.strip("/").split("/")[0] or None
-        if host == "youtube.com" or host.endswith(".youtube.com"):
-            if parsed.path == "/watch":
-                return (parse_qs(parsed.query).get("v") or [None])[0]
-            if parsed.path.startswith(("/shorts/", "/embed/")):
-                parts = parsed.path.strip("/").split("/")
-                return parts[1] if len(parts) > 1 else None
-        return None

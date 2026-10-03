@@ -7,6 +7,7 @@ from app.core.exceptions import ConflictError, ResourceNotFoundError
 from app.models import AlbumDownloadItem, AlbumDownloadJob, Base, DownloadJob, LibraryAlbum, LibraryTrack, QueueItem
 from app.repositories.music import DownloadJobRepository, QueueItemRepository
 from app.schemas.music import DownloadCreateRequest
+from app.services.download_state import claim_job_ownership, release_job_ownership, requeue_orphaned_downloads
 from app.services.downloads import DownloadService
 from app.services.settings import SettingsService
 from app.workers.downloads.worker import DownloadWorker, _download_album_name
@@ -224,9 +225,63 @@ def test_batch_listing_retry_and_active_resume_keep_queue_state_consistent() -> 
         active.progress = 25
         session.commit()
         service.pause(active.id)
-        resumed = service.resume(active.id)
+        # A live worker thread still owns the job, so it continues in place.
+        claim_job_ownership(active.id)
+        try:
+            resumed = service.resume(active.id)
+        finally:
+            release_job_ownership(active.id)
         assert resumed.status == DownloadStatus.DOWNLOADING
         assert active.queue_item.status == DownloadStatus.DOWNLOADING
+
+
+def test_resuming_a_download_paused_before_restart_requeues_it() -> None:
+    with make_session() as session:
+        service = make_service(session)
+        created = service.enqueue(DownloadCreateRequest(source_url="https://youtu.be/orphan-paused"))
+        job = session.get(DownloadJob, created.id)
+        job.status = DownloadStatus.DOWNLOADING
+        job.progress = 40
+        session.commit()
+        service.pause(job.id)
+
+        # No worker thread owns the job (e.g. the app restarted while paused).
+        resumed = service.resume(job.id)
+
+        assert resumed.status == DownloadStatus.QUEUED
+        assert job.queue_item.status == DownloadStatus.QUEUED
+
+
+def test_orphaned_active_downloads_are_requeued_on_startup() -> None:
+    with make_session() as session:
+        service = make_service(session)
+        created = service.enqueue_batch(
+            [
+                DownloadCreateRequest(source_url="https://youtu.be/orphan-one"),
+                DownloadCreateRequest(source_url="https://youtu.be/orphan-two"),
+                DownloadCreateRequest(source_url="https://youtu.be/still-owned"),
+            ]
+        )
+        jobs = [session.get(DownloadJob, job.id) for job in created]
+        for job, status in zip(jobs, (DownloadStatus.DOWNLOADING, DownloadStatus.PROCESSING, DownloadStatus.DOWNLOADING)):
+            job.status = status
+            job.progress = 60
+            job.queue_item.status = status
+        session.commit()
+
+        claim_job_ownership(jobs[2].id)
+        try:
+            recovered = requeue_orphaned_downloads(session)
+        finally:
+            release_job_ownership(jobs[2].id)
+
+        assert set(recovered) == {jobs[0].id, jobs[1].id}
+        for job in jobs[:2]:
+            session.refresh(job)
+            assert job.status == DownloadStatus.QUEUED
+            assert job.progress == 0
+            assert job.queue_item.status == DownloadStatus.QUEUED
+        assert jobs[2].status == DownloadStatus.DOWNLOADING
 
 
 def test_terminal_download_transitions_and_missing_jobs_are_rejected() -> None:

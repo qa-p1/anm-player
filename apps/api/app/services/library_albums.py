@@ -9,7 +9,7 @@ import re
 from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.core.enums import DownloadStatus
@@ -25,10 +25,10 @@ from app.models import (
     LibraryTrack,
     Playlist,
     PlaylistLibraryTrack,
-    PlaylistSong,
     QueueItem,
     Song,
 )
+from app.repositories.music import PlaylistRepository
 from app.schemas.library import (
     AlbumStatusItem,
     AlbumStatusResponse,
@@ -52,6 +52,7 @@ from app.schemas.library import (
     TrackStatusItem,
     TrackStatusResponse,
 )
+from app.core.youtube import youtube_video_id
 from app.services.ytmusic_service import ytmusic_service
 from app.services.file_paths import resolve_library_path
 from app.services.library_scanner import library_sync_guard
@@ -389,7 +390,7 @@ class LibraryAlbumService:
         available = downloaded or can_stream
         playback_source = "downloaded" if downloaded else "streaming" if can_stream else "unavailable"
         stream_url = (
-            f"/api/v1/media/library-tracks/{track.id}"
+            f"/api/v1/media/library-tracks/{track.id}/stream"
             if downloaded
             else f"/api/v1/ytmusic/stream/{track.external_id}"
             if can_stream
@@ -601,7 +602,7 @@ class LibraryAlbumService:
             select(Song).where(Song.is_downloaded.is_(True), Song.source_url.isnot(None))
         ).all()
         for song in songs:
-            external_id = self._youtube_video_id(song.source_url)
+            external_id = youtube_video_id(song.source_url)
             if external_id not in requested:
                 continue
             try:
@@ -627,22 +628,6 @@ class LibraryAlbumService:
                 for external_id in external_ids
             ]
         )
-
-    @staticmethod
-    def _youtube_video_id(source_url: str | None) -> str | None:
-        if not source_url:
-            return None
-        parsed = urlparse(source_url)
-        host = (parsed.hostname or "").lower()
-        if host in {"youtu.be", "www.youtu.be"}:
-            return parsed.path.strip("/").split("/")[0] or None
-        if host == "youtube.com" or host.endswith(".youtube.com"):
-            if parsed.path == "/watch":
-                return (parse_qs(parsed.query).get("v") or [None])[0]
-            if parsed.path.startswith(("/shorts/", "/embed/")):
-                parts = parsed.path.strip("/").split("/")
-                return parts[1] if len(parts) > 1 else None
-        return None
 
     async def get_online_artist(self, external_id: str) -> LibraryArtistDetailResponse:
         artist = self.session.scalars(
@@ -787,15 +772,7 @@ class LibraryAlbumService:
             )
         pending_ids = [track_id for track_id in unique_ids if track_id not in existing_ids]
         added = 0
-        max_position = self.session.execute(
-            select(
-                func.max(
-                    func.coalesce(select(func.max(PlaylistLibraryTrack.position)).where(PlaylistLibraryTrack.playlist_id == playlist_id).scalar_subquery(), -1),
-                    func.coalesce(select(func.max(PlaylistSong.position)).where(PlaylistSong.playlist_id == playlist_id).scalar_subquery(), -1),
-                )
-            )
-        ).scalar()
-        next_position = max_position + 1
+        next_position = PlaylistRepository(self.session).next_position(playlist_id)
 
         for track_id in pending_ids:
             self.session.add(PlaylistLibraryTrack(playlist_id=playlist_id, track_id=track_id, position=next_position))
@@ -818,7 +795,7 @@ class LibraryAlbumService:
 
         browse_id = playlist_id if playlist_id.startswith("VL") else f"VL{playlist_id}"
         preview = await ytmusic_service.album(browse_id)
-        playlist = Playlist(name=name or preview.title or "Imported Playlist", description=url)
+        playlist = Playlist(name=self._unique_playlist_name(name or preview.title or "Imported Playlist"), description=url)
         self.session.add(playlist)
         self.session.flush()
 
@@ -885,6 +862,17 @@ class LibraryAlbumService:
             self.session.add(AlbumDownloadItem(album_job_id=album_job.id, track_id=track.id, download_job_id=download.id))
         self.session.commit()
         return {"playlist_id": playlist.id, "tracks": added, "download_job_id": album_job.id}
+
+    def _unique_playlist_name(self, requested: str) -> str:
+        """Importing the same playlist twice must not violate the unique name."""
+        base = requested.strip()[:255] or "Imported Playlist"
+        candidate = base
+        suffix_number = 2
+        while self.session.scalars(select(Playlist.id).where(Playlist.name == candidate)).first():
+            suffix = f" ({suffix_number})"
+            candidate = f"{base[:255 - len(suffix)]}{suffix}"
+            suffix_number += 1
+        return candidate
 
     def _youtube_playlist_id(self, url: str) -> str | None:
         parsed = urlparse(url)

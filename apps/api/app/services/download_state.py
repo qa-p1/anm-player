@@ -1,10 +1,11 @@
+import threading
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from app.core.enums import DownloadStatus
-from app.models import AlbumDownloadItem, AlbumDownloadJob, DownloadJob
+from app.core.enums import DownloadStage, DownloadStatus
+from app.models import AlbumDownloadItem, AlbumDownloadJob, DownloadJob, QueueItem
 
 _ACTIVE_STATUS_PRIORITY = (
     DownloadStatus.DOWNLOADING,
@@ -13,6 +14,60 @@ _ACTIVE_STATUS_PRIORITY = (
     DownloadStatus.QUEUED,
     DownloadStatus.PAUSED,
 )
+
+# Statuses that only make sense while a worker thread in this process owns the job.
+WORKER_OWNED_STATUSES = (
+    DownloadStatus.PREPARING,
+    DownloadStatus.DOWNLOADING,
+    DownloadStatus.PROCESSING,
+)
+
+_owned_jobs: set[int] = set()
+_owned_jobs_lock = threading.Lock()
+
+
+def claim_job_ownership(job_id: int) -> None:
+    with _owned_jobs_lock:
+        _owned_jobs.add(job_id)
+
+
+def release_job_ownership(job_id: int) -> None:
+    with _owned_jobs_lock:
+        _owned_jobs.discard(job_id)
+
+
+def is_job_owned(job_id: int) -> bool:
+    with _owned_jobs_lock:
+        return job_id in _owned_jobs
+
+
+def requeue_orphaned_downloads(session: Session) -> list[int]:
+    """Return jobs abandoned by a previous process to the queue.
+
+    A crash, restart, or Ctrl+C can stop a worker thread mid-download. Its job
+    then keeps an active status forever: it counts toward the concurrency cap,
+    blocks re-queueing as a duplicate, and cannot be retried.
+    """
+    orphaned = [
+        job
+        for job in session.scalars(select(DownloadJob).where(DownloadJob.status.in_(WORKER_OWNED_STATUSES)))
+        if not is_job_owned(job.id)
+    ]
+    for job in orphaned:
+        job.status = DownloadStatus.QUEUED
+        job.stage = DownloadStage.QUEUED
+        job.progress = 0
+        job.speed = None
+        job.eta = None
+        sync_linked_album_download(session, job)
+    if orphaned:
+        session.execute(
+            update(QueueItem)
+            .where(QueueItem.download_job_id.in_([job.id for job in orphaned]))
+            .values(status=DownloadStatus.QUEUED)
+        )
+        session.commit()
+    return [job.id for job in orphaned]
 
 
 def sync_linked_album_download(session: Session, job: DownloadJob) -> None:

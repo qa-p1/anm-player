@@ -15,6 +15,7 @@ from app.models import Album, Artist, History, LibraryAlbum, LibraryTrack, Song
 from app.repositories.music import SongRepository
 from app.services.artwork_cache import ArtworkCacheService
 from app.services.file_paths import resolve_library_path
+from app.core.youtube import youtube_video_id
 from app.services.ytmusic_service import ytmusic_service
 from app.storage import storage_manager
 
@@ -211,7 +212,7 @@ async def _recover_missing_artwork(
                 candidate
                 for record in (*records, *history_records)
                 for source_url in _related_source_urls(record)
-                if (candidate := _youtube_video_id(source_url))
+                if (candidate := youtube_video_id(source_url))
             ),
             None,
         )
@@ -316,21 +317,3 @@ def _publish_legacy_artwork_alias(cached_path: Path, target: Path | None) -> Pat
         return None
     finally:
         temporary.unlink(missing_ok=True)
-
-
-def _youtube_video_id(source_url: str | None) -> str | None:
-    if not source_url:
-        return None
-    from urllib.parse import parse_qs, urlparse
-
-    parsed = urlparse(source_url)
-    host = (parsed.hostname or "").lower()
-    if host == "youtube.com" or host.endswith(".youtube.com"):
-        if parsed.path == "/watch":
-            return (parse_qs(parsed.query).get("v") or [None])[0]
-        if parsed.path.startswith(("/shorts/", "/embed/")):
-            parts = parsed.path.strip("/").split("/")
-            return parts[1] if len(parts) > 1 else None
-    if host in {"youtu.be", "www.youtu.be"}:
-        return parsed.path.strip("/").split("/")[0] or None
-    return None
