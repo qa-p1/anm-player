@@ -1,13 +1,14 @@
 import { Check, Pause, Play, Plus } from "lucide-react";
 import type { MouseEvent } from "react";
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { useShallow } from "zustand/react/shallow";
 
 import { Button } from "@/components/ui/button";
 import { TrackActionsMenu } from "@/components/menus/track-actions-menu";
 import { TrackRow } from "@/components/cards/track-row";
 import { ArtworkImage } from "@/components/cards/artwork-image";
+import { TrackMetadata } from "@/components/cards/track-metadata";
 import { toast } from "@/components/ui/toast";
 import { cachedArtworkUrl } from "@/services/api-client";
 import { addUnifiedAlbumToLibrary } from "@/services/music-api";
@@ -114,58 +115,79 @@ export function OnlineMusicCard({ item, context, variant = "tile", className, al
       );
     }
     return (
-      <article
-        className={cn("glass-panel group flex min-w-0 items-center gap-3 rounded-2xl p-2.5 transition hover:bg-white/10 sm:p-3", isCurrent && "ring-1 ring-primary/40", className)}
-      >
-        <Artwork artworkUrl={artworkUrl} title={item.title} round={false} />
-        <div className="min-w-0 flex-1">
-          <p className={cn("truncate text-sm font-semibold", isCurrent && "text-primary")}>{item.title}</p>
-          <p className="truncate text-xs text-muted-foreground">{item.subtitle ?? item.kind}</p>
-        </div>
-        <span className="hidden text-xs text-muted-foreground sm:block">{formatDuration(item.duration_seconds)}</span>
-        <Button size="icon" variant="ghost" aria-label={`Open ${item.title}`} onClick={play}>
-          <PlayIcon className="h-4 w-4 fill-current" />
-        </Button>
-        {actions}
+      <article className={cn("glass-panel group relative flex min-w-0 items-center gap-3 rounded-2xl p-2.5 transition hover:bg-white/10 sm:p-3", className)}>
+        <button type="button" onClick={play} aria-label={`Open ${item.title}`} className="flex min-w-0 flex-1 items-center gap-3 text-left after:absolute after:inset-0 after:rounded-2xl focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-ring">
+          <Artwork artworkUrl={artworkUrl} title={item.title} round={false} />
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm font-semibold">{item.title}</span>
+            <span className="block truncate text-xs text-muted-foreground">{item.subtitle ?? item.kind}</span>
+          </span>
+          <span className="hidden text-xs text-muted-foreground sm:block">{formatDuration(item.duration_seconds)}</span>
+          <PlayIcon className="h-4 w-4 shrink-0 fill-current" />
+        </button>
+        <div className="relative z-10 shrink-0">{actions}</div>
       </article>
     );
   }
 
   const isArtist = variant === "artist" || item.kind === "artist";
+  const artistId = item.kind === "album" ? item.artists[0]?.id : null;
 
   return (
-    <article className={cn("group min-w-0", className)}>
-      <div className={cn("relative mb-3 aspect-square overflow-hidden bg-white/10", isArtist ? "rounded-full" : "rounded-2xl")}>
-        {artworkUrl ? (
-          <ArtworkImage src={artworkUrl} alt={item.title} className="h-full w-full object-cover transition duration-300 group-hover:scale-105" loading="lazy" />
-        ) : (
-          <div className="h-full w-full bg-[linear-gradient(135deg,#f43f5e,#14b8a6_52%,#f59e0b)]" />
-        )}
-        <div className="absolute inset-0 flex items-center justify-center bg-black/45 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100">
-            <Button size="icon" aria-label={`${item.playable ? "Play" : "Open"} ${item.title}`} onClick={play}>
+    <article className={cn("group relative min-w-0", className)}>
+      <button
+        type="button"
+        onClick={play}
+        aria-label={`${item.playable ? isCurrentPlaying ? "Pause" : "Play" : "Open"} ${item.title}`}
+        className="block w-full min-w-0 text-left after:absolute after:inset-0 after:rounded-2xl focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-ring"
+      >
+        <span className={cn("relative mb-3 block aspect-square overflow-hidden bg-white/10", isArtist ? "rounded-full" : "rounded-2xl")}>
+          {artworkUrl ? (
+            <ArtworkImage src={artworkUrl} alt="" className="h-full w-full object-cover transition duration-300 group-hover:scale-105" loading="lazy" />
+          ) : (
+            <span className="block h-full w-full bg-[linear-gradient(135deg,#f43f5e,#14b8a6_52%,#f59e0b)]" />
+          )}
+          <span className="absolute inset-0 flex items-center justify-center bg-black/45 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100">
+            <span className="grid h-11 w-11 place-items-center rounded-full bg-primary text-primary-foreground shadow-glow">
               <PlayIcon className="h-4 w-4 fill-current" />
-            </Button>
+            </span>
+          </span>
+        </span>
+        <span className={cn("block min-w-0", isArtist && "text-center")}>
+          <span className="block truncate text-sm font-bold">{item.title}</span>
+        </span>
+      </button>
+      {track ? (
+        <div className={cn("pointer-events-none relative z-10 min-w-0", isArtist && "text-center", actions && "pr-11")}>
+          <TrackMetadata
+            track={track}
+            fallbackArtist={item.subtitle ?? item.kind}
+            className="mt-1 flex text-xs text-muted-foreground"
+            linkClassName="pointer-events-auto"
+          />
         </div>
-      </div>
-      <div className={cn("flex items-start gap-2", isArtist && "text-center")}>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-bold">{item.title}</p>
-          <p className="mt-1 truncate text-xs text-muted-foreground">{item.subtitle ?? item.kind}</p>
-        </div>
-        {actions}
-      </div>
+      ) : (
+        <span className={cn("pointer-events-none relative z-10 mt-1 block min-w-0 truncate text-xs text-muted-foreground", isArtist && "text-center", actions && "pr-24")}>
+          {artistId ? (
+            <Link to={`/library/artists/online/${encodeURIComponent(artistId)}`} className="pointer-events-auto hover:text-primary hover:underline">
+              {item.subtitle ?? item.artists[0].name}
+            </Link>
+          ) : item.subtitle ?? item.kind}
+        </span>
+      )}
+      <div className="absolute bottom-0 right-0 z-10">{actions}</div>
     </article>
   );
 }
 
 function Artwork({ artworkUrl, title, round }: { artworkUrl: string | null; title: string; round: boolean }) {
   return (
-    <div className={cn("h-12 w-12 shrink-0 overflow-hidden bg-white/10", round ? "rounded-full" : "rounded-xl")}>
+    <span className={cn("h-12 w-12 shrink-0 overflow-hidden bg-white/10", round ? "rounded-full" : "rounded-xl")}>
       {artworkUrl ? (
         <ArtworkImage src={artworkUrl} alt={title} className="h-full w-full object-cover" />
       ) : (
-        <div className="h-full w-full bg-[linear-gradient(135deg,#f43f5e,#14b8a6_52%,#f59e0b)]" />
+        <span className="block h-full w-full bg-[linear-gradient(135deg,#f43f5e,#14b8a6_52%,#f59e0b)]" />
       )}
-    </div>
+    </span>
   );
 }

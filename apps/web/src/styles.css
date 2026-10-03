@@ -82,6 +82,7 @@
 
   .apple-player-range {
     --range-progress: 0%;
+    --range-buffered: var(--range-progress);
     height: 1rem;
     cursor: pointer;
     appearance: none;
@@ -91,7 +92,15 @@
   .apple-player-range::-webkit-slider-runnable-track {
     height: 0.25rem;
     border-radius: 9999px;
-    background: linear-gradient(to right, rgb(255 255 255 / 0.9) var(--range-progress), rgb(255 255 255 / 0.24) var(--range-progress));
+    background: linear-gradient(
+      to right,
+      rgb(255 255 255 / 0.9) 0,
+      rgb(255 255 255 / 0.9) var(--range-progress),
+      rgb(255 255 255 / 0.42) var(--range-progress),
+      rgb(255 255 255 / 0.42) var(--range-buffered),
+      rgb(255 255 255 / 0.24) var(--range-buffered),
+      rgb(255 255 255 / 0.24) 100%
+    );
   }
 
   .apple-player-range::-webkit-slider-thumb {
@@ -115,7 +124,13 @@
   .apple-player-range::-moz-range-track {
     height: 0.25rem;
     border-radius: 9999px;
-    background: rgb(255 255 255 / 0.24);
+    background: linear-gradient(
+      to right,
+      rgb(255 255 255 / 0.42) 0,
+      rgb(255 255 255 / 0.42) var(--range-buffered),
+      rgb(255 255 255 / 0.24) var(--range-buffered),
+      rgb(255 255 255 / 0.24) 100%
+    );
   }
 
   .apple-player-range::-moz-range-progress {

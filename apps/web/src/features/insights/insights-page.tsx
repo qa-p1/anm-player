@@ -318,14 +318,16 @@ function HistoryRow({ entry, onReplay, onRemove }: { entry: HistoryEntry; onRepl
   const playable = Boolean(historyEntryToPlayerTrack(entry));
   const EventIcon = entry.event_type === "completed" ? CheckCircle2 : entry.event_type === "skipped" ? SkipForward : Play;
   return (
-    <article className="glass-panel flex items-center gap-3 rounded-2xl p-3">
-      <button type="button" onClick={onReplay} disabled={!playable} className="group relative h-12 w-12 shrink-0 overflow-hidden rounded-xl bg-white/10 disabled:opacity-50" aria-label={`Play ${title}`}>
-        <ArtworkImage src={artwork} alt="" className="h-full w-full object-cover" />
-        <span className="absolute inset-0 grid place-items-center bg-black/45 opacity-0 transition group-hover:opacity-100 group-focus-visible:opacity-100"><Play className="h-4 w-4 fill-white text-white" /></span>
+    <article className="glass-panel relative flex items-center gap-3 rounded-2xl p-3">
+      <button type="button" onClick={onReplay} disabled={!playable} className="group flex min-w-0 flex-1 items-center gap-3 text-left after:absolute after:inset-0 after:rounded-2xl focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-ring disabled:opacity-50" aria-label={`Play ${title}`}>
+        <span className="relative h-12 w-12 shrink-0 overflow-hidden rounded-xl bg-white/10">
+          <ArtworkImage src={artwork} alt="" className="h-full w-full object-cover" />
+          <span className="absolute inset-0 grid place-items-center bg-black/45 opacity-0 transition group-hover:opacity-100 group-focus-visible:opacity-100"><Play className="h-4 w-4 fill-white text-white" /></span>
+        </span>
+        <span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold">{title}</span><span className="block truncate text-xs text-muted-foreground">{artist} · {new Date(entry.played_at).toLocaleString()}</span></span>
+        <span className={cn("hidden items-center gap-1 rounded-full px-2 py-1 text-[0.65rem] font-semibold sm:flex", entry.event_type === "completed" ? "bg-emerald-500/12 text-emerald-400" : entry.event_type === "skipped" ? "bg-amber-500/12 text-amber-400" : "bg-primary/12 text-primary")}><EventIcon className="h-3 w-3" />{entry.event_type}</span>
       </button>
-      <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{title}</p><p className="truncate text-xs text-muted-foreground">{artist} · {new Date(entry.played_at).toLocaleString()}</p></div>
-      <span className={cn("hidden items-center gap-1 rounded-full px-2 py-1 text-[0.65rem] font-semibold sm:flex", entry.event_type === "completed" ? "bg-emerald-500/12 text-emerald-400" : entry.event_type === "skipped" ? "bg-amber-500/12 text-amber-400" : "bg-primary/12 text-primary")}><EventIcon className="h-3 w-3" />{entry.event_type}</span>
-      <Button size="icon" variant="ghost" className="h-9 w-9 text-muted-foreground hover:text-red-400" aria-label={`Remove ${title} from history`} onClick={onRemove}><Trash2 className="h-4 w-4" /></Button>
+      <Button size="icon" variant="ghost" className="relative z-10 h-9 w-9 shrink-0 text-muted-foreground hover:text-red-400" aria-label={`Remove ${title} from history`} onClick={onRemove}><Trash2 className="h-4 w-4" /></Button>
     </article>
   );
 }

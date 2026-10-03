@@ -74,7 +74,7 @@ class AudioService {
 
   constructor(audioElement?: HTMLAudioElement) {
     this.audio = (audioElement ?? new Audio()) as ExtendedAudioElement;
-    this.audio.preload = "metadata";
+    this.audio.preload = "auto";
     this.mediaSession = typeof navigator !== "undefined" && "mediaSession" in navigator
       ? navigator.mediaSession
       : null;
@@ -84,7 +84,7 @@ class AudioService {
     if (song.source === "youtube" && !song.videoId) {
       throw new Error("Cannot play a YouTube track without a video id.");
     }
-    const source = await this.resolvePlaybackSource(song);
+    const source = this.resolvePlaybackSource(song);
     const absoluteUrl = new URL(source.url, window.location.href).toString();
 
     if (this.audio.src !== absoluteUrl) {
@@ -100,7 +100,7 @@ class AudioService {
     this.updateMediaSessionMetadata(song);
   }
 
-  private async resolvePlaybackSource(song: PlayerTrack): Promise<{ url: string; kind: "downloaded" | "backend-resolved" }> {
+  private resolvePlaybackSource(song: PlayerTrack): { url: string; kind: "downloaded" | "backend-resolved" } {
     if (song.source === "local") {
       return {
         url: song.localKind === "library_track"
@@ -132,10 +132,11 @@ class AudioService {
 
   async play(): Promise<void> {
     this.resetFade();
-    if (this.audioContext?.state === "suspended") {
-      await this.audioContext.resume().catch(() => undefined);
-    }
-    await this.audio.play();
+    const resumeContext = this.audioContext?.state === "suspended"
+      ? this.audioContext.resume().catch(() => undefined)
+      : Promise.resolve();
+    // Start the media request immediately, even while Web Audio is resuming.
+    await Promise.all([this.audio.play(), resumeContext]);
   }
 
   pause(): void {
@@ -218,6 +219,10 @@ class AudioService {
     return this.audio.paused;
   }
 
+  hasPlaybackData(): boolean {
+    return this.audio.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA;
+  }
+
   isEnded(): boolean {
     return this.audio.ended;
   }
@@ -226,6 +231,7 @@ class AudioService {
     if (!Number.isFinite(time) || time < 0) return;
     this.cancelPendingPositionRestore?.();
     if (time === 0) {
+      if (this.audio.currentTime === 0) return;
       try {
         this.audio.currentTime = 0;
       } catch {

@@ -1,18 +1,22 @@
 import asyncio
 import logging
 import os
+import re
 import secrets
 import shutil
+import subprocess
 import threading
 import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.request import Request, build_opener
 
 from yt_dlp import YoutubeDL
 
 from app.core.config import settings
 from app.core.enums import DownloadStage, DownloadStatus
+from app.core.youtube import youtube_video_id
 from app.database.session import SessionLocal
 from app.models import AlbumDownloadItem, DownloadJob, LibraryAlbum, Song
 from app.repositories.music import AlbumRepository, ArtistRepository, DownloadJobRepository, SongRepository
@@ -32,6 +36,7 @@ from app.services.tagging import AudioTagData, AudioTaggingService
 from app.services.websocket_manager import download_progress_hub
 from app.services.settings import SettingsService
 from app.services.metadata.service import MetadataEnrichmentService
+from app.services.ytmusic_service import PlaybackData, ytmusic_service
 from app.storage import storage_manager
 from app.storage.coordinator import StorageMigrationError, storage_coordinator
 
@@ -168,22 +173,28 @@ class DownloadWorker:
         request = self._download_request(job_id)
         if not request:
             return
-        source_url, audio_format = request
+        source_url, audio_format, video_id = request
         work_dir = self._download_jobs_dir() / str(job_id)
         work_dir.mkdir(parents=True, exist_ok=True)
-        info, output_file = self._download_media(job_id, source_url, audio_format, work_dir)
+        info, output_file = self._download_media(
+            job_id,
+            source_url,
+            audio_format,
+            work_dir,
+            video_id=video_id,
+        )
         with library_sync_guard():
             postprocessing = self._save_download(job_id, info, output_file)
         if postprocessing:
             song_id, fetch_lyrics, enrich_metadata = postprocessing
             self._postprocess_download(song_id, fetch_lyrics, enrich_metadata)
 
-    def _download_request(self, job_id: int) -> tuple[str, str] | None:
+    def _download_request(self, job_id: int) -> tuple[str, str, str | None] | None:
         with SessionLocal() as session:
             job = DownloadJobRepository(session).get(job_id)
             if not job or not job.source_url:
                 return None
-            return job.source_url, job.audio_format
+            return job.source_url, job.audio_format, job.video_id
 
     def _update_progress(self, job_id: int, payload: dict[str, Any]) -> None:
         with SessionLocal() as hook_session:
@@ -237,6 +248,8 @@ class DownloadWorker:
         source_url: str,
         audio_format: str,
         work_dir: Path,
+        *,
+        video_id: str | None = None,
     ) -> tuple[dict[str, Any], Path]:
         def progress_hook(payload: dict[str, Any]) -> None:
             self._update_progress(job_id, payload)
@@ -257,9 +270,254 @@ class DownloadWorker:
             ],
         }
 
-        with YoutubeDL(options) as ydl:
-            info = ydl.extract_info(source_url, download=True)
-        return info, self._find_output_file(work_dir, audio_format)
+        resolved_video_id = _safe_video_id(video_id) or _safe_video_id(youtube_video_id(source_url))
+        if resolved_video_id:
+            # Resolve the player's stream first to bypass yt-dlp media requests
+            # rejected by YouTube. Keep yt-dlp available if that stream fails.
+            try:
+                return self._download_media_direct(
+                    job_id,
+                    resolved_video_id,
+                    audio_format,
+                    work_dir,
+                )
+            except Exception as direct_error:
+                if storage_coordinator.cancel_work.is_set() or "cancelled" in str(direct_error).casefold():
+                    raise
+                logger.warning(
+                    "Direct playback download failed; falling back to yt-dlp",
+                    extra={"job_id": job_id, "video_id": resolved_video_id},
+                    exc_info=True,
+                )
+
+        try:
+            with YoutubeDL(options) as ydl:
+                info = ydl.extract_info(source_url, download=True)
+            return info, self._find_output_file(work_dir, audio_format)
+        except Exception as ytdlp_error:
+            if storage_coordinator.cancel_work.is_set() or "cancelled" in str(ytdlp_error).casefold():
+                raise
+            if not resolved_video_id:
+                raise
+            logger.warning(
+                "yt-dlp download failed after the direct playback attempt",
+                extra={"job_id": job_id, "video_id": resolved_video_id},
+                exc_info=True,
+            )
+            raise ytdlp_error
+
+    def _download_media_direct(
+        self,
+        job_id: int,
+        video_id: str,
+        audio_format: str,
+        work_dir: Path,
+    ) -> tuple[dict[str, Any], Path]:
+        """Download a resolved YouTube stream when yt-dlp's media request is blocked."""
+        playback = ytmusic_service.playback(video_id, quality="high")
+        if not playback.stream_url:
+            raise RuntimeError("Playback stream did not contain an audio URL")
+
+        mime_type = str((playback.format or {}).get("mimeType") or "")
+        source_suffix = ".m4a" if "audio/mp4" in mime_type or "mp4a" in mime_type else ".webm"
+        source_file = work_dir / f".{video_id}.source{source_suffix}"
+        output_file = work_dir / f"{video_id}.{audio_format}"
+        source_file.unlink(missing_ok=True)
+        output_file.unlink(missing_ok=True)
+
+        succeeded = False
+        try:
+            downloaded, total = self._download_playback_stream(job_id, playback, source_file)
+            if downloaded == 0:
+                raise RuntimeError("Playback stream returned an empty audio file")
+
+            self._update_progress(
+                job_id,
+                {
+                    "status": "downloading",
+                    "downloaded_bytes": downloaded,
+                    "total_bytes": total or downloaded,
+                },
+            )
+            self._update_progress(job_id, {"status": "finished"})
+
+            ffmpeg = shutil.which("ffmpeg")
+            if not ffmpeg:
+                raise RuntimeError("FFmpeg is required to convert the downloaded audio")
+            converted = subprocess.run(
+                [
+                    ffmpeg,
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-y",
+                    "-i",
+                    str(source_file),
+                    "-vn",
+                    "-map_metadata",
+                    "0",
+                    *(["-q:a", "0"] if audio_format == "mp3" else []),
+                    str(output_file),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if converted.returncode != 0 or not output_file.is_file() or output_file.stat().st_size == 0:
+                detail = converted.stderr.strip() or "FFmpeg did not create an audio file"
+                raise RuntimeError(detail)
+
+            details = dict(playback.video_details or {})
+            details.setdefault("title", playback.title)
+            details.setdefault("artist", playback.author)
+            details.setdefault("uploader", playback.author)
+            if not details.get("duration"):
+                duration = _positive_int(details.get("lengthSeconds"))
+                if duration:
+                    details["duration"] = duration
+            succeeded = True
+            return details, output_file
+        finally:
+            source_file.unlink(missing_ok=True)
+            if not succeeded:
+                output_file.unlink(missing_ok=True)
+
+    def _download_playback_stream(
+        self,
+        job_id: int,
+        playback: PlaybackData,
+        target: Path,
+    ) -> tuple[int, int | None]:
+        """Copy a playback URL with ranged retries so a throttled connection cannot stall a job."""
+        playback_format = playback.format or {}
+        total_hint = _positive_int(playback_format.get("contentLength") or playback_format.get("clen"))
+        opener = build_opener()
+        if not total_hint:
+            return self._download_playback_sequential(job_id, playback, target, opener)
+
+        downloaded = 0
+        range_size = 4 * 1024 * 1024
+        while downloaded < total_hint:
+            start = downloaded
+            end = min(start + range_size - 1, total_hint - 1)
+            expected = end - start + 1
+            sequential_fallback = False
+            for attempt in range(3):
+                try:
+                    headers = {key: value for key, value in playback.request_headers.items() if key.lower() != "range"}
+                    headers["Range"] = f"bytes={start}-{end}"
+                    request = Request(playback.stream_url, headers=headers, method="GET")
+                    with opener.open(request, timeout=30) as response:
+                        response_status = int(getattr(response, "status", 200) or 200)
+                        if response_status == 200:
+                            if start:
+                                sequential_fallback = True
+                                break
+                            total = _positive_int(response.headers.get("Content-Length")) or total_hint
+                            received = self._copy_playback_response(
+                                job_id,
+                                response,
+                                target,
+                                total,
+                                append=False,
+                                expected=total,
+                            )
+                            return received, total
+                        if response_status != 206:
+                            raise RuntimeError(f"Playback server returned HTTP {response_status}")
+                        content_range = _content_range(response.headers.get("Content-Range"))
+                        if not content_range or content_range[0] != start or content_range[1] > end:
+                            raise RuntimeError("Playback server returned an unexpected byte range")
+                        _, response_end, total_hint = content_range
+                        expected = response_end - start + 1
+                        received = self._copy_playback_response(
+                            job_id,
+                            response,
+                            target,
+                            total_hint,
+                            append=True,
+                            expected=expected,
+                        )
+                    downloaded += received
+                    break
+                except Exception as exc:
+                    _truncate_file(target, start)
+                    # Cancellation and storage migrations are control flow. Do
+                    # not turn them into another network retry, which can make
+                    # the queue appear stalled while shutdown is in progress.
+                    if storage_coordinator.cancel_work.is_set() or "cancelled" in str(exc).casefold():
+                        raise
+                    if attempt == 2:
+                        raise
+                    time.sleep(0.5 * (attempt + 1))
+            else:
+                raise RuntimeError("Playback stream could not be downloaded")
+            if sequential_fallback:
+                return self._download_playback_sequential(job_id, playback, target, opener)
+        return downloaded, total_hint
+
+    def _download_playback_sequential(
+        self,
+        job_id: int,
+        playback: PlaybackData,
+        target: Path,
+        opener,
+    ) -> tuple[int, int | None]:
+        headers = {key: value for key, value in playback.request_headers.items() if key.lower() != "range"}
+        request = Request(playback.stream_url, headers=headers, method="GET")
+        with opener.open(request, timeout=60) as response:
+            total = _positive_int(response.headers.get("Content-Length"))
+            if int(getattr(response, "status", 200) or 200) == 206:
+                content_range = _content_range(response.headers.get("Content-Range"))
+                if not content_range or content_range[0] != 0:
+                    raise RuntimeError("Playback server returned an unexpected byte range")
+                total = content_range[2]
+            received = self._copy_playback_response(
+                job_id,
+                response,
+                target,
+                total,
+                append=False,
+                expected=total,
+            )
+        return received, total
+
+    def _copy_playback_response(
+        self,
+        job_id: int,
+        response,
+        target: Path,
+        total: int | None,
+        *,
+        append: bool,
+        expected: int | None = None,
+    ) -> int:
+        mode = "ab" if append else "wb"
+        received = 0
+        last_report = 0.0
+        with target.open(mode) as output:
+            while expected is None or received < expected:
+                read_size = 256 * 1024 if expected is None else min(256 * 1024, expected - received)
+                chunk = response.read(read_size)
+                if not chunk:
+                    break
+                output.write(chunk)
+                received += len(chunk)
+                now = time.monotonic()
+                if now - last_report >= 0.5:
+                    current = target.stat().st_size
+                    self._update_progress(
+                        job_id,
+                        {
+                            "status": "downloading",
+                            "downloaded_bytes": current,
+                            "total_bytes": total,
+                        },
+                    )
+                    last_report = now
+        if expected is not None and received != expected:
+            raise RuntimeError("Playback stream ended before the requested range was complete")
+        return received
 
     def _save_download(
         self,
@@ -597,6 +855,38 @@ class DownloadWorker:
 
 
 download_worker = DownloadWorker()
+
+
+def _safe_video_id(value: str | None) -> str | None:
+    if value and re.fullmatch(r"[A-Za-z0-9_-]{1,255}", value):
+        return value
+    return None
+
+
+def _positive_int(value: Any) -> int | None:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None
+
+
+def _content_range(value: str | None) -> tuple[int, int, int] | None:
+    if not value:
+        return None
+    match = re.fullmatch(r"bytes\s+(\d+)-(\d+)/(\d+)", value.strip(), flags=re.IGNORECASE)
+    if not match:
+        return None
+    start, end, total = map(int, match.groups())
+    return (start, end, total) if 0 <= start <= end < total else None
+
+
+def _truncate_file(path: Path, size: int) -> None:
+    try:
+        with path.open("r+b") as handle:
+            handle.truncate(size)
+    except FileNotFoundError:
+        return
 
 
 def _download_album_name(requested_album: str | None) -> str | None:

@@ -57,10 +57,16 @@ The native launcher is the simplest option when Docker is not wanted. It require
 1. Clone the repository or extract a downloaded source archive.
 2. On Windows, double-click `start-anm-player.cmd`.
 3. On macOS or Linux, run `chmod +x start-anm-player.sh` once, then run `./start-anm-player.sh`.
-4. Leave the terminal open. The first run creates `apps/api/.venv`, installs pinned Python and npm dependencies, creates `.env`, generates an API token, applies database migrations, and starts both servers.
-5. The browser opens only after the API and web server are ready. First setup can take several minutes; later starts skip dependency installation while the lockfiles are unchanged.
+4. The first run creates `apps/api/.venv`, installs pinned Python and npm dependencies, creates `.env`, generates an API token, applies database migrations, and starts both servers in the background.
+5. The browser opens only after the API and web server are ready, then the launcher exits. A terminal opened just for the launcher can close; the app keeps running on Windows, macOS, and Linux. If you ran the command in an existing terminal, it returns to your prompt and you can close that terminal. First setup can take several minutes; later starts skip dependency installation while the lockfiles are unchanged.
 
-Press `Ctrl+C` in the launcher terminal to stop both servers. If either child process fails, the launcher stops the other one and prints a recovery message.
+Run `./start-anm-player.sh --stop` on macOS/Linux or `start-anm-player.cmd --stop` on Windows to stop both servers. Running the launcher again while the app is already running opens the existing instance. Background logs are saved to `.aura/launcher.log`. If either server fails, the background launcher stops the other and records the failure there.
+
+You can also select **Close app** at the bottom of the sidebar (or in Settings on smaller screens). This stops playback and shuts down both servers; the browser displays a message that you can close the tab. The launcher also cleans up leftover API/Vite processes belonging to this checkout when starting or stopping. Other programs using the same ports are left alone.
+
+In fish, bash, and zsh, include `./` when running the shell script from the project folder: `./start-anm-player.sh`. The `.cmd` file is for Windows. Open `http://127.0.0.1:5173/` to use the app; port 8000 serves the backend API.
+
+Use `--foreground` if you want live terminal logs and `Ctrl+C` shutdown instead of background launch. Closing the browser does not stop the background app; it runs until you use `--stop`, log out, or shut down the computer.
 
 Available launcher flags:
 
@@ -68,6 +74,8 @@ Available launcher flags:
 --no-browser
 --setup-only
 --force-install
+--foreground
+--stop
 --api-port PORT
 --web-port PORT
 ```

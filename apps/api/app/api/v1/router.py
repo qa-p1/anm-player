@@ -13,6 +13,7 @@ from app.api.v1.routes import (
     history,
     insights,
     library,
+    lifecycle,
     lyrics,
     media,
     metadata,
@@ -26,6 +27,7 @@ api_v1_router = APIRouter()
 protected_router = APIRouter(dependencies=[Depends(require_operator)])
 api_v1_router.include_router(health.router, prefix="/health", tags=["health"])
 protected_router.include_router(library.router, prefix="/library", tags=["library"])
+protected_router.include_router(lifecycle.router, prefix="/app", tags=["app"])
 protected_router.include_router(downloads.router, prefix="/downloads", tags=["downloads"])
 protected_router.include_router(settings.router, prefix="/settings", tags=["settings"])
 protected_router.include_router(playlists.router, prefix="/playlists", tags=["playlists"])

@@ -4,7 +4,7 @@ import { useShallow } from "zustand/react/shallow";
 
 import { TrackActionsMenu } from "@/components/menus/track-actions-menu";
 import { ArtworkImage } from "@/components/cards/artwork-image";
-import { Button } from "@/components/ui/button";
+import { TrackMetadata } from "@/components/cards/track-metadata";
 import { cn } from "@/lib/utils";
 import { usePlayerStore } from "@/stores/player-store";
 import type { PlayerTrack } from "@/types/player";
@@ -63,54 +63,52 @@ export function TrackRow({
   return (
     <article
       className={cn(
-        "glass-panel group flex min-w-0 items-center gap-3 rounded-2xl p-2.5 transition hover:bg-white/10 sm:p-3",
+        "glass-panel group relative flex min-w-0 items-center gap-3 rounded-2xl p-2.5 transition hover:bg-white/10 sm:p-3",
         isCurrent && "ring-1 ring-primary/40",
         className,
       )}
     >
-      {leading}
-      {showArtwork && <div className="h-12 w-12 shrink-0 overflow-hidden rounded-xl bg-white/10">
-        {track.artworkUrl ? (
-          <ArtworkImage src={track.artworkUrl} alt={track.title} className="h-full w-full object-cover" />
-        ) : (
-          <div className="h-full w-full bg-[linear-gradient(135deg,#f43f5e,#14b8a6_52%,#f59e0b)]" />
-        )}
-      </div>}
-      <div className="min-w-0 flex-1">
-        <p className={cn("truncate text-sm font-semibold", isCurrent && "text-primary")}>{track.title}</p>
-        <p className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
-          <span className="truncate">{subtitle || track.artistName || "Unknown Artist"}</span>
-          <span className="shrink-0 tabular-nums sm:hidden">· {formatDuration(track.durationSeconds)}</span>
-        </p>
-      </div>
-      {status && <span className="hidden text-xs text-muted-foreground md:inline">{status}</span>}
-      <span className="hidden shrink-0 text-xs tabular-nums text-muted-foreground sm:block">{formatDuration(track.durationSeconds)}</span>
-      <Button
+      <button
         type="button"
-        size="icon"
-        variant="ghost"
-        className="h-9 w-9 shrink-0"
+        onClick={play}
         aria-label={isCurrentPlaying ? `Pause ${track.title}` : `Play ${track.title}`}
-        onClick={(event) => {
-          event.stopPropagation();
-          play();
-        }}
-      >
-        <PlayIcon className="h-4 w-4 fill-current" />
-      </Button>
-      <TrackActionsMenu
-        track={track}
-        isFavorited={isFavorited}
-        onToggleFavorite={onToggleFavorite}
-        onGoToArtist={onGoToArtist}
-        onGoToAlbum={onGoToAlbum}
-        onRemoveFromPlaylist={onRemoveFromPlaylist}
-        isDownloaded={isDownloaded}
-        onRemoveDownload={onRemoveDownload}
-        onEnrich={onEnrich}
-        triggerClassName="h-9 w-9"
-        iconClassName="h-4 w-4"
+        className="absolute inset-0 z-0 rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       />
+      <div className="pointer-events-none relative z-[1] flex min-w-0 flex-1 items-center gap-3">
+        {leading}
+        {showArtwork && <span className="h-12 w-12 shrink-0 overflow-hidden rounded-xl bg-white/10">
+          {track.artworkUrl ? (
+            <ArtworkImage src={track.artworkUrl} alt={track.title} className="h-full w-full object-cover" />
+          ) : (
+            <span className="block h-full w-full bg-[linear-gradient(135deg,#f43f5e,#14b8a6_52%,#f59e0b)]" />
+          )}
+        </span>}
+        <span className="min-w-0 flex-1">
+          <span className={cn("block truncate text-sm font-semibold", isCurrent && "text-primary")}>{track.title}</span>
+          <TrackMetadata track={track} fallbackArtist={subtitle} className="flex text-xs text-muted-foreground" linkClassName="pointer-events-auto" />
+          <span className="shrink-0 tabular-nums sm:hidden">· {formatDuration(track.durationSeconds)}</span>
+        </span>
+        {status && <span className="hidden text-xs text-muted-foreground md:inline">{status}</span>}
+        <span className="hidden shrink-0 text-xs tabular-nums text-muted-foreground sm:block">{formatDuration(track.durationSeconds)}</span>
+        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-muted-foreground group-hover:text-foreground">
+          <PlayIcon className="h-4 w-4 fill-current" />
+        </span>
+      </div>
+      <div className="relative z-10 shrink-0">
+        <TrackActionsMenu
+          track={track}
+          isFavorited={isFavorited}
+          onToggleFavorite={onToggleFavorite}
+          onGoToArtist={onGoToArtist}
+          onGoToAlbum={onGoToAlbum}
+          onRemoveFromPlaylist={onRemoveFromPlaylist}
+          isDownloaded={isDownloaded}
+          onRemoveDownload={onRemoveDownload}
+          onEnrich={onEnrich}
+          triggerClassName="h-9 w-9"
+          iconClassName="h-4 w-4"
+        />
+      </div>
     </article>
   );
 }

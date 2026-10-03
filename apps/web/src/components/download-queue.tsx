@@ -20,12 +20,9 @@ import {
 import type { DownloadJob } from "@/types/api";
 import { isActiveDownload } from "@/utils/downloads";
 
-const RECENT_WINDOW_MS = 5 * 60 * 1000;
-
 function isVisibleJob(job: DownloadJob) {
-  if (isActiveDownload(job)) return true;
-  const changedAt = Date.parse(job.completed_at ?? job.cancelled_at ?? job.updated_at);
-  return Number.isFinite(changedAt) && Date.now() - changedAt < RECENT_WINDOW_MS;
+  // Keep finished jobs visible until they are explicitly cleared.
+  return Boolean(job.id);
 }
 
 function finishedSummary(jobs: DownloadJob[]) {
@@ -95,6 +92,9 @@ export function DownloadQueueDialog() {
       const exists = current.some((item) => item.id === job.id);
       return exists ? current.map((item) => (item.id === job.id ? job : item)) : [job, ...current];
     });
+    if (job.group?.album_id) {
+      void queryClient.invalidateQueries({ queryKey: musicKeys.unifiedAlbum(job.group.album_id) });
+    }
   }
 
   async function run(action: (jobId: number) => Promise<DownloadJob>, jobId: number) {

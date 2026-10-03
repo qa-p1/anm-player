@@ -3,6 +3,7 @@ import { Disc3, Keyboard } from "lucide-react";
 import { NavLink, useLocation } from "react-router";
 
 import { navItems } from "@/components/navigation/nav-items";
+import { CloseAppButton } from "@/components/navigation/close-app-button";
 import { DownloadQueueTrigger } from "@/components/download-queue";
 import { cn } from "@/lib/utils";
 import { useUiStore } from "@/stores/ui-store";
@@ -52,6 +53,7 @@ export function Sidebar() {
       </nav>
       <button type="button" onClick={() => setShortcutHelpOpen(true)} className="mb-3 flex h-10 items-center gap-3 rounded-xl px-4 text-xs font-medium text-muted-foreground transition hover:bg-white/8 hover:text-foreground"><Keyboard className="h-4 w-4" />Keyboard shortcuts <kbd className="ml-auto rounded border border-white/10 px-1.5 py-0.5 text-[0.62rem]">?</kbd></button>
       <DownloadQueueTrigger />
+      <CloseAppButton />
     </aside>
   );
 }

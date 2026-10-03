@@ -6,6 +6,7 @@ import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { AppLayout } from "@/layouts/app-layout";
 import { apiGet } from "@/services/api-client";
 import { applyAccent, initializeTheme, useThemeStore, type AccentTheme, type ThemeMode } from "@/stores/theme-store";
+import { useAppLifecycleStore } from "@/stores/app-lifecycle-store";
 
 const HomePage = lazy(() => import("@/features/home/home-page").then((module) => ({ default: module.HomePage })));
 const SearchPage = lazy(() => import("@/features/search/search-page").then((module) => ({ default: module.SearchPage })));
@@ -26,6 +27,21 @@ const LegacySavedAlbumRedirect = lazy(() => import("@/features/library/legacy-al
 const LegacyLocalAlbumRedirect = lazy(() => import("@/features/library/legacy-album-redirect").then((module) => ({ default: module.LegacyLocalAlbumRedirect })));
 
 export function App() {
+  const isClosed = useAppLifecycleStore((state) => state.isClosed);
+  if (isClosed) {
+    return (
+      <main className="grid min-h-screen place-items-center px-6 text-center">
+        <div role="status">
+          <h1 className="text-3xl font-bold">ANM Player is closing</h1>
+          <p className="mt-3 text-muted-foreground">You can close this tab. Run the launcher to open the app again.</p>
+        </div>
+      </main>
+    );
+  }
+  return <RunningApp />;
+}
+
+function RunningApp() {
   const setMode = useThemeStore((state) => state.setMode);
   useEffect(() => {
     initializeTheme();

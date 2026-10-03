@@ -1,5 +1,5 @@
-import { act, renderHook, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { PlayerTrack } from "@/types/player";
 
@@ -39,6 +39,10 @@ const mocks = vi.hoisted(() => {
       resetFade: vi.fn(),
       getCurrentTime: vi.fn(() => 12),
       getDuration: vi.fn(() => 60),
+      getBufferedUntil: vi.fn(() => 0),
+      hasPlaybackData: vi.fn(() => false),
+      isPaused: vi.fn(() => false),
+      isEnded: vi.fn(() => false),
       updateMediaSessionPosition: vi.fn(),
       updateMediaSessionPlaybackState: vi.fn(),
       getError: vi.fn(() => null),
@@ -105,6 +109,11 @@ const first = track("first");
 const second = track("second");
 
 describe("useAudioPlayer", () => {
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.listeners.clear();
@@ -112,6 +121,10 @@ describe("useAudioPlayer", () => {
     for (const key of Object.keys(mocks.mediaHandlers)) delete mocks.mediaHandlers[key];
     mocks.audioService.loadSong.mockReset().mockResolvedValue(undefined);
     mocks.audioService.play.mockReset().mockResolvedValue(undefined);
+    mocks.audioService.isPaused.mockReturnValue(false);
+    mocks.audioService.hasPlaybackData.mockReturnValue(false);
+    mocks.audioService.getCurrentTime.mockReturnValue(12);
+    mocks.audioService.getBufferedUntil.mockReturnValue(0);
     mocks.getYouTubeRelated.mockReset().mockResolvedValue({ seed_video_id: "first", items: [] });
     usePlayerStore.setState({
       currentSong: null,
@@ -282,5 +295,98 @@ describe("useAudioPlayer", () => {
     act(() => usePlayerStore.getState().setDuration(240));
 
     expect(renders).toBe(settledRenders);
+  });
+
+  it("keeps the first play request alive when a source change dispatches a delayed pause", async () => {
+    let finishPlaying!: () => void;
+    mocks.audioService.play.mockImplementationOnce(() => new Promise<void>((resolve) => { finishPlaying = resolve; }));
+    renderHook(() => useAudioPlayer());
+    act(() => usePlayerStore.getState().playSong(first));
+    await waitFor(() => expect(mocks.audioService.play).toHaveBeenCalledOnce());
+
+    act(() => mocks.listeners.get("pause")?.());
+    expect(usePlayerStore.getState().isPlaying).toBe(true);
+    await act(async () => finishPlaying());
+    // A queued event can also arrive after play() has resolved.
+    act(() => mocks.listeners.get("pause")?.());
+    expect(usePlayerStore.getState().isPlaying).toBe(true);
+    expect(mocks.audioService.play).toHaveBeenCalledOnce();
+  });
+
+  it("does not reload a successful retry when playing resets the retry count", async () => {
+    mocks.audioService.loadSong.mockRejectedValueOnce(new Error("temporary network failure"));
+    renderHook(() => useAudioPlayer());
+    act(() => usePlayerStore.getState().playSong(first));
+    await waitFor(() => expect(mocks.audioService.play).toHaveBeenCalledOnce());
+    expect(usePlayerStore.getState().retryAttempt).toBe(1);
+
+    act(() => mocks.listeners.get("play")?.());
+    expect(usePlayerStore.getState().retryAttempt).toBe(1);
+    act(() => mocks.listeners.get("playing")?.());
+    expect(usePlayerStore.getState()).toMatchObject({ playbackStatus: "playing", retryAttempt: 0 });
+    expect(mocks.audioService.loadSong).toHaveBeenCalledTimes(2);
+    expect(mocks.audioService.play).toHaveBeenCalledOnce();
+  });
+
+  it("does not show stalled for buffered playback or let late events override pause", async () => {
+    renderHook(() => useAudioPlayer());
+    act(() => usePlayerStore.getState().playSong(first));
+    await waitFor(() => expect(mocks.audioService.play).toHaveBeenCalledOnce());
+    act(() => mocks.listeners.get("playing")?.());
+    mocks.audioService.hasPlaybackData.mockReturnValue(true);
+    act(() => mocks.listeners.get("stalled")?.());
+    act(() => mocks.listeners.get("canplay")?.());
+    expect(usePlayerStore.getState().playbackStatus).toBe("playing");
+
+    act(() => usePlayerStore.getState().setIsPlaying(false));
+    act(() => {
+      for (const event of ["play", "playing", "stalled", "waiting", "canplay", "loadstart", "loadedmetadata"]) mocks.listeners.get(event)?.();
+    });
+    expect(usePlayerStore.getState()).toMatchObject({ isPlaying: false, playbackStatus: "paused" });
+  });
+
+  it("automatically retries a hung start once and reports failure instead of stalling forever", async () => {
+    vi.useFakeTimers();
+    usePlaybackPreferencesStore.setState({ skipOnPlaybackError: false });
+    mocks.audioService.play.mockImplementation(() => new Promise<void>(() => {}));
+    renderHook(() => useAudioPlayer());
+    await act(async () => usePlayerStore.getState().playSong(first));
+    act(() => mocks.listeners.get("stalled")?.());
+    expect(usePlayerStore.getState().playbackStatus).toBe("buffering");
+
+    await act(async () => vi.advanceTimersByTimeAsync(30_000));
+    expect(mocks.audioService.loadSong).toHaveBeenLastCalledWith(first, { forceReload: true });
+    expect(mocks.audioService.play).toHaveBeenCalledTimes(2);
+    await act(async () => vi.advanceTimersByTimeAsync(30_000));
+    expect(usePlayerStore.getState()).toMatchObject({ isPlaying: false, playbackStatus: "error" });
+    expect(mocks.audioService.loadSong).toHaveBeenCalledTimes(2);
+  });
+
+  it("allows slow streams to keep loading while their buffer makes progress", async () => {
+    vi.useFakeTimers();
+    mocks.audioService.play.mockImplementation(() => new Promise<void>(() => {}));
+    renderHook(() => useAudioPlayer());
+    await act(async () => usePlayerStore.getState().playSong(first));
+    for (let index = 1; index <= 4; index += 1) {
+      mocks.audioService.getBufferedUntil.mockReturnValue(index * 5);
+      await act(async () => vi.advanceTimersByTimeAsync(20_000));
+    }
+    expect(mocks.audioService.loadSong).toHaveBeenCalledOnce();
+    act(() => usePlayerStore.getState().setIsPlaying(false));
+    await act(async () => vi.advanceTimersByTimeAsync(60_000));
+    expect(mocks.audioService.loadSong).toHaveBeenCalledOnce();
+  });
+
+  it("discards an old request when another song is selected before loading finishes", async () => {
+    let finishLoading!: () => void;
+    mocks.audioService.loadSong.mockImplementationOnce(() => new Promise<void>((resolve) => { finishLoading = resolve; }));
+    renderHook(() => useAudioPlayer());
+    act(() => usePlayerStore.getState().playSong(first));
+    act(() => usePlayerStore.getState().playSong(second));
+    await waitFor(() => expect(mocks.audioService.play).toHaveBeenCalledOnce());
+    await act(async () => finishLoading());
+    expect(mocks.audioService.play).toHaveBeenCalledOnce();
+    expect(mocks.addHistory).toHaveBeenCalledOnce();
+    expect(mocks.addHistory).toHaveBeenCalledWith(expect.objectContaining({ external_id: second.videoId }));
   });
 });

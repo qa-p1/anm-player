@@ -12,6 +12,8 @@ export type PlayerTrack =
       albumTitle: string | null;
       artworkUrl: string | null;
       durationSeconds: number | null;
+      artistHref?: string | null;
+      albumHref?: string | null;
       rawSong: Song;
     }
   | {
@@ -24,6 +26,8 @@ export type PlayerTrack =
       albumTitle: string | null;
       artworkUrl: string | null;
       durationSeconds: number | null;
+      artistHref?: string | null;
+      albumHref?: string | null;
       rawLibraryTrack: LibraryTrack;
     }
   | {
@@ -35,6 +39,8 @@ export type PlayerTrack =
       albumTitle: string | null;
       artworkUrl: string | null;
       durationSeconds: number | null;
+      artistHref?: string | null;
+      albumHref?: string | null;
       rawItem: OnlineMusicItem;
     };
 
@@ -43,23 +49,27 @@ export function songToPlayerTrack(song: Song): PlayerTrack {
   // The canonical backend stream endpoint will choose its local file first.
   const videoId = youtubeVideoId(song.source_url);
   if (videoId) {
-    return onlineItemToPlayerTrack({
-      source: "youtube",
-      kind: "song",
-      id: videoId,
-      title: song.title,
-      subtitle: song.artist_name,
-      artists: song.artist_name ? [{ id: null, name: song.artist_name }] : [],
-      album: song.album_title ? { id: null, name: song.album_title } : null,
-      thumbnail: song.artwork_path || song.artwork_url,
-      duration_seconds: song.duration_seconds,
-      explicit: false,
-      playable: true,
-      browse_id: null,
-      playlist_id: null,
-      endpoint: null,
-      url: song.source_url!,
-    });
+    return {
+      ...onlineItemToPlayerTrack({
+        source: "youtube",
+        kind: "song",
+        id: videoId,
+        title: song.title,
+        subtitle: song.artist_name,
+        artists: song.artist_name ? [{ id: null, name: song.artist_name }] : [],
+        album: song.album_title ? { id: null, name: song.album_title } : null,
+        thumbnail: song.artwork_path || song.artwork_url,
+        duration_seconds: song.duration_seconds,
+        explicit: false,
+        playable: true,
+        browse_id: null,
+        playlist_id: null,
+        endpoint: null,
+        url: song.source_url!,
+      }),
+      artistHref: song.artist_id ? `/library/artists/${song.artist_id}` : null,
+      albumHref: song.album_public_id ? `/albums/${encodeURIComponent(song.album_public_id)}` : null,
+    };
   }
   return {
     source: "local",
@@ -110,26 +120,33 @@ export function libraryTrackToPlayerTrack(track: LibraryTrack): PlayerTrack {
     };
   }
 
-  return onlineItemToPlayerTrack({
-    source: "youtube",
-    kind: "song",
-    id: track.external_id,
-    title: track.title,
-    subtitle: track.artist_name,
-    artists: track.artist_name ? [{ id: track.artist_external_id, name: track.artist_name }] : [],
-    album: track.album_title ? { id: null, name: track.album_title } : null,
-    thumbnail: track.artwork_path || track.artwork_url,
-    duration_seconds: track.duration_seconds,
-    explicit: track.explicit,
-    playable: true,
-    browse_id: null,
-    playlist_id: null,
-    endpoint: null,
-    url: track.source_url || `https://music.youtube.com/watch?v=${track.external_id}`,
-  });
+  return {
+    ...onlineItemToPlayerTrack({
+      source: "youtube",
+      kind: "song",
+      id: track.external_id,
+      title: track.title,
+      subtitle: track.artist_name,
+      artists: track.artist_name ? [{ id: track.artist_external_id, name: track.artist_name }] : [],
+      album: track.album_title ? { id: null, name: track.album_title } : null,
+      thumbnail: track.artwork_path || track.artwork_url,
+      duration_seconds: track.duration_seconds,
+      explicit: track.explicit,
+      playable: true,
+      browse_id: null,
+      playlist_id: null,
+      endpoint: null,
+      url: track.source_url || `https://music.youtube.com/watch?v=${track.external_id}`,
+    }),
+    artistHref: track.artist_external_id
+      ? `/library/artists/online/${encodeURIComponent(track.artist_external_id)}`
+      : track.artist_id ? `/library/artists/${track.artist_id}` : null,
+    albumHref: track.album_public_id ? `/albums/${encodeURIComponent(track.album_public_id)}` : null,
+  };
 }
 
 export function onlineItemToPlayerTrack(item: OnlineMusicItem): PlayerTrack {
+  const artistId = item.artists[0]?.id;
   return {
     source: "youtube",
     id: `youtube:${item.id}`,
@@ -139,6 +156,8 @@ export function onlineItemToPlayerTrack(item: OnlineMusicItem): PlayerTrack {
     albumTitle: item.album?.name ?? null,
     artworkUrl: cachedArtworkUrl(item.thumbnail),
     durationSeconds: item.duration_seconds,
+    artistHref: artistId ? `/library/artists/online/${encodeURIComponent(artistId)}` : null,
+    albumHref: item.album?.id ? `/albums/${encodeURIComponent(item.album.id)}` : null,
     rawItem: item,
   };
 }
@@ -196,6 +215,8 @@ export function normalizeStoredPlayerTrack(value: unknown): PlayerTrack | null {
         || nullableString(candidate.artworkUrl),
       ),
       durationSeconds: nullableNumber(candidate.durationSeconds),
+      artistHref: nullableString(candidate.artistHref),
+      albumHref: nullableString(candidate.albumHref),
       rawLibraryTrack,
     };
   }
@@ -219,6 +240,8 @@ export function normalizeStoredPlayerTrack(value: unknown): PlayerTrack | null {
         || nullableString(candidate.artworkUrl),
       ),
       durationSeconds: nullableNumber(candidate.durationSeconds),
+      artistHref: nullableString(candidate.artistHref),
+      albumHref: nullableString(candidate.albumHref),
       rawSong,
     };
   }
@@ -238,6 +261,8 @@ export function normalizeStoredPlayerTrack(value: unknown): PlayerTrack | null {
         || nullableString(candidate.artworkUrl),
       ),
       durationSeconds: nullableNumber(candidate.durationSeconds),
+      artistHref: nullableString(candidate.artistHref),
+      albumHref: nullableString(candidate.albumHref),
       rawItem: (candidate.rawItem && typeof candidate.rawItem === "object" ? candidate.rawItem : candidate) as OnlineMusicItem,
     };
   }

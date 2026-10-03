@@ -140,6 +140,44 @@ describe("audio service browser adapter", () => {
     expect(waiting).toHaveBeenCalledTimes(1);
   });
 
+  it("loads a source immediately and reuses it on resume", async () => {
+    const { audioService } = await import("@/services/audio-service");
+    const song = { source: "youtube", videoId: "first", title: "First" } as never;
+    const loading = audioService.loadSong(song);
+    expect(fakeAudio.src).toContain("/stream/first");
+    expect(fakeAudio.preload).toBe("auto");
+    await loading;
+    // Native HTMLAudioElement.src returns an absolute URL.
+    fakeAudio.src = new URL(fakeAudio.src, window.location.href).href;
+    await audioService.loadSong(song);
+    expect(fakeAudio.load).toHaveBeenCalledOnce();
+    await audioService.loadSong(song, { forceReload: true });
+    expect(fakeAudio.load).toHaveBeenCalledTimes(2);
+  });
+
+  it("starts media playback without waiting for a suspended audio context", async () => {
+    vi.stubGlobal("AudioContext", FakeAudioContext as unknown as typeof AudioContext);
+    const { audioService } = await import("@/services/audio-service");
+    audioService.configureAudioProcessing({
+      equalizerEnabled: true,
+      equalizerGains: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      preampDb: 0,
+      stereoBalance: 0,
+      monoEnabled: false,
+      normalizationEnabled: false,
+    });
+    const context = FakeAudioContext.last!;
+    context.state = "suspended";
+    let finishResuming!: () => void;
+    context.resume.mockImplementationOnce(() => new Promise<void>((resolve) => { finishResuming = resolve; }));
+    const playing = audioService.play();
+    expect(fakeAudio.play).toHaveBeenCalledOnce();
+    audioService.pause();
+    finishResuming();
+    await playing;
+    expect(fakeAudio.paused).toBe(true);
+  });
+
   it("builds and updates the 10-band Web Audio processing graph", async () => {
     vi.stubGlobal("AudioContext", FakeAudioContext as unknown as typeof AudioContext);
     const { audioService } = await import("@/services/audio-service");

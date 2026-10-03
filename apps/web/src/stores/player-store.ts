@@ -6,7 +6,7 @@ import type { PlayerTrack } from "@/types/player";
 import { normalizeStoredPlayerQueue, normalizeStoredPlayerTrack } from "@/types/player";
 
 type RepeatMode = "off" | "all" | "one";
-type PlaybackStatus = "idle" | "loading" | "buffering" | "ready" | "playing" | "paused" | "stalled" | "error";
+export type PlaybackStatus = "idle" | "loading" | "buffering" | "ready" | "playing" | "paused" | "stalled" | "error";
 
 export interface QueueSnapshot {
   id: string;
@@ -237,10 +237,13 @@ export const usePlayerStore = create<PlayerState>()(
           retryAttempt: 0,
           playbackRequestId: state.playbackRequestId + 1,
         })),
-        setIsPlaying: (isPlaying) => set((state) => ({
-          isPlaying,
-          playbackStatus: !state.currentSong ? "idle" : isPlaying ? state.playbackStatus === "error" ? "loading" : state.playbackStatus : "paused",
-        })),
+        setIsPlaying: (isPlaying) => set((state) => {
+          let playbackStatus = state.playbackStatus;
+          if (!state.currentSong) playbackStatus = "idle";
+          else if (isPlaying && playbackStatus === "error") playbackStatus = "loading";
+          else if (!isPlaying && playbackStatus !== "error") playbackStatus = "paused";
+          return { isPlaying, playbackStatus };
+        }),
         setCurrentTime: (currentTime) => set({ currentTime: Math.max(0, finiteOr(currentTime, 0)) }),
         setDuration: (duration) => set({ duration: Math.max(0, finiteOr(duration, 0)) }),
         setPlaybackStatus: (playbackStatus, error) => set((state) => ({

@@ -207,9 +207,9 @@ export function QueuePanel({ onClose }: { onClose: () => void }) {
           {queueHistory.length === 0 ? <EmptyQueue icon={History} title="No session history yet" description="Tracks played in this queue will collect here." /> : (
             <ul className="space-y-2">
               {[...queueHistory].map((song, index) => ({ song, index })).reverse().map(({ song, index }) => (
-                <li key={`${song.id}:${index}`} className="flex items-center gap-3 rounded-2xl bg-white/8 p-3">
+                <li key={`${song.id}:${index}`} className="relative flex items-center gap-3 rounded-2xl bg-white/8 p-3">
                   <button type="button" onClick={() => replayHistory(index)} className="group relative h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-white/10" aria-label={`Replay ${song.title}`}><ArtworkImage src={song.artworkUrl} alt="" className="h-full w-full object-cover" /><span className="absolute inset-0 grid place-items-center bg-black/45 opacity-0 transition group-hover:opacity-100 group-focus-visible:opacity-100"><Play className="h-4 w-4 fill-current" /></span></button>
-                  <button type="button" onClick={() => replayHistory(index)} className="min-w-0 flex-1 text-left"><p className="truncate text-sm font-semibold">{song.title}</p><p className="truncate text-xs text-white/50">{song.artistName || "Unknown artist"}</p></button>
+                  <button type="button" onClick={() => replayHistory(index)} className="min-w-0 flex-1 text-left after:absolute after:inset-0 after:rounded-2xl focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-white/70"><p className="truncate text-sm font-semibold">{song.title}</p><p className="truncate text-xs text-white/50">{song.artistName || "Unknown artist"}</p></button>
                   <span className="text-xs tabular-nums text-white/40">{formatTime(song.durationSeconds ?? 0)}</span>
                 </li>
               ))}
@@ -286,14 +286,14 @@ function SortableQueueRow({ entry, lastQueueIndex, onPlay, onMoveNext, onMoveEnd
   const { song, queueIndex } = entry;
   const style: CSSProperties = { transform: CSS.Transform.toString(transform), transition: transition ?? "transform 220ms cubic-bezier(0.22, 1, 0.36, 1)", opacity: isDragging ? 0.28 : 1 };
   return (
-    <li ref={setNodeRef} style={style} className={cn("group flex items-center gap-2 rounded-2xl bg-white/8 p-2.5 backdrop-blur-xl will-change-transform hover:bg-white/12", isDragging && "ring-1 ring-white/20")}>
-      <button ref={setActivatorNodeRef} type="button" {...attributes} {...listeners} aria-label={`Drag ${song.title} to reorder`} className="grid h-10 w-7 shrink-0 touch-none cursor-grab place-items-center rounded-lg text-white/35 transition hover:bg-white/10 hover:text-white/80 active:cursor-grabbing"><GripVertical className="h-5 w-5" /></button>
-      <button type="button" onClick={() => onPlay(queueIndex)} className="min-w-0 flex flex-1 items-center gap-3 rounded-xl text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70">
+    <li ref={setNodeRef} style={style} className={cn("group relative flex items-center gap-2 rounded-2xl bg-white/8 p-2.5 backdrop-blur-xl will-change-transform hover:bg-white/12", isDragging && "ring-1 ring-white/20")}>
+      <button ref={setActivatorNodeRef} type="button" {...attributes} {...listeners} aria-label={`Drag ${song.title} to reorder`} className="relative z-10 grid h-10 w-7 shrink-0 touch-none cursor-grab place-items-center rounded-lg text-white/35 transition hover:bg-white/10 hover:text-white/80 active:cursor-grabbing"><GripVertical className="h-5 w-5" /></button>
+      <button type="button" onClick={() => onPlay(queueIndex)} className="min-w-0 flex flex-1 items-center gap-3 rounded-xl text-left after:absolute after:inset-0 after:rounded-2xl focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-white/70">
         <div className="group/art relative h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-white/10"><ArtworkImage src={song.artworkUrl} alt="" className="h-full w-full object-cover" /><span className="absolute inset-0 grid place-items-center bg-black/45 opacity-0 transition group-hover/art:opacity-100"><Play className="h-4 w-4 fill-current" /></span></div>
         <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{song.title}</p><p className="truncate text-xs text-white/50">{song.artistName || "Unknown artist"}</p></div>
         <span className="hidden shrink-0 text-xs tabular-nums text-white/40 sm:block">{formatTime(song.durationSeconds ?? 0)}</span>
       </button>
-      <div className="flex shrink-0 items-center">
+      <div className="relative z-10 flex shrink-0 items-center">
         {queueIndex > 0 && <QueueAction label={`Move ${song.title} to next`} onClick={() => onMoveNext(queueIndex)}><SkipForward className="h-4 w-4" /></QueueAction>}
         {queueIndex < lastQueueIndex && <QueueAction label={`Move ${song.title} to end`} onClick={() => onMoveEnd(queueIndex)} className="hidden sm:grid"><ArrowDownToLine className="h-4 w-4" /></QueueAction>}
         <QueueAction label={`Remove ${song.title} from queue`} onClick={() => onRemove(queueIndex)} destructive><Trash2 className="h-4 w-4" /></QueueAction>

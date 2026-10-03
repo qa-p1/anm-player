@@ -21,10 +21,12 @@ import { useShallow } from "zustand/react/shallow";
 
 import { TrackActionsMenu } from "@/components/menus/track-actions-menu";
 import { ArtworkImage } from "@/components/cards/artwork-image";
+import { TrackMetadata } from "@/components/cards/track-metadata";
 import { LyricsPanel } from "@/components/player/lyrics-panel";
 import { PlayerToolsPanel } from "@/components/player/player-tools-panel";
 import { QueuePanel } from "@/components/player/queue-panel";
 import { toast } from "@/components/ui/toast";
+import { playbackStatusLabel, useDelayedPlaybackStatus } from "@/hooks/use-delayed-playback-status";
 import { cn } from "@/lib/utils";
 import { cachedArtworkUrl } from "@/services/api-client";
 import { audioService } from "@/services/audio-service";
@@ -57,8 +59,10 @@ export function FullScreenPlayer({ onClose }: FullScreenPlayerProps) {
     shuffle,
     playbackStatus,
     playbackError,
+    bufferedUntil,
     retryAttempt,
     setIsPlaying,
+    setCurrentTime,
     setVolume,
     toggleMute,
     toggleShuffle,
@@ -75,8 +79,10 @@ export function FullScreenPlayer({ onClose }: FullScreenPlayerProps) {
     shuffle: state.shuffle,
     playbackStatus: state.playbackStatus,
     playbackError: state.playbackError,
+    bufferedUntil: state.bufferedUntil,
     retryAttempt: state.retryAttempt,
     setIsPlaying: state.setIsPlaying,
+    setCurrentTime: state.setCurrentTime,
     setVolume: state.setVolume,
     toggleMute: state.toggleMute,
     toggleShuffle: state.toggleShuffle,
@@ -89,6 +95,7 @@ export function FullScreenPlayer({ onClose }: FullScreenPlayerProps) {
   const consumePlayerViewRequest = useUiStore((state) => state.consumePlayerViewRequest);
   const [isFavorited, setIsFavorited] = useState(playerTrackFavoriteState(currentSong));
   const palette = useDominantArtworkPalette(currentSong?.artworkUrl ?? null);
+  const displayedPlaybackStatus = useDelayedPlaybackStatus(playbackStatus);
 
   const currentFavoriteState = playerTrackFavoriteState(currentSong);
   useEffect(() => {
@@ -119,11 +126,21 @@ export function FullScreenPlayer({ onClose }: FullScreenPlayerProps) {
   if (!currentSong) return null;
 
   const progress = duration > 0 ? Math.min(100, Math.max(0, (currentTime / duration) * 100)) : 0;
+  const bufferedProgress = duration > 0 ? Math.max(progress, Math.min(100, (bufferedUntil / duration) * 100)) : progress;
   const volumeProgress = isMuted ? 0 : volume * 100;
   const PlayIcon = isPlaying ? Pause : Play;
 
   function handlePlayPause() {
+    if (playbackStatus === "error") {
+      retryCurrentSong();
+      return;
+    }
     setIsPlaying(!isPlaying);
+  }
+
+  function handleSeek(time: number) {
+    setCurrentTime(time);
+    audioService.seek(time);
   }
 
   function handlePrevious() {
@@ -272,11 +289,22 @@ export function FullScreenPlayer({ onClose }: FullScreenPlayerProps) {
             </button>
 
             <div className="flex min-h-0 flex-1 items-center justify-center py-2 sm:py-4">
-              <div className="aspect-square w-[min(86vw,43dvh,27rem)] overflow-hidden rounded-lg bg-black/10 shadow-[0_30px_80px_-28px_rgba(0,0,0,0.8)] sm:rounded-xl">
+              <div className="relative aspect-square w-[min(86vw,43dvh,27rem)] overflow-hidden rounded-lg bg-black/10 shadow-[0_30px_80px_-28px_rgba(0,0,0,0.8)] sm:rounded-xl">
                 {currentSong.artworkUrl ? (
                   <ArtworkImage src={currentSong.artworkUrl} alt={currentSong.title} className="h-full w-full object-cover" />
                 ) : (
                   <div className="h-full w-full bg-[linear-gradient(145deg,rgba(255,255,255,0.24),rgba(0,0,0,0.18))]" />
+                )}
+                {displayedPlaybackStatus && (
+                  <div
+                    className={cn("absolute inset-x-3 bottom-3 flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-black/60 px-3 py-2 text-xs font-semibold text-white/85 shadow-lg backdrop-blur-md", displayedPlaybackStatus === "error" && "border-red-300/25 text-red-100")}
+                    role="status"
+                    aria-live={displayedPlaybackStatus === "error" ? "assertive" : "polite"}
+                  >
+                    {displayedPlaybackStatus === "error" ? <WifiOff className="h-4 w-4 shrink-0" /> : <LoaderCircle className="h-4 w-4 shrink-0 animate-spin" />}
+                    <span className="truncate">{playbackStatusLabel(displayedPlaybackStatus, playbackError, retryAttempt)}</span>
+                    {displayedPlaybackStatus === "error" && <button type="button" className="shrink-0 rounded-full bg-white/12 px-2 py-1 text-white hover:bg-white/20" onClick={() => retryCurrentSong()}>Retry</button>}
+                  </div>
                 )}
               </div>
             </div>
@@ -285,7 +313,12 @@ export function FullScreenPlayer({ onClose }: FullScreenPlayerProps) {
               <div className="flex items-center gap-3 pt-3 sm:pt-5">
                 <div className="min-w-0 flex-1">
                   <h1 className="truncate text-[1.15rem] font-bold leading-tight tracking-[-0.02em] sm:text-2xl">{currentSong.title}</h1>
-                  <p className="mt-0.5 truncate text-base font-medium text-white/60 sm:text-lg">{currentSong.artistName || "Unknown Artist"}</p>
+                  <TrackMetadata
+                    track={currentSong}
+                    className="mt-0.5 flex text-base font-medium text-white/60 sm:text-lg"
+                    linkClassName="pointer-events-auto"
+                    onNavigate={onClose}
+                  />
                 </div>
                 {currentSong.source === "local" && (
                   <button
@@ -317,22 +350,15 @@ export function FullScreenPlayer({ onClose }: FullScreenPlayerProps) {
               </div>
 
               <div className="mt-5 sm:mt-7">
-                {(playbackStatus === "loading" || playbackStatus === "buffering" || playbackStatus === "stalled" || playbackStatus === "error") && (
-                  <div className={cn("mb-3 flex items-center justify-center gap-2 rounded-xl bg-black/15 px-3 py-2 text-xs font-semibold text-white/70", playbackStatus === "error" && "text-red-200")} role="status">
-                    {playbackStatus === "error" ? <WifiOff className="h-4 w-4" /> : <LoaderCircle className="h-4 w-4 animate-spin" />}
-                    <span>{playbackStatus === "loading" ? "Loading audio…" : playbackStatus === "buffering" ? "Buffering…" : playbackStatus === "stalled" ? "The connection stalled…" : playbackError || "Playback could not continue"}{retryAttempt > 0 && playbackStatus !== "error" ? ` · retry ${retryAttempt}` : ""}</span>
-                    {playbackStatus === "error" && <button type="button" className="rounded-full bg-white/12 px-2 py-1 text-white hover:bg-white/20" onClick={() => { if (retryCurrentSong()) setIsPlaying(true); }}>Retry</button>}
-                  </div>
-                )}
                 <input
                   type="range"
                   min={0}
                   max={Math.max(duration, 1)}
                   step={0.1}
                   value={Math.min(currentTime, Math.max(duration, 1))}
-                  onChange={(event) => audioService.seek(Number(event.target.value))}
+                  onChange={(event) => handleSeek(Number(event.target.value))}
                   className="apple-player-range w-full"
-                  style={{ "--range-progress": `${progress}%` } as CSSProperties}
+                  style={{ "--range-progress": `${progress}%`, "--range-buffered": `${bufferedProgress}%` } as CSSProperties}
                   aria-label="Song progress"
                 />
                 <div className="mt-1 flex justify-between text-[0.68rem] font-medium tabular-nums text-white/45">
@@ -367,7 +393,7 @@ export function FullScreenPlayer({ onClose }: FullScreenPlayerProps) {
                 <Volume2 className="h-[1.1rem] w-[1.1rem]" />
               </div>
 
-              <div className="mt-4 grid grid-cols-4 items-center sm:mt-6">
+              <div className="mt-4 grid grid-cols-5 items-center sm:mt-6">
                 <PlayerFooterButton label="Open lyrics full screen" active={false} onClick={() => setView("lyrics")}><MessageSquareText className="h-[1.35rem] w-[1.35rem]" /></PlayerFooterButton>
                 <PlayerFooterButton label={shuffle ? "Disable shuffle" : "Enable shuffle"} active={shuffle} onClick={toggleShuffle}><Shuffle className="h-[1.35rem] w-[1.35rem]" /></PlayerFooterButton>
                 <PlayerFooterButton label="Show queue" active={false} onClick={() => setView("queue")}><ListMusic className="h-[1.35rem] w-[1.35rem]" /></PlayerFooterButton>

@@ -33,6 +33,8 @@ import { formatDuration } from "@/utils/format";
 
 type MutationName = "add" | "favorite" | "download" | "cancel" | "remove-download" | "remove-library" | null;
 
+const ACTIVE_DOWNLOAD_STATES = new Set(["queued", "preparing", "downloading", "processing", "paused"]);
+
 export function AlbumDetailPage() {
   const { albumId = "" } = useParams<{ albumId: string }>();
   const albumQuery = useUnifiedAlbum(albumId, { enabled: Boolean(albumId) });
@@ -42,12 +44,13 @@ export function AlbumDetailPage() {
   const [showRemoveDialog, setShowRemoveDialog] = useState(false);
   const [showDeleteDownloadDialog, setShowDeleteDownloadDialog] = useState(false);
   const { playAlbum } = usePlayerStore(useShallow((state) => ({ playAlbum: state.playAlbum })));
+  const downloadIsActive = Boolean(album && ACTIVE_DOWNLOAD_STATES.has(album.state.download));
 
   useEffect(() => {
-    if (!album?.capabilities.can_cancel_download) return;
-    const timer = window.setInterval(() => void refetchAlbum(), 2000);
+    if (!downloadIsActive && mutation !== "download") return;
+    const timer = window.setInterval(() => void refetchAlbum(), 1000);
     return () => window.clearInterval(timer);
-  }, [album?.capabilities.can_cancel_download, refetchAlbum]);
+  }, [downloadIsActive, mutation, refetchAlbum]);
 
   const artworkUrl = cachedArtworkUrl(album?.artwork_url);
   const playerTracks = useMemo(

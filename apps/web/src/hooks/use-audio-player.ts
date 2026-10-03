@@ -25,7 +25,6 @@ export function useAudioPlayer() {
     volume,
     isMuted,
     playbackRequestId,
-    retryAttempt,
     pendingHistoryEvents,
     setPlaybackStatus,
   } = usePlayerStore(useShallow((state) => ({
@@ -34,7 +33,6 @@ export function useAudioPlayer() {
     volume: state.volume,
     isMuted: state.isMuted,
     playbackRequestId: state.playbackRequestId,
-    retryAttempt: state.retryAttempt,
     pendingHistoryEvents: state.pendingHistoryEvents,
     setPlaybackStatus: state.setPlaybackStatus,
   })));
@@ -65,6 +63,7 @@ export function useAudioPlayer() {
   })));
 
   useEffect(() => {
+    isSwitchingSourceRef.current = false;
     if (!currentSong) {
       audioService.stop();
       setPlaybackStatus("idle");
@@ -76,17 +75,23 @@ export function useAudioPlayer() {
     }
 
     let cancelled = false;
+    // Retry count is metadata for this request. Resetting it on `playing` must
+    // not start another load/play effect and interrupt the successful retry.
+    const retryAttempt = usePlayerStore.getState().retryAttempt;
+    const isCurrentRequest = () => {
+      const state = usePlayerStore.getState();
+      return !cancelled && state.isPlaying && state.playbackRequestId === playbackRequestId;
+    };
     isSwitchingSourceRef.current = true;
     setPlaybackStatus("loading");
 
     const loadAndPlay = async () => {
       try {
         await audioService.loadSong(currentSong, { forceReload: retryAttempt > 0 });
-        if (cancelled || !usePlayerStore.getState().isPlaying) return;
+        if (!isCurrentRequest()) return;
         audioService.restorePosition(usePlayerStore.getState().currentTime);
-        isSwitchingSourceRef.current = false;
         await audioService.play();
-        if (!cancelled) recordPlayedHistory(currentSong, playbackRequestId, playedSessionRef);
+        if (isCurrentRequest()) recordPlayedHistory(currentSong, playbackRequestId, playedSessionRef);
       } catch (error) {
         if (!cancelled) handlePlaybackFailure(error, handledFailuresRef.current, {
           songId: currentSong.id,
@@ -98,11 +103,34 @@ export function useAudioPlayer() {
       }
     };
 
+    // A stalled fetch does not necessarily reject play(). Recover a request
+    // that makes no playback or buffering progress instead of waiting forever.
+    let lastTime = audioService.getCurrentTime();
+    let lastBuffered = audioService.getBufferedUntil();
+    let lastProgressAt = Date.now();
+    const watchdog = window.setInterval(() => {
+      if (!isCurrentRequest()) return;
+      const time = audioService.getCurrentTime();
+      const buffered = audioService.getBufferedUntil();
+      if (time !== lastTime || buffered !== lastBuffered) lastProgressAt = Date.now();
+      lastTime = time;
+      lastBuffered = buffered;
+      if (Date.now() - lastProgressAt >= 30_000) {
+        window.clearInterval(watchdog);
+        handlePlaybackFailure(new Error("Audio made no progress for 30 seconds."), handledFailuresRef.current, {
+          songId: currentSong.id,
+          requestId: playbackRequestId,
+          attempt: usePlayerStore.getState().retryAttempt,
+        });
+      }
+    }, 1_000);
+
     void loadAndPlay();
     return () => {
       cancelled = true;
+      window.clearInterval(watchdog);
     };
-  }, [currentSong, isPlaying, playbackRequestId, retryAttempt, setPlaybackStatus]);
+  }, [currentSong, isPlaying, playbackRequestId, setPlaybackStatus]);
 
   useEffect(() => audioService.setVolume(volume), [volume]);
   useEffect(() => audioService.setMuted(isMuted), [isMuted]);
@@ -130,6 +158,7 @@ export function useAudioPlayer() {
     const unsubscribers = [
       audioService.onTimeUpdate(() => {
         const state = usePlayerStore.getState();
+        if (isSwitchingSourceRef.current) return;
         const preferences = usePlaybackPreferencesStore.getState();
         const currentTime = audioService.getCurrentTime();
         const loop = preferences.abRepeat;
@@ -150,28 +179,49 @@ export function useAudioPlayer() {
       audioService.onLoadedMetadata(() => {
         const state = usePlayerStore.getState();
         state.setDuration(audioService.getDuration());
-        state.setPlaybackStatus("ready");
+        if (state.isPlaying && state.playbackStatus !== "playing") state.setPlaybackStatus("ready");
         audioService.updateMediaSessionPosition();
       }),
-      audioService.onLoadStart(() => usePlayerStore.getState().setPlaybackStatus("loading")),
-      audioService.onWaiting(() => usePlayerStore.getState().setPlaybackStatus("buffering")),
-      audioService.onStalled(() => usePlayerStore.getState().setPlaybackStatus("stalled")),
-      audioService.onCanPlay(() => usePlayerStore.getState().setPlaybackStatus("ready")),
+      audioService.onLoadStart(() => {
+        const state = usePlayerStore.getState();
+        if (state.isPlaying) state.setPlaybackStatus("loading");
+      }),
+      audioService.onWaiting(() => {
+        const state = usePlayerStore.getState();
+        if (state.isPlaying) state.setPlaybackStatus("buffering");
+      }),
+      audioService.onStalled(() => {
+        const state = usePlayerStore.getState();
+        if (state.isPlaying && !audioService.hasPlaybackData()) state.setPlaybackStatus("buffering");
+      }),
+      audioService.onCanPlay(() => {
+        const state = usePlayerStore.getState();
+        if (state.isPlaying && state.playbackStatus !== "playing") state.setPlaybackStatus("ready");
+      }),
       audioService.onProgress((bufferedUntil) => usePlayerStore.getState().setBufferedUntil(bufferedUntil)),
       audioService.onEnded(() => { void handleTrackEnded(); }),
       audioService.onPlay(() => {
         const state = usePlayerStore.getState();
-        state.setIsPlaying(true);
+        if (!state.isPlaying || audioService.isPaused()) return;
+        // `play` means playback was requested; `playing` confirms audio started.
+        audioService.updateMediaSessionPlaybackState(true);
+      }),
+      audioService.onPlaying(() => {
+        const state = usePlayerStore.getState();
+        if (!state.isPlaying || audioService.isPaused()) return;
+        isSwitchingSourceRef.current = false;
         state.setPlaybackStatus("playing");
         audioService.updateMediaSessionPlaybackState(true);
         if (state.currentSong) recordPlayedHistory(state.currentSong, state.playbackRequestId, playedSessionRef);
       }),
-      audioService.onPlaying(() => usePlayerStore.getState().setPlaybackStatus("playing")),
       audioService.onPause(() => {
-        if (isSwitchingSourceRef.current) return;
+        // load() queues pause events. By dispatch time the new source may
+        // already be playing, so the event alone cannot cancel playback intent.
+        if (isSwitchingSourceRef.current || !audioService.isPaused() || audioService.isEnded()) return;
         const state = usePlayerStore.getState();
+        const failed = state.playbackStatus === "error";
         state.setIsPlaying(false);
-        state.setPlaybackStatus(state.currentSong ? "paused" : "idle");
+        if (!failed) state.setPlaybackStatus(state.currentSong ? "paused" : "idle");
         audioService.updateMediaSessionPlaybackState(false);
       }),
       audioService.onRateChange(() => audioService.updateMediaSessionPosition()),
