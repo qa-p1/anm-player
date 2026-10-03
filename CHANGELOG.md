@@ -5,6 +5,7 @@
 ### Changed
 
 - The Docker API image runs Python 3.14.7 (CI now tests 3.13 and 3.14) and the web image runs nginx 1.31.5.
+- Frontend toolchain: Vite 8 (Rolldown; production builds about 3x faster), @vitejs/plugin-react 6, TypeScript 6.0, vitest 5, jsdom 30, knip 6, framer-motion 14, React 19.3, and current minor releases. Screenshots of every main screen and the player match the previous release apart from data.
 - Dependencies updated: lucide-react 1.x, @testing-library/jest-dom 7, jest-axe 11, typescript-eslint 8.67, SQLAlchemy 2.0.52, pydantic-settings 2.15, ruff 0.16, and others. Ruff's rule set is now pinned in `ruff.toml`.
 - CI audits shipped npm dependencies at `high` and the full tree at `critical`; Dependabot groups minor and patch updates.
 

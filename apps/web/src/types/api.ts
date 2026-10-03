@@ -68,7 +68,7 @@ export interface ArtistDetail extends Artist {
   top_songs: Song[];
 }
 
-export interface Album {
+interface Album {
   id: number;
   public_id: string | null;
   title: string;
@@ -195,7 +195,7 @@ export interface HistoryCreateRequest {
   event_type?: "played" | "skipped" | "completed";
 }
 
-export interface ListeningSummary {
+interface ListeningSummary {
   period_days: number | null;
   range_start: string | null;
   generated_at: string;
@@ -210,7 +210,7 @@ export interface ListeningSummary {
   completion_rate: number;
 }
 
-export interface TrackInsight {
+interface TrackInsight {
   key: string;
   source: "local" | "youtube";
   external_id: string | null;
@@ -227,26 +227,26 @@ export interface TrackInsight {
   listening_seconds: number;
 }
 
-export interface ArtistInsight {
+interface ArtistInsight {
   name: string;
   play_count: number;
   listening_seconds: number;
 }
 
-export interface AlbumInsight {
+interface AlbumInsight {
   title: string;
   artist_name: string | null;
   play_count: number;
   listening_seconds: number;
 }
 
-export interface DailyListening {
+interface DailyListening {
   date: string;
   play_count: number;
   listening_seconds: number;
 }
 
-export interface HourlyListening {
+interface HourlyListening {
   hour: number;
   play_count: number;
 }
@@ -260,17 +260,17 @@ export interface ListeningInsights {
   hourly: HourlyListening[];
 }
 
-export interface OnlineArtist {
+interface OnlineArtist {
   id: string | null;
   name: string;
 }
 
-export interface OnlineAlbum {
+interface OnlineAlbum {
   id: string | null;
   name: string;
 }
 
-export type OnlineItemKind =
+type OnlineItemKind =
   | "song"
   | "video"
   | "album"
@@ -298,7 +298,7 @@ export interface OnlineMusicItem {
   url: string;
 }
 
-export interface OnlineHomeChip {
+interface OnlineHomeChip {
   title: string;
   params: string | null;
 }
@@ -403,7 +403,7 @@ export interface AlbumStatusItem {
   download_state: "none" | "partial" | "downloaded";
 }
 
-export type UnifiedAlbumDownloadState = "none" | "partial" | "queued" | "preparing" | "downloading" | "processing" | "paused" | "failed" | "downloaded";
+type UnifiedAlbumDownloadState = "none" | "partial" | "queued" | "preparing" | "downloading" | "processing" | "paused" | "failed" | "downloaded";
 
 export interface UnifiedAlbumTrack {
   id: string;
@@ -460,7 +460,7 @@ export interface AlbumStatusResponse {
   statuses: AlbumStatusItem[];
 }
 
-export interface TrackStatusItem {
+interface TrackStatusItem {
   external_id: string;
   is_downloaded: boolean;
   download_source: "song" | "library_track" | null;
@@ -476,7 +476,7 @@ export interface LibraryTrackDownloadRemoveResponse {
   file_deleted: boolean;
 }
 
-export type LyricsStatus = "cached" | "missing" | "fetching" | "not_found" | "offline" | "error" | "timeout" | "provider_error";
+type LyricsStatus = "cached" | "missing" | "fetching" | "not_found" | "offline" | "error" | "timeout" | "provider_error";
 
 export interface LyricsResponse {
   song_id?: number | null;
