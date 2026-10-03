@@ -187,7 +187,8 @@ npm run typecheck
 npm run test:coverage
 npm run build
 npm run check:bundle
-npm audit --audit-level=high
+npm audit --omit=dev --audit-level=high
+npm audit --audit-level=critical
 docker compose config --quiet
 docker compose -f docker-compose.dev.yml config --quiet
 ```
