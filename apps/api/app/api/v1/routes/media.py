@@ -35,52 +35,18 @@ def stream_song(
     song_id: ResourceId,
 ) -> FileResponse:
     """Stream audio file for a given song."""
-    logger.info(f"[MEDIA-STREAM] Streaming request for song_id={song_id}")
-    
-    song_repo = SongRepository(session)
-    song = song_repo.get(song_id)
-    
+    song = SongRepository(session).get(song_id)
     if not song:
-        logger.error(f"[MEDIA-STREAM] Song {song_id} not found in database")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Song not found in database",
         )
-    
     if not song.relative_path:
-        logger.error(f"[MEDIA-STREAM] Song {song_id} has no file_path in database")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Song file path not set",
         )
-    
-    logger.info(f"[MEDIA-STREAM] Song {song_id} relative_path from DB: {song.relative_path}")
-    
-    try:
-        file_path = resolve_library_path(song.relative_path)
-    except (OSError, ValueError):
-        logger.exception("[MEDIA-STREAM] Rejected invalid managed path for song %s", song_id)
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Audio file is unavailable",
-        ) from None
-    logger.info(f"[MEDIA-STREAM] Resolved path: {file_path}")
-    
-    if not file_path.is_file():
-        logger.error(f"[MEDIA-STREAM] File does not exist: {file_path}")
-        
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Audio file is unavailable",
-        )
-    
-    logger.info(f"[MEDIA-STREAM] Successfully streaming file: {file_path}")
-    
-    return FileResponse(
-        path=str(file_path),
-        media_type=mimetypes.guess_type(file_path.name)[0] or "application/octet-stream",
-        filename=file_path.name,
-    )
+    return _managed_audio_response(song.relative_path, label=f"song {song_id}", unavailable="Audio file is unavailable")
 
 
 @router.get("/library-tracks/{track_id}/stream", summary="Stream downloaded library-track audio")
@@ -94,17 +60,22 @@ def stream_library_track(
     if not track.is_downloaded or not track.relative_path:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Library track is not downloaded")
 
-    try:
-        file_path = resolve_library_path(track.relative_path)
-    except (OSError, ValueError):
-        logger.exception("[MEDIA-STREAM] Rejected invalid managed path for library track %s", track_id)
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Library track file is unavailable",
-        ) from None
-    if not file_path.is_file():
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Library track file does not exist")
+    return _managed_audio_response(
+        track.relative_path,
+        label=f"library track {track_id}",
+        unavailable="Library track file is unavailable",
+    )
 
+
+def _managed_audio_response(relative_path: str, *, label: str, unavailable: str) -> FileResponse:
+    try:
+        file_path = resolve_library_path(relative_path)
+    except (OSError, ValueError):
+        logger.exception("Rejected an invalid managed audio path for %s", label)
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=unavailable) from None
+    if not file_path.is_file():
+        logger.warning("Managed audio file for %s is missing", label)
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=unavailable)
     return FileResponse(
         path=str(file_path),
         media_type=mimetypes.guess_type(file_path.name)[0] or "application/octet-stream",

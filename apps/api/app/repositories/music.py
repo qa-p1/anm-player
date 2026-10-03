@@ -243,51 +243,41 @@ class QueueItemRepository(Repository[QueueItem]):
         super().__init__(session, QueueItem)
 
 
+FAVORITE_ENTITY_COLUMNS = {
+    "song": Favorite.song_id,
+    "artist": Favorite.artist_id,
+    "album": Favorite.album_id,
+    "playlist": Favorite.playlist_id,
+    "library_album": Favorite.library_album_id,
+    "library_track": Favorite.library_track_id,
+}
+
+
 class FavoriteRepository(Repository[Favorite]):
     def __init__(self, session: Session) -> None:
         super().__init__(session, Favorite)
 
-    def is_favorited(self, entity_type: str, entity_id: int) -> bool:
-        filters = {
-            "song": Favorite.song_id == entity_id,
-            "artist": Favorite.artist_id == entity_id,
-            "album": Favorite.album_id == entity_id,
-            "playlist": Favorite.playlist_id == entity_id,
-            "library_album": Favorite.library_album_id == entity_id,
-            "library_track": Favorite.library_track_id == entity_id,
-        }
-        if entity_type not in filters:
-            return False
+    def _find(self, entity_type: str, entity_id: int) -> Favorite | None:
+        column = FAVORITE_ENTITY_COLUMNS[entity_type]
+        return self.session.scalars(select(Favorite).where(column == entity_id)).first()
 
-        statement = select(Favorite).where(filters[entity_type])
-        return self.session.scalars(statement).first() is not None
+    def is_favorited(self, entity_type: str, entity_id: int) -> bool:
+        if entity_type not in FAVORITE_ENTITY_COLUMNS:
+            return False
+        return self._find(entity_type, entity_id) is not None
 
     def list_all(self) -> list[Favorite]:
         return list(self.session.scalars(select(Favorite).order_by(Favorite.created_at.desc())))
 
     def toggle(self, entity_type: str, entity_id: int) -> bool:
-        filters = {
-            "song": Favorite.song_id == entity_id,
-            "artist": Favorite.artist_id == entity_id,
-            "album": Favorite.album_id == entity_id,
-            "playlist": Favorite.playlist_id == entity_id,
-            "library_album": Favorite.library_album_id == entity_id,
-            "library_track": Favorite.library_track_id == entity_id,
-        }
-        if entity_type not in filters:
+        if entity_type not in FAVORITE_ENTITY_COLUMNS:
             raise ValueError(f"Invalid entity type: {entity_type}")
-
-        statement = select(Favorite).where(filters[entity_type])
-        existing = self.session.scalars(statement).first()
-
+        existing = self._find(entity_type, entity_id)
         if existing:
             self.session.delete(existing)
             return False
-        else:
-            fields = {f"{entity_type}_id": entity_id}
-            favorite = Favorite(**fields)
-            self.session.add(favorite)
-            return True
+        self.session.add(Favorite(**{f"{entity_type}_id": entity_id}))
+        return True
 
 
 class HistoryRepository(Repository[History]):
@@ -347,24 +337,6 @@ class HistoryRepository(Repository[History]):
             .where(ranked.c.recency_rank == 1)
             .order_by(ranked.c.play_count.desc(), History.played_at.desc(), History.id.desc())
             .limit(limit)
-        )
-        return list(self.session.scalars(statement).unique())
-
-    def get_most_played_songs(self, *, limit: int = 50) -> list[Song]:
-        subquery = (
-            select(History.song_id, func.count(History.id).label("play_count"))
-            .where(History.song_id.isnot(None), History.event_type == "played")
-            .group_by(History.song_id)
-            .order_by(func.count(History.id).desc())
-            .limit(limit)
-            .subquery()
-        )
-
-        statement = (
-            select(Song)
-            .options(joinedload(Song.artist), joinedload(Song.album))
-            .join(subquery, Song.id == subquery.c.song_id)
-            .order_by(subquery.c.play_count.desc())
         )
         return list(self.session.scalars(statement).unique())
 

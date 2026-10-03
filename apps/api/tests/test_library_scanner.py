@@ -100,3 +100,48 @@ def test_scan_missing_directory_raises_instead_of_reporting_success(tmp_path) ->
             pass
         else:
             raise AssertionError("missing scan directory should fail")
+
+
+class TrackNumberScanner(LibraryScannerService):
+    def _extract_metadata(self, file_path: Path) -> dict:
+        number = int(file_path.stem)
+        return {"title": f"Song {number}", "artist": "Artist", "album": "Album", "track_number": number, "duration": 60}
+
+
+def test_background_reconcile_does_not_rewrite_settled_albums(music_directory) -> None:
+    from sqlalchemy import event
+
+    from app.models import LibraryTrack
+
+    album_directory = music_directory / "Artist" / "Album"
+    album_directory.mkdir(parents=True)
+    for number in (1, 3):
+        (album_directory / f"{number}.mp3").write_bytes(b"audio")
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+    updates: list[str] = []
+
+    @event.listens_for(engine, "after_cursor_execute")
+    def record_updates(_conn, _cursor, statement, *_args) -> None:
+        if statement.lstrip().upper().startswith("UPDATE"):
+            updates.append(statement)
+
+    with Session() as session:
+        TrackNumberScanner(session).scan_directory(music_directory)
+    updates.clear()
+    with Session() as session:
+        TrackNumberScanner(session).scan_directory(music_directory, refresh_existing_metadata=False)
+    assert updates == []
+
+    # A new file in the middle of the album still reorders every track.
+    (album_directory / "2.mp3").write_bytes(b"audio")
+    with Session() as session:
+        TrackNumberScanner(session).scan_directory(music_directory, refresh_existing_metadata=False)
+        tracks = session.scalars(select(LibraryTrack).order_by(LibraryTrack.position)).all()
+        assert [(track.position, track.title) for track in tracks] == [
+            (0, "Song 1"),
+            (1, "Song 2"),
+            (2, "Song 3"),
+        ]

@@ -827,6 +827,13 @@ class CatalogService:
         ).tuples()
         return {local_id: public_id for local_id, public_id in rows}
 
+    def songs_to_response(self, songs) -> list[SongResponse]:
+        """Build song responses with batched favorite and album-ID lookups."""
+        return self._songs_to_response(songs)
+
+    def song_to_response(self, song) -> SongResponse:
+        return self._songs_to_response([song])[0]
+
     def _songs_to_response(
         self,
         songs,
