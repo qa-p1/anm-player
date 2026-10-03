@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
+import { createPersistStorage } from "@/lib/persist-storage";
+
 export const EQ_FREQUENCIES = [32, 64, 125, 250, 500, 1_000, 2_000, 4_000, 8_000, 16_000] as const;
 
 export type EqualizerGains = [number, number, number, number, number, number, number, number, number, number];
@@ -212,6 +214,7 @@ export const usePlaybackPreferencesStore = create<PlaybackPreferencesState>()(
     }),
     {
       name: "anm-playback-preferences",
+      storage: createPersistStorage(),
       version: 1,
       partialize: (state) => ({
         playbackRate: state.playbackRate,

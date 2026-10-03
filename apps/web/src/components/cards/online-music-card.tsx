@@ -2,6 +2,7 @@ import { Check, Pause, Play, Plus } from "lucide-react";
 import type { MouseEvent } from "react";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
+import { useShallow } from "zustand/react/shallow";
 
 import { Button } from "@/components/ui/button";
 import { TrackActionsMenu } from "@/components/menus/track-actions-menu";
@@ -27,7 +28,12 @@ interface OnlineMusicCardProps {
 
 export function OnlineMusicCard({ item, context, variant = "tile", className, albumStatus, isDownloaded = false }: OnlineMusicCardProps) {
   const navigate = useNavigate();
-  const { currentSong, isPlaying, playSong, setIsPlaying } = usePlayerStore();
+  const { currentSong, isPlaying, playSong, setIsPlaying } = usePlayerStore(useShallow((state) => ({
+    currentSong: state.currentSong,
+    isPlaying: state.isPlaying,
+    playSong: state.playSong,
+    setIsPlaying: state.setIsPlaying,
+  })));
   const track = item.playable ? onlineItemToPlayerTrack(item) : null;
   const contextTracks = context?.filter((entry) => entry.playable).map(onlineItemToPlayerTrack);
   const artworkUrl = cachedArtworkUrl(item.thumbnail);

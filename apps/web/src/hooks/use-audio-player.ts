@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { useShallow } from "zustand/react/shallow";
 
 import { toast } from "@/components/ui/toast";
 import { queryClient } from "@/lib/query-client";
@@ -15,6 +16,9 @@ export function useAudioPlayer() {
   const playedSessionRef = useRef<string | null>(null);
   const handledFailuresRef = useRef(new Set<string>());
   const defaultDocumentTitleRef = useRef(typeof document === "undefined" ? "ANM Player" : document.title || "ANM Player");
+  // This hook runs at the application root. Select only what the effects
+  // need: subscribing to the whole store re-rendered every route on each
+  // timeupdate, progress, and status event.
   const {
     currentSong,
     isPlaying,
@@ -24,7 +28,16 @@ export function useAudioPlayer() {
     retryAttempt,
     pendingHistoryEvents,
     setPlaybackStatus,
-  } = usePlayerStore();
+  } = usePlayerStore(useShallow((state) => ({
+    currentSong: state.currentSong,
+    isPlaying: state.isPlaying,
+    volume: state.volume,
+    isMuted: state.isMuted,
+    playbackRequestId: state.playbackRequestId,
+    retryAttempt: state.retryAttempt,
+    pendingHistoryEvents: state.pendingHistoryEvents,
+    setPlaybackStatus: state.setPlaybackStatus,
+  })));
   const {
     playbackRate,
     preservesPitch,
@@ -37,7 +50,19 @@ export function useAudioPlayer() {
     outputDeviceId,
     sleepTimerEndsAt,
     sleepFadeSeconds,
-  } = usePlaybackPreferencesStore();
+  } = usePlaybackPreferencesStore(useShallow((state) => ({
+    playbackRate: state.playbackRate,
+    preservesPitch: state.preservesPitch,
+    equalizerEnabled: state.equalizerEnabled,
+    equalizerGains: state.equalizerGains,
+    preampDb: state.preampDb,
+    stereoBalance: state.stereoBalance,
+    monoEnabled: state.monoEnabled,
+    normalizationEnabled: state.normalizationEnabled,
+    outputDeviceId: state.outputDeviceId,
+    sleepTimerEndsAt: state.sleepTimerEndsAt,
+    sleepFadeSeconds: state.sleepFadeSeconds,
+  })));
 
   useEffect(() => {
     if (!currentSong) {

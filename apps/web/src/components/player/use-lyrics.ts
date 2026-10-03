@@ -46,16 +46,7 @@ export function useLyrics(target: LyricsTarget | null) {
       if (!target) return null;
       return target.kind === "local"
         ? getSongLyrics(target.songId, signal)
-        : getYouTubeLyrics(
-            {
-              videoId: target.videoId,
-              title: target.title,
-              artist: target.artist,
-              album: target.album,
-              duration: target.duration,
-            },
-            signal,
-          );
+        : getYouTubeLyrics({ videoId: target.videoId }, signal);
     },
     [target],
   );

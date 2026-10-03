@@ -36,6 +36,7 @@ import {
   Undo2,
 } from "lucide-react";
 import { useMemo, useState, type CSSProperties } from "react";
+import { useShallow } from "zustand/react/shallow";
 
 import { ArtworkImage } from "@/components/cards/artwork-image";
 import { Button } from "@/components/ui/button";
@@ -77,7 +78,29 @@ export function QueuePanel({ onClose }: { onClose: () => void }) {
     deleteQueueSnapshot,
     replayHistoryItem,
     setIsPlaying,
-  } = usePlayerStore();
+  } = usePlayerStore(useShallow((state) => ({
+    queue: state.queue,
+    queueHistory: state.queueHistory,
+    queueSnapshots: state.queueSnapshots,
+    lastQueueEdit: state.lastQueueEdit,
+    shuffle: state.shuffle,
+    repeat: state.repeat,
+    toggleShuffle: state.toggleShuffle,
+    cycleRepeat: state.cycleRepeat,
+    reorderQueue: state.reorderQueue,
+    removeFromQueue: state.removeFromQueue,
+    clearQueue: state.clearQueue,
+    playQueueIndex: state.playQueueIndex,
+    moveQueueItemNext: state.moveQueueItemNext,
+    moveQueueItemToEnd: state.moveQueueItemToEnd,
+    undoLastQueueEdit: state.undoLastQueueEdit,
+    deduplicateQueue: state.deduplicateQueue,
+    saveQueueSnapshot: state.saveQueueSnapshot,
+    loadQueueSnapshot: state.loadQueueSnapshot,
+    deleteQueueSnapshot: state.deleteQueueSnapshot,
+    replayHistoryItem: state.replayHistoryItem,
+    setIsPlaying: state.setIsPlaying,
+  })));
   const [tab, setTab] = useState<QueueTab>("up-next");
   const [query, setQuery] = useState("");
   const [snapshotName, setSnapshotName] = useState("");

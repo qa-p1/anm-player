@@ -376,23 +376,9 @@ export function fetchSongLyrics(songId: number, signal?: AbortSignal, force = fa
   );
 }
 
-export function getYouTubeLyrics(params: {
-  videoId: string;
-  title?: string | null;
-  artist?: string | null;
-  album?: string | null;
-  duration?: number | null;
-}, signal?: AbortSignal) {
-  const query = new URLSearchParams();
-  if (params.title) query.set("title", params.title);
-  if (params.artist) query.set("artist", params.artist);
-  if (params.album) query.set("album", params.album);
-  if (params.duration) query.set("duration", String(Math.round(params.duration)));
-  const suffix = query.toString() ? `?${query.toString()}` : "";
-  return apiGet<LyricsResponse>(
-    `/lyrics/youtube/${encodeURIComponent(params.videoId)}${suffix}`,
-    { signal }
-  );
+export function getYouTubeLyrics(params: { videoId: string }, signal?: AbortSignal) {
+  // A cache read: track details are only needed when fetching from providers.
+  return apiGet<LyricsResponse>(`/lyrics/youtube/${encodeURIComponent(params.videoId)}`, { signal });
 }
 
 export function fetchYouTubeLyrics(params: {

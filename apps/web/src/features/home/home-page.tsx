@@ -2,6 +2,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { ChevronLeft, ChevronRight, Download, Music, Play, Search, Sparkles, TrendingUp } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
+import { useShallow } from "zustand/react/shallow";
 
 import { pageTransition } from "@/animations/page-motion";
 import { OnlineMusicCard } from "@/components/cards/online-music-card";
@@ -35,7 +36,7 @@ export function HomePage() {
   });
   const { data: recentHistory = [] } = useRecentlyPlayedHistory(20);
   const { data: downloadJobs = [] } = useDownloads();
-  const { playSong, addToQueue } = usePlayerStore();
+  const { playSong, addToQueue } = usePlayerStore(useShallow((state) => ({ playSong: state.playSong, addToQueue: state.addToQueue })));
   const [heroIndex, setHeroIndex] = useState(0);
   const [downloadedTracks, setDownloadedTracks] = useState<Record<string, boolean>>({});
   const [albumStatuses, setAlbumStatuses] = useState<Record<string, AlbumStatusItem>>({});

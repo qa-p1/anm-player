@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { apiGet } from "@/services/api-client";
+import { suspendPersistence } from "@/lib/persist-storage";
 import { audioService } from "@/services/audio-service";
 
 export interface MigrationStatus {
@@ -101,6 +102,7 @@ export function StorageMigrationOverlay() {
               terminalView.current = true;
               setView("verified");
               if (next.operation_kind === "reset") {
+                suspendPersistence();
                 audioService.destroy();
                 for (const key of [
                   "aura-player-storage",

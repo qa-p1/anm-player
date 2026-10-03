@@ -1,5 +1,6 @@
 import { Pause, Play } from "lucide-react";
 import type { ReactNode } from "react";
+import { useShallow } from "zustand/react/shallow";
 
 import { TrackActionsMenu } from "@/components/menus/track-actions-menu";
 import { ArtworkImage } from "@/components/cards/artwork-image";
@@ -44,7 +45,12 @@ export function TrackRow({
   onEnrich,
   showArtwork = true,
 }: TrackRowProps) {
-  const { currentSong, isPlaying, playSong, setIsPlaying } = usePlayerStore();
+  const { currentSong, isPlaying, playSong, setIsPlaying } = usePlayerStore(useShallow((state) => ({
+    currentSong: state.currentSong,
+    isPlaying: state.isPlaying,
+    playSong: state.playSong,
+    setIsPlaying: state.setIsPlaying,
+  })));
   const isCurrent = currentSong?.id === track.id;
   const isCurrentPlaying = isCurrent && isPlaying;
   const PlayIcon = isCurrentPlaying ? Pause : Play;

@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
+import { createPersistStorage } from "@/lib/persist-storage";
 import type { PlayerTrack } from "@/types/player";
 import { normalizeStoredPlayerQueue, normalizeStoredPlayerTrack } from "@/types/player";
 
@@ -505,7 +506,11 @@ export const usePlayerStore = create<PlayerState>()(
         playSong: (song, context) => {
           if (context && context.length > 0) {
             const currentIndex = context.findIndex((entry) => entry.id === song.id);
-            const queue = currentIndex >= 0 ? context.slice(currentIndex + 1) : context;
+            // Match playAlbum/playPlaylist: with shuffle on, the whole list
+            // (minus the picked track) forms the shuffled cycle.
+            const queue = get().shuffle
+              ? shuffleTracks(context.filter((_, index) => index !== currentIndex))
+              : currentIndex >= 0 ? context.slice(currentIndex + 1) : context;
             set((state) => ({
               currentSong: song,
               queue,
@@ -534,6 +539,8 @@ export const usePlayerStore = create<PlayerState>()(
     },
     {
       name: "aura-player-storage",
+      // Playback position changes several times per second; coalesce writes.
+      storage: createPersistStorage({ writeDelayMs: 1_000 }),
       version: 3,
       migrate: (persistedState) => {
         if (!persistedState || typeof persistedState !== "object") return persistedState;

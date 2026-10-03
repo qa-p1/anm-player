@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { cachedArtworkUrl, getDownloadEventsUrl } from "@/services/api-client";
 import { listAllDownloads } from "@/services/music-api";
 import type { DownloadJob } from "@/types/api";
+import { isActiveDownload } from "@/utils/downloads";
 
 interface DownloadsPanelProps {
   jobs: DownloadJob[];
@@ -25,9 +26,7 @@ export function DownloadsPanel({ jobs, onJobUpdate, onCancel, onRetry, onPause, 
   useEffect(() => {
     updateRef.current = onJobUpdate;
   }, [onJobUpdate]);
-  const activeIds = jobs
-    .filter((job) => ["queued", "preparing", "downloading", "processing", "paused"].includes(job.status))
-    .map((job) => job.id);
+  const activeIds = jobs.filter(isActiveDownload).map((job) => job.id);
   const activeKey = activeIds.join(",");
 
   useEffect(() => {
@@ -96,7 +95,7 @@ export function DownloadsPanel({ jobs, onJobUpdate, onCancel, onRetry, onPause, 
     };
   }, [activeKey]);
 
-  const activeJobs = jobs.filter((job) => ["queued", "preparing", "downloading", "processing", "paused"].includes(job.status));
+  const activeJobs = jobs.filter(isActiveDownload);
   const completedJobs = jobs.filter((job) => job.status === "completed");
   const failedJobs = jobs.filter((job) => ["failed", "cancelled"].includes(job.status));
   const orderedJobs = [...activeJobs, ...failedJobs, ...completedJobs];

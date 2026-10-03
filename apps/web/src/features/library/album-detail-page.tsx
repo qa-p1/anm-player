@@ -2,6 +2,7 @@ import { motion } from "framer-motion";
 import { Check, Disc, Download, Heart, LoaderCircle, Play, Plus, Shuffle, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
+import { useShallow } from "zustand/react/shallow";
 
 import { pageTransition } from "@/animations/page-motion";
 import { TrackRow } from "@/components/cards/track-row";
@@ -40,7 +41,7 @@ export function AlbumDetailPage() {
   const [mutation, setMutation] = useState<MutationName>(null);
   const [showRemoveDialog, setShowRemoveDialog] = useState(false);
   const [showDeleteDownloadDialog, setShowDeleteDownloadDialog] = useState(false);
-  const { playAlbum } = usePlayerStore();
+  const { playAlbum } = usePlayerStore(useShallow((state) => ({ playAlbum: state.playAlbum })));
 
   useEffect(() => {
     if (!album?.capabilities.can_cancel_download) return;

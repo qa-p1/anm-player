@@ -2,6 +2,7 @@ import { motion } from "framer-motion";
 import { Heart, Mic, Play, Shuffle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useParams } from "react-router";
+import { useShallow } from "zustand/react/shallow";
 
 import { pageTransition } from "@/animations/page-motion";
 import { SongCard } from "@/components/cards/song-card";
@@ -25,7 +26,7 @@ export function ArtistDetailPage() {
   const [onlineArtist, setOnlineArtist] = useState<LibraryArtistDetail | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isFavorited, setIsFavorited] = useState(false);
-  const { playAlbum } = usePlayerStore();
+  const { playAlbum } = usePlayerStore(useShallow((state) => ({ playAlbum: state.playAlbum })));
 
   useEffect(() => {
     if (!artistId) return;

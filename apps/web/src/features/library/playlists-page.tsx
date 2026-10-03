@@ -10,7 +10,8 @@ import { EmptyState } from "@/components/empty-states/empty-state";
 import { BackButton } from "@/components/navigation/back-button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/toast";
-import { useAllPlaylists, useCreatePlaylist } from "@/hooks/use-music-queries";
+import { musicKeys, useAllPlaylists, useCreatePlaylist } from "@/hooks/use-music-queries";
+import { queryClient } from "@/lib/query-client";
 import { cachedArtworkUrl } from "@/services/api-client";
 import { importPlaylistUrl } from "@/services/music-api";
 import { formatDuration } from "@/utils/format";
@@ -44,6 +45,8 @@ export function PlaylistsPage() {
     setIsImporting(true);
     try {
       await importPlaylistUrl(importUrl.trim());
+      void queryClient.invalidateQueries({ queryKey: musicKeys.playlists() });
+      void queryClient.invalidateQueries({ queryKey: musicKeys.downloadsList() });
       setImportUrl("");
       toast("Playlist import started", "success");
     } catch (error) {

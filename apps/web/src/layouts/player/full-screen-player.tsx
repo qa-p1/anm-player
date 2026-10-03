@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState, type CSSProperties } from "react";
 import { useNavigate } from "react-router";
+import { useShallow } from "zustand/react/shallow";
 
 import { TrackActionsMenu } from "@/components/menus/track-actions-menu";
 import { ArtworkImage } from "@/components/cards/artwork-image";
@@ -64,7 +65,25 @@ export function FullScreenPlayer({ onClose }: FullScreenPlayerProps) {
     retryCurrentSong,
     playNextManually,
     playPreviousSong,
-  } = usePlayerStore();
+  } = usePlayerStore(useShallow((state) => ({
+    currentSong: state.currentSong,
+    isPlaying: state.isPlaying,
+    currentTime: state.currentTime,
+    duration: state.duration,
+    volume: state.volume,
+    isMuted: state.isMuted,
+    shuffle: state.shuffle,
+    playbackStatus: state.playbackStatus,
+    playbackError: state.playbackError,
+    retryAttempt: state.retryAttempt,
+    setIsPlaying: state.setIsPlaying,
+    setVolume: state.setVolume,
+    toggleMute: state.toggleMute,
+    toggleShuffle: state.toggleShuffle,
+    retryCurrentSong: state.retryCurrentSong,
+    playNextManually: state.playNextManually,
+    playPreviousSong: state.playPreviousSong,
+  })));
   const [view, setView] = useState<PlayerView>("player");
   const requestedPlayerView = useUiStore((state) => state.requestedPlayerView);
   const consumePlayerViewRequest = useUiStore((state) => state.consumePlayerViewRequest);

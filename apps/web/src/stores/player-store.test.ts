@@ -189,4 +189,24 @@ describe("player queue invariants", () => {
     usePlayerStore.getState().deleteQueueSnapshot(snapshot!.id);
     expect(usePlayerStore.getState().queueSnapshots).toEqual([]);
   });
+
+  it("shuffles the rest of the list when a track is picked from it with shuffle on", () => {
+    const random = vi.spyOn(Math, "random").mockReturnValue(0);
+    usePlayerStore.setState({ shuffle: true });
+
+    usePlayerStore.getState().playSong(b, [a, b, c, d, e]);
+
+    const state = usePlayerStore.getState();
+    expect(state.currentSong?.id).toBe("b");
+    // Earlier tracks are part of the shuffled cycle, not just the tail.
+    expect(state.queue.map((entry) => entry.id).sort()).toEqual(["a", "c", "d", "e"]);
+    expect(state.queue.map((entry) => entry.id)).not.toEqual(["c", "d", "e"]);
+    expect(state.originalQueue.map((entry) => entry.id)).toEqual(["a", "b", "c", "d", "e"]);
+    random.mockRestore();
+  });
+
+  it("keeps list order after the picked track when shuffle is off", () => {
+    usePlayerStore.getState().playSong(b, [a, b, c, d, e]);
+    expect(usePlayerStore.getState().queue.map((entry) => entry.id)).toEqual(["c", "d", "e"]);
+  });
 });
