@@ -19,6 +19,7 @@ RUN npm run build
 
 FROM nginx:1.29.8-alpine@sha256:5616878291a2eed594aee8db4dade5878cf7edcb475e59193904b198d9b830de AS production
 COPY docker/nginx.conf /etc/nginx/templates/anm-player.conf.template
+COPY docker/nginx-security-headers.conf /etc/nginx/snippets/anm-player-security-headers.conf
 COPY docker/web-entrypoint.sh /usr/local/bin/anm-player-web-entrypoint
 COPY --from=build /app/apps/web/dist /usr/share/nginx/html
 RUN chmod 0755 /usr/local/bin/anm-player-web-entrypoint \

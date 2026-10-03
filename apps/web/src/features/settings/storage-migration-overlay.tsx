@@ -6,7 +6,7 @@ import { apiGet } from "@/services/api-client";
 import { suspendPersistence } from "@/lib/persist-storage";
 import { audioService } from "@/services/audio-service";
 
-export interface MigrationStatus {
+interface MigrationStatus {
   active: boolean;
   operation_kind?: "migration" | "reset";
   phase: string;

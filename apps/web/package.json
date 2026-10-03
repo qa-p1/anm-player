@@ -41,7 +41,7 @@
     "@types/react": "19.2.17",
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "^5.0.2",
-    "@vitest/coverage-v8": "^4.1.10",
+    "@vitest/coverage-v8": "^4.1.11",
     "autoprefixer": "^10.4.21",
     "eslint": "10.8.0",
     "eslint-plugin-jsx-a11y-x": "0.2.0",
@@ -56,7 +56,7 @@
     "typescript": "~5.9.2",
     "typescript-eslint": "8.65.0",
     "vite": "^7.1.5",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.11"
   },
   "knip": {
     "ignoreBinaries": [
