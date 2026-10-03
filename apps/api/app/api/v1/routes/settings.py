@@ -1,10 +1,12 @@
 import logging
 import os
 import shutil
+import sqlite3
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from fastapi.responses import FileResponse
 from sqlalchemy import select
 
 from app.api.deps import DbSession, get_settings_service, require_operator
@@ -23,6 +25,7 @@ from app.schemas.storage import (
     StorageSummary,
 )
 from app.services import SettingsService
+from app.services.backup import BackupError, backup_filename, create_database_snapshot
 from app.storage import storage_manager
 from app.storage.coordinator import StorageMigrationError, storage_coordinator
 
@@ -81,6 +84,29 @@ def storage_summary() -> StorageSummary:
         total_bytes=disk.total,
         categories=usage,
         migration=storage_coordinator.status(),
+    )
+
+
+@router.get(
+    "/backup",
+    response_class=FileResponse,
+    summary="Download a consistent snapshot of the library database",
+    dependencies=[Depends(require_operator)],
+)
+def download_database_backup() -> FileResponse:
+    try:
+        snapshot = create_database_snapshot(storage_manager.paths.database)
+    except (BackupError, OSError, sqlite3.Error) as exc:
+        logger.exception("Could not create a database backup")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Could not create a database backup") from exc
+    cleanup = BackgroundTasks()
+    cleanup.add_task(snapshot.unlink, missing_ok=True)
+    return FileResponse(
+        snapshot,
+        media_type="application/vnd.sqlite3",
+        filename=backup_filename(),
+        headers={"Cache-Control": "no-store"},
+        background=cleanup,
     )
 
 

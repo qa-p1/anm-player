@@ -299,3 +299,34 @@ def test_terminal_download_transitions_and_missing_jobs_are_rejected() -> None:
             service.pause(job.id)
         with pytest.raises(ResourceNotFoundError, match="not found"):
             service.cancel(999_999)
+
+
+def test_retry_failed_requeues_only_failed_downloads() -> None:
+    with make_session() as session:
+        service = make_service(session)
+        created = service.enqueue_batch(
+            [
+                DownloadCreateRequest(source_url="https://youtu.be/failed-one"),
+                DownloadCreateRequest(source_url="https://youtu.be/failed-two"),
+                DownloadCreateRequest(source_url="https://youtu.be/cancelled"),
+                DownloadCreateRequest(source_url="https://youtu.be/still-queued"),
+            ]
+        )
+        failed_one, failed_two, cancelled, queued = (session.get(DownloadJob, job.id) for job in created)
+        for job in (failed_one, failed_two):
+            job.status = DownloadStatus.FAILED
+            job.error_message = "Network error"
+            job.queue_item.status = DownloadStatus.FAILED
+        session.commit()
+        service.cancel(cancelled.id)
+
+        retried = service.retry_failed()
+
+        assert {job.id for job in retried} == {failed_one.id, failed_two.id}
+        for job in (failed_one, failed_two):
+            assert job.status == DownloadStatus.QUEUED
+            assert job.error_message is None
+            assert job.queue_item.status == DownloadStatus.QUEUED
+        assert cancelled.status == DownloadStatus.CANCELLED
+        assert queued.status == DownloadStatus.QUEUED
+        assert service.retry_failed() == []

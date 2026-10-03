@@ -18,10 +18,11 @@ interface DownloadsPanelProps {
   onPause: (jobId: number) => void;
   onResume: (jobId: number) => void;
   onRemoveCompleted: () => void;
+  onRetryFailed: () => void;
   onCancelAlbum: (albumId: string) => void;
 }
 
-export function DownloadsPanel({ jobs, onJobUpdate, onCancel, onRetry, onPause, onResume, onRemoveCompleted, onCancelAlbum }: DownloadsPanelProps) {
+export function DownloadsPanel({ jobs, onJobUpdate, onCancel, onRetry, onPause, onResume, onRemoveCompleted, onRetryFailed, onCancelAlbum }: DownloadsPanelProps) {
   const updateRef = useRef(onJobUpdate);
   useEffect(() => {
     updateRef.current = onJobUpdate;
@@ -98,6 +99,7 @@ export function DownloadsPanel({ jobs, onJobUpdate, onCancel, onRetry, onPause, 
   const activeJobs = jobs.filter(isActiveDownload);
   const completedJobs = jobs.filter((job) => job.status === "completed");
   const failedJobs = jobs.filter((job) => ["failed", "cancelled"].includes(job.status));
+  const retryableCount = jobs.filter((job) => job.status === "failed").length;
   const orderedJobs = [...activeJobs, ...failedJobs, ...completedJobs];
   const albumGroups = new Map<string, DownloadJob[]>();
   for (const job of orderedJobs) {
@@ -114,11 +116,21 @@ export function DownloadsPanel({ jobs, onJobUpdate, onCancel, onRetry, onPause, 
           <h2 className="text-xl font-bold tracking-normal">Downloads</h2>
           <p className="text-sm text-muted-foreground">Active queue, completed songs, and failed downloads.</p>
         </div>
-        {completedJobs.length > 0 && (
-          <Button variant="glass" size="sm" onClick={onRemoveCompleted}>
-            <Trash2 className="h-4 w-4" />
-            Clear completed
-          </Button>
+        {(completedJobs.length > 0 || retryableCount > 0) && (
+          <div className="flex flex-wrap gap-2">
+            {retryableCount > 0 && (
+              <Button variant="glass" size="sm" onClick={onRetryFailed}>
+                <RotateCcw className="h-4 w-4" />
+                Retry {retryableCount} failed
+              </Button>
+            )}
+            {completedJobs.length > 0 && (
+              <Button variant="glass" size="sm" onClick={onRemoveCompleted}>
+                <Trash2 className="h-4 w-4" />
+                Clear completed
+              </Button>
+            )}
+          </div>
         )}
       </div>
 
@@ -177,7 +189,7 @@ function AlbumDownloadGroup({
 }) {
   const navigate = useNavigate();
   const completed = jobs.filter((job) => job.status === "completed").length;
-  const active = jobs.filter((job) => ["queued", "preparing", "downloading", "processing", "paused"].includes(job.status)).length;
+  const active = jobs.filter(isActiveDownload).length;
   const progress = Math.round(jobs.reduce((sum, job) => sum + job.progress, 0) / Math.max(jobs.length, 1));
   const [open, setOpen] = useState(active > 0);
 

@@ -15,23 +15,31 @@ import {
   removeCompletedDownloads,
   resumeDownload,
   retryDownload,
+  retryFailedDownloads,
 } from "@/services/music-api";
 import type { DownloadJob } from "@/types/api";
+import { isActiveDownload } from "@/utils/downloads";
 
-const ACTIVE_STATUSES = new Set(["queued", "preparing", "downloading", "processing", "paused"]);
 const RECENT_WINDOW_MS = 5 * 60 * 1000;
 
 function isVisibleJob(job: DownloadJob) {
-  if (ACTIVE_STATUSES.has(job.status)) return true;
+  if (isActiveDownload(job)) return true;
   const changedAt = Date.parse(job.completed_at ?? job.cancelled_at ?? job.updated_at);
   return Number.isFinite(changedAt) && Date.now() - changedAt < RECENT_WINDOW_MS;
+}
+
+function finishedSummary(jobs: DownloadJob[]) {
+  const failed = jobs.filter((job) => job.status === "failed").length;
+  const completed = jobs.filter((job) => job.status === "completed").length;
+  const parts = [completed > 0 && `${completed} completed`, failed > 0 && `${failed} failed`].filter(Boolean);
+  return parts.length > 0 ? parts.join(" · ") : `${jobs.length} finished`;
 }
 
 export function DownloadQueueTrigger({ mobile = false }: { mobile?: boolean }) {
   const { data: jobs = [] } = useDownloads();
   const setOpen = useDownloadQueueUi((state) => state.setOpen);
   const visibleJobs = jobs.filter(isVisibleJob);
-  const activeJobs = visibleJobs.filter((job) => ACTIVE_STATUSES.has(job.status));
+  const activeJobs = visibleJobs.filter(isActiveDownload);
 
   if (visibleJobs.length === 0) return null;
 
@@ -67,7 +75,7 @@ export function DownloadQueueTrigger({ mobile = false }: { mobile?: boolean }) {
       <span className="min-w-0 flex-1">
         <span className="block text-sm font-bold">Downloads</span>
         <span className="block truncate text-xs text-muted-foreground">
-          {activeJobs.length > 0 ? `${activeJobs.length} in progress` : `${visibleJobs.length} completed`}
+          {activeJobs.length > 0 ? `${activeJobs.length} in progress` : finishedSummary(visibleJobs)}
         </span>
       </span>
       <Download className="h-4 w-4 text-muted-foreground" />
@@ -108,6 +116,16 @@ export function DownloadQueueDialog() {
     }
   }
 
+  async function retryFailed() {
+    try {
+      const retried = await retryFailedDownloads();
+      retried.forEach(upsert);
+      toast(`Retrying ${retried.length} ${retried.length === 1 ? "download" : "downloads"}`, "success");
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Could not retry failed downloads", "error");
+    }
+  }
+
   async function cancelAlbum(albumId: string) {
     try {
       const album = await cancelUnifiedAlbumDownload(albumId);
@@ -133,6 +151,7 @@ export function DownloadQueueDialog() {
           onPause={(id) => void run(pauseDownload, id)}
           onResume={(id) => void run(resumeDownload, id)}
           onRemoveCompleted={() => void removeCompleted()}
+          onRetryFailed={() => void retryFailed()}
           onCancelAlbum={(albumId) => void cancelAlbum(albumId)}
         />
       </DialogContent>

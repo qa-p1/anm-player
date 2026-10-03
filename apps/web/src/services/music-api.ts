@@ -63,6 +63,14 @@ export function resumeDownload(jobId: number) {
   return apiPost<DownloadJob, undefined>(`/downloads/${jobId}/resume`);
 }
 
+export function retryFailedDownloads() {
+  return apiPost<DownloadJob[], undefined>("/downloads/retry-failed");
+}
+
+export function getDatabaseBackupUrl() {
+  return "/api/v1/settings/backup";
+}
+
 export function removeCompletedDownloads() {
   return apiDelete<{ removed: number }>("/downloads/completed");
 }

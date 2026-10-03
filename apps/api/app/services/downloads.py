@@ -97,6 +97,22 @@ class DownloadService:
                 "Only failed or cancelled downloads can be retried.",
                 details={"download_job_id": job.id, "status": job.status},
             )
+        self._requeue(job)
+        self.downloads.session.commit()
+        download_progress_hub.publish_threadsafe(job.id, self._to_event(job))
+        return self._response(job)
+
+    def retry_failed(self) -> list[DownloadJobResponse]:
+        """Requeue every failed download in one transaction (cancelled ones stay cancelled)."""
+        jobs = self.downloads.list_by_statuses([DownloadStatus.FAILED], limit=10_000)
+        for job in jobs:
+            self._requeue(job)
+        self.downloads.session.commit()
+        for job in jobs:
+            download_progress_hub.publish_threadsafe(job.id, self._to_event(job))
+        return [self._response(job) for job in jobs]
+
+    def _requeue(self, job: DownloadJob) -> None:
         job.status = DownloadStatus.QUEUED
         job.stage = DownloadStage.QUEUED
         job.progress = 0
@@ -108,9 +124,6 @@ class DownloadService:
         else:
             self.queue_items.add(QueueItem(download_job=job, status=DownloadStatus.QUEUED, item_type="download"))
         sync_linked_album_download(self.downloads.session, job)
-        self.downloads.session.commit()
-        download_progress_hub.publish_threadsafe(job.id, self._to_event(job))
-        return self._response(job)
 
     def pause(self, job_id: int) -> DownloadJobResponse:
         job = self._get_job(job_id)
