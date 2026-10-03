@@ -4,6 +4,16 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      # Type definitions follow the oldest supported Node runtime (engines:
+      # >=24), so code cannot type-check against APIs Node 24 lacks. Raise
+      # this together with "engines" and the Docker/CI Node version.
+      - dependency-name: "@types/node"
+        versions: [">=25"]
+      # typescript-eslint supports TypeScript <6.1; newer releases break
+      # linting. Remove once typescript-eslint's peer range allows them.
+      - dependency-name: typescript
+        versions: [">=6.1.0"]
     groups:
       minor-and-patch:
         update-types: [minor, patch]

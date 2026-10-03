@@ -4,10 +4,10 @@ import { readFileSync } from "node:fs";
 import react from "@vitejs/plugin-react";
 import { defineConfig, loadEnv } from "vite";
 
-const anmPlayerVersion = readFileSync(path.resolve(__dirname, "../../VERSION"), "utf8").trim();
+const anmPlayerVersion = readFileSync(path.resolve(import.meta.dirname, "../../VERSION"), "utf8").trim();
 
 export default defineConfig(({ mode }) => {
-  const repositoryRoot = path.resolve(__dirname, "../..");
+  const repositoryRoot = path.resolve(import.meta.dirname, "../..");
   const env = { ...loadEnv(mode, repositoryRoot, ""), ...process.env };
   const apiTarget = env.AURA_API_PROXY_TARGET ?? `http://127.0.0.1:${env.AURA_API_PORT ?? "8000"}`;
   const token = env.API_ACCESS_TOKEN?.trim();
@@ -19,7 +19,7 @@ export default defineConfig(({ mode }) => {
     },
     resolve: {
       alias: {
-        "@": path.resolve(__dirname, "./src"),
+        "@": path.resolve(import.meta.dirname, "./src"),
       },
     },
     server: {
