@@ -1,3 +1,4 @@
+import { musicKeys } from "@/services/music-keys";
 import { motion } from "framer-motion";
 import { Disc } from "lucide-react";
 import { useState } from "react";
@@ -9,7 +10,7 @@ import { BackButton } from "@/components/navigation/back-button";
 import { ArtworkImage } from "@/components/cards/artwork-image";
 import { cachedArtworkUrl } from "@/services/api-client";
 import { useQuery } from "@tanstack/react-query";
-import { musicKeys } from "@/hooks/use-music-queries";
+
 import { CollectionBrowser } from "@/components/filters/collection-browser";
 import { Button } from "@/components/ui/button";
 import { listAllLibraryAlbums } from "@/services/music-api";
@@ -17,7 +18,7 @@ import type { LibraryAlbum } from "@/types/api";
 import { cn } from "@/lib/utils";
 
 export function AlbumsLibraryPage() {
-  const { data: albums = [], isLoading, error, refetch } = useQuery({ queryKey: [...musicKeys.albums(), "library"], queryFn: ({ signal }) => listAllLibraryAlbums(undefined, signal) });
+  const { data: albums = [], isLoading, error, refetch } = useQuery({ queryKey: musicKeys.libraryAlbums("all"), queryFn: ({ signal }) => listAllLibraryAlbums(undefined, signal) });
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState("name");
   const [offlineOnly, setOfflineOnly] = useState(false);

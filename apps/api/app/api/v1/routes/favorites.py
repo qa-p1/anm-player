@@ -3,8 +3,8 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 
 from app.api.deps import get_catalog_service
-from app.schemas.music import FavoriteToggleRequest, FavoritesResponse
-from app.services import CatalogService
+from app.schemas.music import FavoritesResponse, FavoriteToggleRequest
+from app.services.catalog import CatalogService
 
 router = APIRouter()
 

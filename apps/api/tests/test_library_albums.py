@@ -1,12 +1,19 @@
 import asyncio
 
 import pytest
-from sqlalchemy import create_engine, select
-from sqlalchemy.orm import sessionmaker
-
-from app.models import AlbumDownloadItem, Base, DownloadJob, History, LibraryAlbum, LibraryTrack, Song
+from app.models import (
+    AlbumDownloadItem,
+    Base,
+    DownloadJob,
+    History,
+    LibraryAlbum,
+    LibraryTrack,
+    Song,
+)
 from app.schemas.library import OnlineAlbumPreview, OnlineAlbumTrackPreview
 from app.services.library_albums import LibraryAlbumService
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import sessionmaker
 
 
 class FakeLibraryAlbumService(LibraryAlbumService):
@@ -21,7 +28,9 @@ class FakeLibraryAlbumService(LibraryAlbumService):
 def test_save_online_albums_allows_same_provider_track_in_multiple_albums() -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
-    Session = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
+    Session = sessionmaker(
+        bind=engine, autoflush=False, autocommit=False, expire_on_commit=False
+    )
 
     shared_track = {
         "external_id": "shared-video-id",
@@ -57,7 +66,9 @@ def test_save_online_albums_allows_same_provider_track_in_multiple_albums() -> N
         album_a = asyncio.run(service.save_online_album("album-a"))
         album_b = asyncio.run(service.save_online_album("album-b"))
 
-        tracks = session.scalars(select(LibraryTrack).where(LibraryTrack.external_id == "shared-video-id")).all()
+        tracks = session.scalars(
+            select(LibraryTrack).where(LibraryTrack.external_id == "shared-video-id")
+        ).all()
 
     assert album_a.track_count == 1
     assert album_b.track_count == 1
@@ -68,7 +79,9 @@ def test_save_online_albums_allows_same_provider_track_in_multiple_albums() -> N
 def test_remove_album_hides_it_without_deleting_download_state() -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
-    Session = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
+    Session = sessionmaker(
+        bind=engine, autoflush=False, autocommit=False, expire_on_commit=False
+    )
 
     preview = OnlineAlbumPreview(
         external_id="album-a",
@@ -108,7 +121,9 @@ def test_remove_album_hides_it_without_deleting_download_state() -> None:
 def test_save_online_album_reactivates_removed_album() -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
-    Session = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
+    Session = sessionmaker(
+        bind=engine, autoflush=False, autocommit=False, expire_on_commit=False
+    )
 
     preview = OnlineAlbumPreview(
         external_id="album-a",
@@ -137,16 +152,25 @@ def test_save_online_album_reactivates_removed_album() -> None:
     assert reactivated.track_count == 1
 
 
-def test_remove_track_download_releases_linked_song_and_deletes_file(music_directory) -> None:
+def test_remove_track_download_releases_linked_song_and_deletes_file(
+    music_directory,
+) -> None:
     audio_file = music_directory / "Artist" / "song.mp3"
     audio_file.parent.mkdir(parents=True)
     audio_file.write_bytes(b"audio")
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
-    Session = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
+    Session = sessionmaker(
+        bind=engine, autoflush=False, autocommit=False, expire_on_commit=False
+    )
 
     with Session() as session:
-        song = Song(title="Song", source_url="https://example/track", file_path="Artist/song.mp3", is_downloaded=True)
+        song = Song(
+            title="Song",
+            source_url="https://example/track",
+            file_path="Artist/song.mp3",
+            is_downloaded=True,
+        )
         session.add(song)
         session.flush()
         track = LibraryTrack(
@@ -171,12 +195,16 @@ def test_remove_track_download_releases_linked_song_and_deletes_file(music_direc
     assert song.is_downloaded is False
 
 
-def test_remove_track_download_keeps_file_still_used_by_another_track(music_directory) -> None:
+def test_remove_track_download_keeps_file_still_used_by_another_track(
+    music_directory,
+) -> None:
     audio_file = music_directory / "shared.mp3"
     audio_file.write_bytes(b"audio")
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
-    Session = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
+    Session = sessionmaker(
+        bind=engine, autoflush=False, autocommit=False, expire_on_commit=False
+    )
 
     with Session() as session:
         song = Song(title="Song", file_path="shared.mp3", is_downloaded=True)
@@ -208,10 +236,14 @@ def test_remove_track_download_keeps_file_still_used_by_another_track(music_dire
 def test_library_track_duration_falls_back_to_linked_downloaded_song() -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
-    Session = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
+    Session = sessionmaker(
+        bind=engine, autoflush=False, autocommit=False, expire_on_commit=False
+    )
 
     with Session() as session:
-        song = Song(title="Song", duration_seconds=247, is_downloaded=True, file_path="song.mp3")
+        song = Song(
+            title="Song", duration_seconds=247, is_downloaded=True, file_path="song.mp3"
+        )
         session.add(song)
         session.flush()
         track = LibraryTrack(
@@ -226,7 +258,7 @@ def test_library_track_duration_falls_back_to_linked_downloaded_song() -> None:
         session.add(track)
         session.commit()
 
-        response = LibraryAlbumService(session)._track_to_response(track)
+        response = LibraryAlbumService(session).responses.track_to_response(track)
 
     assert response.duration_seconds == 247
 
@@ -234,7 +266,9 @@ def test_library_track_duration_falls_back_to_linked_downloaded_song() -> None:
 def test_saved_album_repairs_missing_track_and_history_durations() -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
-    Session = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
+    Session = sessionmaker(
+        bind=engine, autoflush=False, autocommit=False, expire_on_commit=False
+    )
     preview = OnlineAlbumPreview(
         external_id="album-duration",
         title="Album",
@@ -254,7 +288,12 @@ def test_saved_album_repairs_missing_track_and_history_durations() -> None:
         track = session.get(LibraryTrack, saved.tracks[0].id)
         assert track is not None
         track.duration_seconds = None
-        history = History(source="youtube", external_id="track-duration", title="Track", duration_seconds=None)
+        history = History(
+            source="youtube",
+            external_id="track-duration",
+            title="Track",
+            duration_seconds=None,
+        )
         session.add(history)
         session.commit()
 
@@ -268,7 +307,9 @@ def test_saved_album_repairs_missing_track_and_history_durations() -> None:
 def test_concurrent_album_download_request_reuses_active_job() -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
-    Session = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
+    Session = sessionmaker(
+        bind=engine, autoflush=False, autocommit=False, expire_on_commit=False
+    )
     preview = OnlineAlbumPreview(
         external_id="album-download",
         title="Album",
@@ -300,10 +341,14 @@ def test_concurrent_album_download_request_reuses_active_job() -> None:
     assert len(items) == 1
 
 
-def test_cancel_album_download_cancels_children_and_removes_partial_files(music_directory) -> None:
+def test_cancel_album_download_cancels_children_and_removes_partial_files(
+    music_directory,
+) -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
-    Session = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
+    Session = sessionmaker(
+        bind=engine, autoflush=False, autocommit=False, expire_on_commit=False
+    )
     preview = OnlineAlbumPreview(
         external_id="cancel-album",
         title="Cancel Album",
@@ -333,7 +378,9 @@ def test_cancel_album_download_cancels_children_and_removes_partial_files(music_
         session.commit()
 
         cancelled = service.cancel_album_download(album.id)
-        child = session.scalars(select(DownloadJob).where(DownloadJob.search_query == "album:cancel-album")).one()
+        child = session.scalars(
+            select(DownloadJob).where(DownloadJob.search_query == "album:cancel-album")
+        ).one()
 
     assert cancelled.status == "cancelled"
     assert child.status == "cancelled"
@@ -342,10 +389,14 @@ def test_cancel_album_download_cancels_children_and_removes_partial_files(music_
     assert audio_file.exists() is False
 
 
-def test_unified_online_album_keeps_public_id_across_library_and_favorite_states() -> None:
+def test_unified_online_album_keeps_public_id_across_library_and_favorite_states() -> (
+    None
+):
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
-    Session = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
+    Session = sessionmaker(
+        bind=engine, autoflush=False, autocommit=False, expire_on_commit=False
+    )
     preview = OnlineAlbumPreview(
         external_id="MPRE-unified",
         title="Unified Album",
@@ -366,7 +417,9 @@ def test_unified_online_album_keeps_public_id_across_library_and_favorite_states
         service = FakeLibraryAlbumService(session, {"MPRE-unified": preview})
         online = asyncio.run(service.get_unified_album("MPRE-unified"))
         saved = asyncio.run(service.add_unified_album_to_library("MPRE-unified"))
-        favorited = asyncio.run(service.set_unified_album_favorite("MPRE-unified", True))
+        favorited = asyncio.run(
+            service.set_unified_album_favorite("MPRE-unified", True)
+        )
 
     assert online.id == saved.id == favorited.id == "MPRE-unified"
     assert online.canonical_url == saved.canonical_url == "/albums/MPRE-unified"
@@ -375,14 +428,20 @@ def test_unified_online_album_keeps_public_id_across_library_and_favorite_states
     assert favorited.state.is_favorited is True
 
 
-def test_deleting_unified_album_download_keeps_library_membership(music_directory) -> None:
+def test_deleting_unified_album_download_keeps_library_membership(
+    music_directory,
+) -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
-    Session = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
+    Session = sessionmaker(
+        bind=engine, autoflush=False, autocommit=False, expire_on_commit=False
+    )
     preview = OnlineAlbumPreview(
         external_id="downloaded-unified",
         title="Album",
-        tracks=[OnlineAlbumTrackPreview(external_id="track", title="Track", position=0)],
+        tracks=[
+            OnlineAlbumTrackPreview(external_id="track", title="Track", position=0)
+        ],
     )
 
     with Session() as session:
@@ -395,19 +454,25 @@ def test_deleting_unified_album_download_keeps_library_membership(music_director
         track.is_downloaded = True
         session.commit()
 
-        response = asyncio.run(service.remove_unified_album_download("downloaded-unified"))
+        response = asyncio.run(
+            service.remove_unified_album_download("downloaded-unified")
+        )
 
     assert response.state.in_library is True
     assert response.state.download == "none"
     assert audio_file.exists() is False
 
 
-def test_track_status_detects_standalone_downloaded_youtube_song(music_directory) -> None:
+def test_track_status_detects_standalone_downloaded_youtube_song(
+    music_directory,
+) -> None:
     audio_file = music_directory / "downloaded.mp3"
     audio_file.write_bytes(b"audio")
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
-    Session = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
+    Session = sessionmaker(
+        bind=engine, autoflush=False, autocommit=False, expire_on_commit=False
+    )
 
     with Session() as session:
         session.add(
@@ -419,16 +484,22 @@ def test_track_status_detects_standalone_downloaded_youtube_song(music_directory
             )
         )
         session.commit()
-        statuses = LibraryAlbumService(session).track_statuses(["downloaded-video", "online-video"])
+        statuses = LibraryAlbumService(session).track_statuses(
+            ["downloaded-video", "online-video"]
+        )
 
     assert statuses.statuses[0].is_downloaded is True
     assert statuses.statuses[1].is_downloaded is False
 
 
-def test_album_read_reports_missing_media_without_mutating_database(music_directory) -> None:
+def test_album_read_reports_missing_media_without_mutating_database(
+    music_directory,
+) -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
-    Session = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
+    Session = sessionmaker(
+        bind=engine, autoflush=False, autocommit=False, expire_on_commit=False
+    )
 
     with Session() as session:
         album = LibraryAlbum(
@@ -460,18 +531,23 @@ def test_album_read_reports_missing_media_without_mutating_database(music_direct
     assert track.file_path == "missing.mp3"
 
 
-def test_downloaded_unified_track_stream_url_matches_a_real_media_route(music_directory) -> None:
-    from starlette.routing import Match
-
+def test_downloaded_unified_track_stream_url_matches_a_real_media_route(
+    music_directory,
+) -> None:
     from app.main import app
+    from starlette.routing import Match
 
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
-    Session = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
+    Session = sessionmaker(
+        bind=engine, autoflush=False, autocommit=False, expire_on_commit=False
+    )
     preview = OnlineAlbumPreview(
         external_id="stream-url-album",
         title="Album",
-        tracks=[OnlineAlbumTrackPreview(external_id="track", title="Track", position=0)],
+        tracks=[
+            OnlineAlbumTrackPreview(external_id="track", title="Track", position=0)
+        ],
     )
 
     with Session() as session:
@@ -492,14 +568,20 @@ def test_downloaded_unified_track_stream_url_matches_a_real_media_route(music_di
 
 
 @pytest.mark.parametrize("track_occurrences", [1, 3])
-@pytest.mark.parametrize("source_url", ["https://music.youtube.com/watch?v=video-1", None])
-def test_importing_the_same_playlist_twice_creates_distinct_playlists(monkeypatch, track_occurrences, source_url) -> None:
+@pytest.mark.parametrize(
+    "source_url", ["https://music.youtube.com/watch?v=video-1", None]
+)
+def test_importing_the_same_playlist_twice_creates_distinct_playlists(
+    monkeypatch, track_occurrences, source_url
+) -> None:
     import app.services.library_albums as library_albums_module
     from app.models import AlbumDownloadJob, Playlist
 
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
-    Session = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
+    Session = sessionmaker(
+        bind=engine, autoflush=False, autocommit=False, expire_on_commit=False
+    )
     preview = OnlineAlbumPreview(
         external_id="VLPLimport",
         title="Road Trip",
@@ -525,13 +607,23 @@ def test_importing_the_same_playlist_twice_creates_distinct_playlists(monkeypatc
         first = asyncio.run(service.import_playlist_url(url=url))
         second = asyncio.run(service.import_playlist_url(url=url))
 
-        names = [session.get(Playlist, result["playlist_id"]).name for result in (first, second)]
+        names = [
+            session.get(Playlist, result["playlist_id"]).name
+            for result in (first, second)
+        ]
 
-        jobs = [session.get(AlbumDownloadJob, result["download_job_id"]) for result in (first, second)]
+        jobs = [
+            session.get(AlbumDownloadJob, result["download_job_id"])
+            for result in (first, second)
+        ]
         expected_downloads = 1 if source_url else 0
-        assert all(job.total_tracks == len(job.items) == expected_downloads for job in jobs)
+        assert all(
+            job.total_tracks == len(job.items) == expected_downloads for job in jobs
+        )
         if not source_url:
-            assert all(job.status == "completed" and job.progress == 100 for job in jobs)
+            assert all(
+                job.status == "completed" and job.progress == 100 for job in jobs
+            )
         assert first["tracks"] == second["tracks"] == 1
 
     assert names == ["Road Trip", "Road Trip (2)"]

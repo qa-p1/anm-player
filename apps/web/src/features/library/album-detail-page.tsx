@@ -1,3 +1,5 @@
+import { invalidateLibrary } from "@/services/music-invalidation";
+import { musicKeys } from "@/services/music-keys";
 import { shuffleTracks } from "@/utils/track-collection";
 import { motion } from "framer-motion";
 import { Check, Disc, Download, Heart, LoaderCircle, Play, Plus, Shuffle, Trash2, X } from "lucide-react";
@@ -13,7 +15,7 @@ import { BackButton } from "@/components/navigation/back-button";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/toast";
-import { musicKeys, useUnifiedAlbum } from "@/hooks/use-music-queries";
+import { useUnifiedAlbum } from "@/hooks/use-music-queries";
 import { queryClient } from "@/lib/query-client";
 import { cachedArtworkUrl } from "@/services/api-client";
 import {
@@ -62,8 +64,7 @@ export function AlbumDetailPage() {
   function commit(next: UnifiedAlbum) {
     queryClient.setQueryData(musicKeys.unifiedAlbum(albumId), next);
     void queryClient.invalidateQueries({ queryKey: musicKeys.downloadsList() });
-    void queryClient.invalidateQueries({ queryKey: musicKeys.albums() });
-    void queryClient.invalidateQueries({ queryKey: musicKeys.favorites() });
+    void invalidateLibrary(queryClient);
   }
 
   async function run(name: MutationName, action: () => Promise<UnifiedAlbum>, success?: string) {

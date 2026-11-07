@@ -3,11 +3,17 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, status
 from sqlalchemy import delete
 
-from app.api.deps import DbSession, LimitQuery, OffsetQuery, ResourceId, get_catalog_service
+from app.api.deps import (
+    DbSession,
+    LimitQuery,
+    OffsetQuery,
+    ResourceId,
+    get_catalog_service,
+)
 from app.core.exceptions import ResourceNotFoundError
 from app.models import History
 from app.schemas.music import HistoryCreateRequest, HistoryResponse
-from app.services import CatalogService
+from app.services.catalog import CatalogService
 
 router = APIRouter()
 

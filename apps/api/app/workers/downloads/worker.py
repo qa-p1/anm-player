@@ -19,7 +19,13 @@ from app.core.enums import DownloadStage, DownloadStatus
 from app.core.youtube import youtube_video_id
 from app.database.session import SessionLocal
 from app.models import AlbumDownloadItem, DownloadJob, LibraryAlbum, Song
-from app.repositories.music import AlbumRepository, ArtistRepository, DownloadJobRepository, SongRepository
+from app.repositories.music import (
+    AlbumRepository,
+    ArtistRepository,
+    DownloadJobRepository,
+    SongRepository,
+)
+from app.services.artwork_cache import ArtworkCacheService
 from app.services.download_state import (
     claim_job_ownership,
     release_job_ownership,
@@ -29,13 +35,12 @@ from app.services.download_state import (
 from app.services.downloads import download_job_response
 from app.services.file_paths import library_storage_path
 from app.services.library_scanner import library_sync_guard
-from app.services.naming import NamingService
-from app.services.artwork_cache import ArtworkCacheService
 from app.services.lyrics_service import LyricsService
+from app.services.metadata.service import MetadataEnrichmentService
+from app.services.naming import NamingService
+from app.services.settings import SettingsService
 from app.services.tagging import AudioTagData, AudioTaggingService
 from app.services.websocket_manager import download_progress_hub
-from app.services.settings import SettingsService
-from app.services.metadata.service import MetadataEnrichmentService
 from app.services.ytmusic_service import PlaybackData, ytmusic_service
 from app.storage import storage_manager
 from app.storage.coordinator import StorageMigrationError, storage_coordinator
@@ -63,7 +68,9 @@ class DownloadWorker:
         self._recover_orphaned_jobs()
         self._stop_event.clear()
         self._threads = [
-            threading.Thread(target=self._run, name=f"aura-download-worker-{index + 1}", daemon=True)
+            threading.Thread(
+                target=self._run, name=f"aura-download-worker-{index + 1}", daemon=True
+            )
             for index in range(worker_count)
         ]
         for thread in self._threads:
@@ -78,7 +85,9 @@ class DownloadWorker:
             logger.exception("could not requeue interrupted downloads")
             return
         if recovered:
-            logger.info("returned %s interrupted downloads to the queue", len(recovered))
+            logger.info(
+                "returned %s interrupted downloads to the queue", len(recovered)
+            )
             for job_id in recovered:
                 self._publish(job_id)
 
@@ -110,7 +119,9 @@ class DownloadWorker:
                 finally:
                     release_job_ownership(job_id)
                     self._progress_written_at.pop(job_id, None)
-                    shutil.rmtree(self._download_jobs_dir() / str(job_id), ignore_errors=True)
+                    shutil.rmtree(
+                        self._download_jobs_dir() / str(job_id), ignore_errors=True
+                    )
         except StorageMigrationError:
             return
 
@@ -124,13 +135,19 @@ class DownloadWorker:
         with SessionLocal() as session:
             runtime = SettingsService(session)
             maximum = runtime.get_int("max_concurrent_downloads", 8)
-            active = session.query(DownloadJob).filter(
-                DownloadJob.status.in_([
-                    DownloadStatus.PREPARING,
-                    DownloadStatus.DOWNLOADING,
-                    DownloadStatus.PROCESSING,
-                ])
-            ).count()
+            active = (
+                session.query(DownloadJob)
+                .filter(
+                    DownloadJob.status.in_(
+                        [
+                            DownloadStatus.PREPARING,
+                            DownloadStatus.DOWNLOADING,
+                            DownloadStatus.PROCESSING,
+                        ]
+                    )
+                )
+                .count()
+            )
             if active >= maximum:
                 return None
             downloads = DownloadJobRepository(session)
@@ -152,7 +169,10 @@ class DownloadWorker:
             downloads = DownloadJobRepository(session)
             fresh_job = downloads.get(job_id)
             if fresh_job and fresh_job.status != DownloadStatus.CANCELLED:
-                if storage_coordinator.cancel_work.is_set() or fresh_job.status == DownloadStatus.QUEUED:
+                if (
+                    storage_coordinator.cancel_work.is_set()
+                    or fresh_job.status == DownloadStatus.QUEUED
+                ):
                     fresh_job.status = DownloadStatus.QUEUED
                     fresh_job.stage = DownloadStage.QUEUED
                     if fresh_job.queue_item:
@@ -201,22 +221,24 @@ class DownloadWorker:
             hook_job = DownloadJobRepository(hook_session).get(job_id)
             if not hook_job:
                 return
-            if storage_coordinator.cancel_work.is_set():
-                hook_job.status = DownloadStatus.QUEUED
-                hook_job.stage = DownloadStage.QUEUED
-                if hook_job.queue_item:
-                    hook_job.queue_item.status = DownloadStatus.QUEUED
-                sync_linked_album_download(hook_session, hook_job)
-                hook_session.commit()
-                raise RuntimeError("Download returned to queue for storage migration")
-            if hook_job.status == DownloadStatus.CANCELLED:
-                raise RuntimeError("Download cancelled")
-            while hook_job.status == DownloadStatus.PAUSED:
+            while True:
+                if storage_coordinator.cancel_work.is_set():
+                    hook_job.status = DownloadStatus.QUEUED
+                    hook_job.stage = DownloadStage.QUEUED
+                    if hook_job.queue_item:
+                        hook_job.queue_item.status = DownloadStatus.QUEUED
+                    sync_linked_album_download(hook_session, hook_job)
+                    hook_session.commit()
+                    raise RuntimeError(
+                        "Download returned to queue for storage migration"
+                    )
+                if hook_job.status == DownloadStatus.CANCELLED:
+                    raise RuntimeError("Download cancelled")
+                if hook_job.status != DownloadStatus.PAUSED:
+                    break
                 hook_session.commit()
                 time.sleep(0.25)
                 hook_session.refresh(hook_job)
-                if hook_job.status == DownloadStatus.CANCELLED:
-                    raise RuntimeError("Download cancelled")
 
             status = payload.get("status")
             if status == "downloading":
@@ -225,7 +247,8 @@ class DownloadWorker:
                 if (
                     hook_job.status == DownloadStatus.DOWNLOADING
                     and progress == hook_job.progress
-                    and now - self._progress_written_at.get(job_id, 0.0) < PROGRESS_WRITE_INTERVAL_SECONDS
+                    and now - self._progress_written_at.get(job_id, 0.0)
+                    < PROGRESS_WRITE_INTERVAL_SECONDS
                 ):
                     return
                 self._progress_written_at[job_id] = now
@@ -270,7 +293,9 @@ class DownloadWorker:
             ],
         }
 
-        resolved_video_id = _safe_video_id(video_id) or _safe_video_id(youtube_video_id(source_url))
+        resolved_video_id = _safe_video_id(video_id) or _safe_video_id(
+            youtube_video_id(source_url)
+        )
         if resolved_video_id:
             # Resolve the player's stream first to bypass yt-dlp media requests
             # rejected by YouTube. Keep yt-dlp available if that stream fails.
@@ -282,7 +307,10 @@ class DownloadWorker:
                     work_dir,
                 )
             except Exception as direct_error:
-                if storage_coordinator.cancel_work.is_set() or "cancelled" in str(direct_error).casefold():
+                if (
+                    storage_coordinator.cancel_work.is_set()
+                    or "cancelled" in str(direct_error).casefold()
+                ):
                     raise
                 logger.warning(
                     "Direct playback download failed; falling back to yt-dlp",
@@ -295,7 +323,10 @@ class DownloadWorker:
                 info = ydl.extract_info(source_url, download=True)
             return info, self._find_output_file(work_dir, audio_format)
         except Exception as ytdlp_error:
-            if storage_coordinator.cancel_work.is_set() or "cancelled" in str(ytdlp_error).casefold():
+            if (
+                storage_coordinator.cancel_work.is_set()
+                or "cancelled" in str(ytdlp_error).casefold()
+            ):
                 raise
             if not resolved_video_id:
                 raise
@@ -319,7 +350,9 @@ class DownloadWorker:
             raise RuntimeError("Playback stream did not contain an audio URL")
 
         mime_type = str((playback.format or {}).get("mimeType") or "")
-        source_suffix = ".m4a" if "audio/mp4" in mime_type or "mp4a" in mime_type else ".webm"
+        source_suffix = (
+            ".m4a" if "audio/mp4" in mime_type or "mp4a" in mime_type else ".webm"
+        )
         source_file = work_dir / f".{video_id}.source{source_suffix}"
         output_file = work_dir / f"{video_id}.{audio_format}"
         source_file.unlink(missing_ok=True)
@@ -327,7 +360,9 @@ class DownloadWorker:
 
         succeeded = False
         try:
-            downloaded, total = self._download_playback_stream(job_id, playback, source_file)
+            downloaded, total = self._download_playback_stream(
+                job_id, playback, source_file
+            )
             if downloaded == 0:
                 raise RuntimeError("Playback stream returned an empty audio file")
 
@@ -363,8 +398,14 @@ class DownloadWorker:
                 text=True,
                 check=False,
             )
-            if converted.returncode != 0 or not output_file.is_file() or output_file.stat().st_size == 0:
-                detail = converted.stderr.strip() or "FFmpeg did not create an audio file"
+            if (
+                converted.returncode != 0
+                or not output_file.is_file()
+                or output_file.stat().st_size == 0
+            ):
+                detail = (
+                    converted.stderr.strip() or "FFmpeg did not create an audio file"
+                )
                 raise RuntimeError(detail)
 
             details = dict(playback.video_details or {})
@@ -390,7 +431,9 @@ class DownloadWorker:
     ) -> tuple[int, int | None]:
         """Copy a playback URL with ranged retries so a throttled connection cannot stall a job."""
         playback_format = playback.format or {}
-        total_hint = _positive_int(playback_format.get("contentLength") or playback_format.get("clen"))
+        total_hint = _positive_int(
+            playback_format.get("contentLength") or playback_format.get("clen")
+        )
         opener = build_opener()
         if not total_hint:
             return self._download_playback_sequential(job_id, playback, target, opener)
@@ -404,16 +447,25 @@ class DownloadWorker:
             sequential_fallback = False
             for attempt in range(3):
                 try:
-                    headers = {key: value for key, value in playback.request_headers.items() if key.lower() != "range"}
+                    headers = {
+                        key: value
+                        for key, value in playback.request_headers.items()
+                        if key.lower() != "range"
+                    }
                     headers["Range"] = f"bytes={start}-{end}"
-                    request = Request(playback.stream_url, headers=headers, method="GET")
+                    request = Request(
+                        playback.stream_url, headers=headers, method="GET"
+                    )
                     with opener.open(request, timeout=30) as response:
                         response_status = int(getattr(response, "status", 200) or 200)
                         if response_status == 200:
                             if start:
                                 sequential_fallback = True
                                 break
-                            total = _positive_int(response.headers.get("Content-Length")) or total_hint
+                            total = (
+                                _positive_int(response.headers.get("Content-Length"))
+                                or total_hint
+                            )
                             received = self._copy_playback_response(
                                 job_id,
                                 response,
@@ -424,10 +476,20 @@ class DownloadWorker:
                             )
                             return received, total
                         if response_status != 206:
-                            raise RuntimeError(f"Playback server returned HTTP {response_status}")
-                        content_range = _content_range(response.headers.get("Content-Range"))
-                        if not content_range or content_range[0] != start or content_range[1] > end:
-                            raise RuntimeError("Playback server returned an unexpected byte range")
+                            raise RuntimeError(
+                                f"Playback server returned HTTP {response_status}"
+                            )
+                        content_range = _content_range(
+                            response.headers.get("Content-Range")
+                        )
+                        if (
+                            not content_range
+                            or content_range[0] != start
+                            or content_range[1] > end
+                        ):
+                            raise RuntimeError(
+                                "Playback server returned an unexpected byte range"
+                            )
                         _, response_end, total_hint = content_range
                         expected = response_end - start + 1
                         received = self._copy_playback_response(
@@ -445,7 +507,10 @@ class DownloadWorker:
                     # Cancellation and storage migrations are control flow. Do
                     # not turn them into another network retry, which can make
                     # the queue appear stalled while shutdown is in progress.
-                    if storage_coordinator.cancel_work.is_set() or "cancelled" in str(exc).casefold():
+                    if (
+                        storage_coordinator.cancel_work.is_set()
+                        or "cancelled" in str(exc).casefold()
+                    ):
                         raise
                     if attempt == 2:
                         raise
@@ -453,7 +518,9 @@ class DownloadWorker:
             else:
                 raise RuntimeError("Playback stream could not be downloaded")
             if sequential_fallback:
-                return self._download_playback_sequential(job_id, playback, target, opener)
+                return self._download_playback_sequential(
+                    job_id, playback, target, opener
+                )
         return downloaded, total_hint
 
     def _download_playback_sequential(
@@ -463,14 +530,20 @@ class DownloadWorker:
         target: Path,
         opener,
     ) -> tuple[int, int | None]:
-        headers = {key: value for key, value in playback.request_headers.items() if key.lower() != "range"}
+        headers = {
+            key: value
+            for key, value in playback.request_headers.items()
+            if key.lower() != "range"
+        }
         request = Request(playback.stream_url, headers=headers, method="GET")
         with opener.open(request, timeout=60) as response:
             total = _positive_int(response.headers.get("Content-Length"))
             if int(getattr(response, "status", 200) or 200) == 206:
                 content_range = _content_range(response.headers.get("Content-Range"))
                 if not content_range or content_range[0] != 0:
-                    raise RuntimeError("Playback server returned an unexpected byte range")
+                    raise RuntimeError(
+                        "Playback server returned an unexpected byte range"
+                    )
                 total = content_range[2]
             received = self._copy_playback_response(
                 job_id,
@@ -497,7 +570,11 @@ class DownloadWorker:
         last_report = 0.0
         with target.open(mode) as output:
             while expected is None or received < expected:
-                read_size = 256 * 1024 if expected is None else min(256 * 1024, expected - received)
+                read_size = (
+                    256 * 1024
+                    if expected is None
+                    else min(256 * 1024, expected - received)
+                )
                 chunk = response.read(read_size)
                 if not chunk:
                     break
@@ -516,7 +593,9 @@ class DownloadWorker:
                     )
                     last_report = now
         if expected is not None and received != expected:
-            raise RuntimeError("Playback stream ended before the requested range was complete")
+            raise RuntimeError(
+                "Playback stream ended before the requested range was complete"
+            )
         return received
 
     def _save_download(
@@ -545,7 +624,13 @@ class DownloadWorker:
             self._publish(job_id)
 
             title = fresh_job.title or info.get("title") or "Song"
-            artist_name = fresh_job.artist or info.get("artist") or info.get("creator") or info.get("uploader") or "Unknown Artist"
+            artist_name = (
+                fresh_job.artist
+                or info.get("artist")
+                or info.get("creator")
+                or info.get("uploader")
+                or "Unknown Artist"
+            )
             # Only persist album metadata supplied by ANM Player's provider/library
             # context. yt-dlp frequently reports a standalone release's title as
             # its album, which used to create a fake one-song album in Library.
@@ -572,7 +657,10 @@ class DownloadWorker:
                     album=album_name,
                     album_artist=artist_name,
                     clear_album=album_name is None,
-                    year=info.get("release_year") or self._year_from_date(info.get("release_date") or info.get("upload_date")),
+                    year=info.get("release_year")
+                    or self._year_from_date(
+                        info.get("release_date") or info.get("upload_date")
+                    ),
                 ),
             )
 
@@ -580,7 +668,11 @@ class DownloadWorker:
             album = albums.get_or_create(album_name, artist.id) if album_name else None
             artwork_url = fresh_job.thumbnail_url or info.get("thumbnail")
             runtime = SettingsService(session)
-            cached_artwork = self._cache_artwork(artwork_url) if artwork_url and runtime.get_bool("download_artwork", True) else None
+            cached_artwork = (
+                self._cache_artwork(artwork_url)
+                if artwork_url and runtime.get_bool("download_artwork", True)
+                else None
+            )
             artwork_path = cached_artwork
             if artwork_url and album:
                 album.artwork_url = artwork_url
@@ -591,14 +683,15 @@ class DownloadWorker:
             if artwork_path:
                 artist.artwork_path = artwork_path
 
-            # Store library files relative to music_directory when possible.
             file_path_to_save = library_storage_path(target_path)
-            
+
             logger.debug("Saving song with file_path: %s", file_path_to_save)
 
-            album_item = session.query(AlbumDownloadItem).filter(
-                AlbumDownloadItem.download_job_id == fresh_job.id
-            ).first()
+            album_item = (
+                session.query(AlbumDownloadItem)
+                .filter(AlbumDownloadItem.download_job_id == fresh_job.id)
+                .first()
+            )
             existing_song = songs.find_by_source_url(fresh_job.source_url)
             if existing_song:
                 existing_song.relative_path = file_path_to_save
@@ -625,13 +718,22 @@ class DownloadWorker:
 
             if album_item and album_item.track:
                 if album and album_item.album_job.album.local_album_id is None:
-                    represented = session.query(LibraryAlbum).filter(LibraryAlbum.local_album_id == album.id).first()
-                    if represented is None or represented.id == album_item.album_job.album.id:
+                    represented = (
+                        session.query(LibraryAlbum)
+                        .filter(LibraryAlbum.local_album_id == album.id)
+                        .first()
+                    )
+                    if (
+                        represented is None
+                        or represented.id == album_item.album_job.album.id
+                    ):
                         album_item.album_job.album.local_album_id = album.id
                 album_item.track.song = song_for_enrichment
                 album_item.track.relative_path = file_path_to_save
                 album_item.track.is_downloaded = True
-                album_item.track.duration_seconds = album_item.track.duration_seconds or info.get("duration")
+                album_item.track.duration_seconds = (
+                    album_item.track.duration_seconds or info.get("duration")
+                )
                 album_item.track.artwork_path = artwork_path
                 if artwork_url:
                     album_item.track.artwork_url = artwork_url
@@ -717,17 +819,23 @@ class DownloadWorker:
                 target_path.unlink(missing_ok=True)
         except OSError as exc:
             restore_error = exc
-            logger.exception("Could not restore the previous audio file after a failed database commit")
+            logger.exception(
+                "Could not restore the previous audio file after a failed database commit"
+            )
         finally:
             try:
                 stage_path.unlink(missing_ok=True)
             except OSError:
-                logger.warning("Could not remove an unpublished audio staging file", exc_info=True)
+                logger.warning(
+                    "Could not remove an unpublished audio staging file", exc_info=True
+                )
             if not backed_up:
                 try:
                     backup_path.unlink(missing_ok=True)
                 except OSError:
-                    logger.warning("Could not remove an incomplete audio backup", exc_info=True)
+                    logger.warning(
+                        "Could not remove an incomplete audio backup", exc_info=True
+                    )
 
         if restore_error is not None:
             raise RuntimeError(
@@ -765,7 +873,9 @@ class DownloadWorker:
             job = DownloadJobRepository(session).get(job_id)
             if not job:
                 return
-            download_progress_hub.publish_threadsafe(job_id, download_job_response(job).model_dump(mode="json"))
+            download_progress_hub.publish_threadsafe(
+                job_id, download_job_response(job).model_dump(mode="json")
+            )
 
     def _find_output_file(self, work_dir: Path, audio_format: str) -> Path:
         for file_path in work_dir.glob(f"*.{audio_format}"):
@@ -874,7 +984,9 @@ def _positive_int(value: Any) -> int | None:
 def _content_range(value: str | None) -> tuple[int, int, int] | None:
     if not value:
         return None
-    match = re.fullmatch(r"bytes\s+(\d+)-(\d+)/(\d+)", value.strip(), flags=re.IGNORECASE)
+    match = re.fullmatch(
+        r"bytes\s+(\d+)-(\d+)/(\d+)", value.strip(), flags=re.IGNORECASE
+    )
     if not match:
         return None
     start, end, total = map(int, match.groups())

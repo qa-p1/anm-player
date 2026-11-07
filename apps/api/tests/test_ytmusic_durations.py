@@ -1,4 +1,4 @@
-from app.services.ytmusic_service.service import _responsive_item
+from app.services.ytmusic_service.parsing import _responsive_item
 
 
 def test_responsive_item_reads_duration_from_fixed_column() -> None:

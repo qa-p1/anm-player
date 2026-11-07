@@ -1,6 +1,7 @@
 import asyncio
 
-from app.services.ytmusic_service.service import InnertubeSearchResult, YouTubeMusicService
+from app.services.ytmusic_service import YouTubeMusicService
+from app.services.ytmusic_service.models import InnertubeSearchResult
 
 
 class FakeSearchClient:
@@ -19,7 +20,9 @@ def test_search_results_are_cached_by_query_filter_and_continuation() -> None:
 
     first = asyncio.run(service.search("Example", filter_name="songs"))
     second = asyncio.run(service.search(" example ", filter_name="songs"))
-    continuation = asyncio.run(service.search("Example", filter_name="songs", continuation="next"))
+    continuation = asyncio.run(
+        service.search("Example", filter_name="songs", continuation="next")
+    )
 
     assert first == second
     assert continuation.continuation == "next"

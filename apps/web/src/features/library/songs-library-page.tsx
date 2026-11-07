@@ -1,3 +1,4 @@
+import { musicKeys } from "@/services/music-keys";
 import { CollectionActions } from "@/components/cards/collection-actions";
 import { Button } from "@/components/ui/button";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
@@ -12,7 +13,7 @@ import { EmptyState } from "@/components/empty-states/empty-state";
 import { BackButton } from "@/components/navigation/back-button";
 import { Input } from "@/components/ui/input";
 import { FilterPanel, FilterState } from "@/components/filters/filter-panel";
-import { musicKeys, useAllSongs, useSearchAllSongs } from "@/hooks/use-music-queries";
+import { useAllSongs, useSearchAllSongs } from "@/hooks/use-music-queries";
 import { useQuery } from "@tanstack/react-query";
 import { advancedSearchAllSongs } from "@/services/music-api";
 import type { Song } from "@/types/api";

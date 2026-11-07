@@ -2,12 +2,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 
 import pytest
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, select
-from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import StaticPool
-
-from app.api.deps import get_catalog_service
+from app.api.deps import get_playlist_service
 from app.main import app
 from app.models import (
     Artist,
@@ -18,16 +13,12 @@ from app.models import (
     PlaylistSong,
     Song,
 )
-from app.repositories.music import (
-    AlbumRepository,
-    ArtistRepository,
-    FavoriteRepository,
-    HistoryRepository,
-    PlaylistRepository,
-    SongRepository,
-)
 from app.schemas.music import PlaylistDuplicateRequest
-from app.services.catalog import CatalogService
+from app.services.playlists import PlaylistService
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
 
 
 @dataclass
@@ -41,15 +32,8 @@ class PlaylistApi:
     library_track_id: int
 
 
-def catalog_service(session: Session) -> CatalogService:
-    return CatalogService(
-        SongRepository(session),
-        ArtistRepository(session),
-        AlbumRepository(session),
-        PlaylistRepository(session),
-        FavoriteRepository(session),
-        HistoryRepository(session),
-    )
+def playlist_service(session: Session) -> PlaylistService:
+    return PlaylistService(session)
 
 
 @pytest.fixture
@@ -65,7 +49,9 @@ def playlist_api() -> Iterator[PlaylistApi]:
 
     artist = Artist(name="Test Artist")
     artwork_path = f"/api/v1/media/artwork/downloads/{'a' * 64}.jpg"
-    playlist = Playlist(name="Road trip", description="Original description", artwork_path=artwork_path)
+    playlist = Playlist(
+        name="Road trip", description="Original description", artwork_path=artwork_path
+    )
     other_playlist = Playlist(name="Already used")
     first_song = Song(title="First song", artist=artist, duration_seconds=101)
     second_song = Song(title="Second song", artist=artist, duration_seconds=202)
@@ -83,12 +69,14 @@ def playlist_api() -> Iterator[PlaylistApi]:
         [
             PlaylistSong(playlist_id=playlist.id, song_id=first_song.id, position=0),
             PlaylistSong(playlist_id=playlist.id, song_id=second_song.id, position=1),
-            PlaylistLibraryTrack(playlist_id=playlist.id, track_id=library_track.id, position=2),
+            PlaylistLibraryTrack(
+                playlist_id=playlist.id, track_id=library_track.id, position=2
+            ),
         ]
     )
     session.commit()
 
-    app.dependency_overrides[get_catalog_service] = lambda: catalog_service(session)
+    app.dependency_overrides[get_playlist_service] = lambda: playlist_service(session)
     client = TestClient(app, base_url="http://localhost")
     yield PlaylistApi(
         client=client,
@@ -100,7 +88,7 @@ def playlist_api() -> Iterator[PlaylistApi]:
         library_track_id=library_track.id,
     )
     client.close()
-    app.dependency_overrides.pop(get_catalog_service, None)
+    app.dependency_overrides.pop(get_playlist_service, None)
     session.close()
     engine.dispose()
 
@@ -115,14 +103,18 @@ def item_keys(payload: dict) -> list[tuple[str, int]]:
     ]
 
 
-def persisted_item_order(api: PlaylistApi, playlist_id: int | None = None) -> list[tuple[str, int, int]]:
+def persisted_item_order(
+    api: PlaylistApi, playlist_id: int | None = None
+) -> list[tuple[str, int, int]]:
     target_id = playlist_id or api.playlist_id
     api.session.expire_all()
     song_links = api.session.scalars(
         select(PlaylistSong).where(PlaylistSong.playlist_id == target_id)
     ).all()
     track_links = api.session.scalars(
-        select(PlaylistLibraryTrack).where(PlaylistLibraryTrack.playlist_id == target_id)
+        select(PlaylistLibraryTrack).where(
+            PlaylistLibraryTrack.playlist_id == target_id
+        )
     ).all()
     items = [
         *(("song", link.song_id, link.position) for link in song_links),
@@ -131,7 +123,9 @@ def persisted_item_order(api: PlaylistApi, playlist_id: int | None = None) -> li
     return sorted(items, key=lambda item: item[2])
 
 
-def test_patch_playlist_updates_only_supplied_fields_and_can_clear_description(playlist_api: PlaylistApi) -> None:
+def test_patch_playlist_updates_only_supplied_fields_and_can_clear_description(
+    playlist_api: PlaylistApi,
+) -> None:
     response = playlist_api.client.patch(
         f"/api/v1/playlists/{playlist_api.playlist_id}",
         json={"name": "  Renamed mix  "},
@@ -149,11 +143,15 @@ def test_patch_playlist_updates_only_supplied_fields_and_can_clear_description(p
     assert response.status_code == 200
     assert response.json()["description"] is None
     playlist_api.session.expire_all()
-    assert playlist_api.session.get(Playlist, playlist_api.playlist_id).description is None
+    assert (
+        playlist_api.session.get(Playlist, playlist_api.playlist_id).description is None
+    )
 
 
 @pytest.mark.parametrize("payload", [{}, {"name": None}, {"name": "   "}])
-def test_patch_playlist_rejects_empty_or_invalid_updates(playlist_api: PlaylistApi, payload: dict) -> None:
+def test_patch_playlist_rejects_empty_or_invalid_updates(
+    playlist_api: PlaylistApi, payload: dict
+) -> None:
     response = playlist_api.client.patch(
         f"/api/v1/playlists/{playlist_api.playlist_id}",
         json=payload,
@@ -163,7 +161,9 @@ def test_patch_playlist_rejects_empty_or_invalid_updates(playlist_api: PlaylistA
     assert response.json()["error"]["code"] == "validation_error"
 
 
-def test_patch_playlist_reports_name_conflicts_without_changing_the_playlist(playlist_api: PlaylistApi) -> None:
+def test_patch_playlist_reports_name_conflicts_without_changing_the_playlist(
+    playlist_api: PlaylistApi,
+) -> None:
     response = playlist_api.client.patch(
         f"/api/v1/playlists/{playlist_api.playlist_id}",
         json={"name": "Already used"},
@@ -171,10 +171,14 @@ def test_patch_playlist_reports_name_conflicts_without_changing_the_playlist(pla
 
     assert response.status_code == 409
     playlist_api.session.expire_all()
-    assert playlist_api.session.get(Playlist, playlist_api.playlist_id).name == "Road trip"
+    assert (
+        playlist_api.session.get(Playlist, playlist_api.playlist_id).name == "Road trip"
+    )
 
 
-def test_reorder_accepts_the_complete_mixed_item_set_and_swaps_same_table_positions(playlist_api: PlaylistApi) -> None:
+def test_reorder_accepts_the_complete_mixed_item_set_and_swaps_same_table_positions(
+    playlist_api: PlaylistApi,
+) -> None:
     requested = [
         {"item_type": "song", "item_id": playlist_api.second_song_id},
         {"item_type": "library_track", "item_id": playlist_api.library_track_id},
@@ -199,7 +203,9 @@ def test_reorder_accepts_the_complete_mixed_item_set_and_swaps_same_table_positi
     ]
 
 
-def test_reorder_rejects_stale_incomplete_or_duplicate_snapshots_atomically(playlist_api: PlaylistApi) -> None:
+def test_reorder_rejects_stale_incomplete_or_duplicate_snapshots_atomically(
+    playlist_api: PlaylistApi,
+) -> None:
     original = persisted_item_order(playlist_api)
     incomplete = [
         {"item_type": "song", "item_id": playlist_api.second_song_id},
@@ -226,7 +232,9 @@ def test_reorder_rejects_stale_incomplete_or_duplicate_snapshots_atomically(play
     assert persisted_item_order(playlist_api) == original
 
 
-def test_empty_playlist_accepts_an_empty_complete_order(playlist_api: PlaylistApi) -> None:
+def test_empty_playlist_accepts_an_empty_complete_order(
+    playlist_api: PlaylistApi,
+) -> None:
     response = playlist_api.client.put(
         f"/api/v1/playlists/{playlist_api.other_playlist_id}/reorder",
         json={"items": []},
@@ -236,28 +244,43 @@ def test_empty_playlist_accepts_an_empty_complete_order(playlist_api: PlaylistAp
     assert response.json()["items"] == []
 
 
-def test_duplicate_copies_metadata_and_normalizes_mixed_item_positions(playlist_api: PlaylistApi) -> None:
-    response = playlist_api.client.post(f"/api/v1/playlists/{playlist_api.playlist_id}/duplicate")
+def test_duplicate_copies_metadata_and_normalizes_mixed_item_positions(
+    playlist_api: PlaylistApi,
+) -> None:
+    response = playlist_api.client.post(
+        f"/api/v1/playlists/{playlist_api.playlist_id}/duplicate"
+    )
 
     assert response.status_code == 201
     duplicate = response.json()
     assert duplicate["name"] == "Road trip copy"
     assert duplicate["description"] == "Original description"
-    assert duplicate["artwork_path"] == f"/api/v1/media/artwork/downloads/{'a' * 64}.jpg"
+    assert (
+        duplicate["artwork_path"] == f"/api/v1/media/artwork/downloads/{'a' * 64}.jpg"
+    )
     assert item_keys(duplicate) == [
         ("song", playlist_api.first_song_id),
         ("song", playlist_api.second_song_id),
         ("library_track", playlist_api.library_track_id),
     ]
-    assert [position for _, _, position in persisted_item_order(playlist_api, duplicate["id"])] == [0, 1, 2]
+    assert [
+        position
+        for _, _, position in persisted_item_order(playlist_api, duplicate["id"])
+    ] == [0, 1, 2]
 
-    second_response = playlist_api.client.post(f"/api/v1/playlists/{playlist_api.playlist_id}/duplicate")
+    second_response = playlist_api.client.post(
+        f"/api/v1/playlists/{playlist_api.playlist_id}/duplicate"
+    )
     assert second_response.status_code == 201
     assert second_response.json()["name"] == "Road trip copy 2"
 
 
-def test_duplicate_with_an_explicit_existing_name_is_atomic(playlist_api: PlaylistApi) -> None:
-    before = playlist_api.session.scalar(select(Playlist).where(Playlist.name == "Already used"))
+def test_duplicate_with_an_explicit_existing_name_is_atomic(
+    playlist_api: PlaylistApi,
+) -> None:
+    before = playlist_api.session.scalar(
+        select(Playlist).where(Playlist.name == "Already used")
+    )
 
     response = playlist_api.client.post(
         f"/api/v1/playlists/{playlist_api.playlist_id}/duplicate",
@@ -266,18 +289,26 @@ def test_duplicate_with_an_explicit_existing_name_is_atomic(playlist_api: Playli
 
     assert response.status_code == 409
     playlist_api.session.expire_all()
-    matches = playlist_api.session.scalars(select(Playlist).where(Playlist.name == "Already used")).all()
+    matches = playlist_api.session.scalars(
+        select(Playlist).where(Playlist.name == "Already used")
+    ).all()
     assert matches == [before]
 
 
-def test_catalog_service_generates_bounded_unique_copy_names(playlist_api: PlaylistApi) -> None:
+def test_playlist_service_generates_bounded_unique_copy_names(
+    playlist_api: PlaylistApi,
+) -> None:
     playlist = playlist_api.session.get(Playlist, playlist_api.playlist_id)
     playlist.name = "x" * 255
     playlist_api.session.commit()
-    service = catalog_service(playlist_api.session)
+    service = playlist_service(playlist_api.session)
 
-    first = service.duplicate_playlist(playlist_api.playlist_id, PlaylistDuplicateRequest())
-    second = service.duplicate_playlist(playlist_api.playlist_id, PlaylistDuplicateRequest())
+    first = service.duplicate_playlist(
+        playlist_api.playlist_id, PlaylistDuplicateRequest()
+    )
+    second = service.duplicate_playlist(
+        playlist_api.playlist_id, PlaylistDuplicateRequest()
+    )
 
     assert len(first.name) == 255
     assert first.name.endswith(" copy")
@@ -286,7 +317,9 @@ def test_catalog_service_generates_bounded_unique_copy_names(playlist_api: Playl
     assert first.name != second.name
 
 
-def test_bulk_remove_validates_every_item_then_compacts_remaining_positions(playlist_api: PlaylistApi) -> None:
+def test_bulk_remove_validates_every_item_then_compacts_remaining_positions(
+    playlist_api: PlaylistApi,
+) -> None:
     original = persisted_item_order(playlist_api)
     response = playlist_api.client.post(
         f"/api/v1/playlists/{playlist_api.playlist_id}/items/bulk-remove",
@@ -306,20 +339,31 @@ def test_bulk_remove_validates_every_item_then_compacts_remaining_positions(play
         json={
             "items": [
                 {"item_type": "song", "item_id": playlist_api.first_song_id},
-                {"item_type": "library_track", "item_id": playlist_api.library_track_id},
+                {
+                    "item_type": "library_track",
+                    "item_id": playlist_api.library_track_id,
+                },
             ]
         },
     )
 
     assert response.status_code == 200
     assert item_keys(response.json()) == [("song", playlist_api.second_song_id)]
-    assert persisted_item_order(playlist_api) == [("song", playlist_api.second_song_id, 0)]
+    assert persisted_item_order(playlist_api) == [
+        ("song", playlist_api.second_song_id, 0)
+    ]
 
 
-def test_both_clear_endpoints_remove_local_and_library_items(playlist_api: PlaylistApi) -> None:
-    duplicate = playlist_api.client.post(f"/api/v1/playlists/{playlist_api.playlist_id}/duplicate").json()
+def test_both_clear_endpoints_remove_local_and_library_items(
+    playlist_api: PlaylistApi,
+) -> None:
+    duplicate = playlist_api.client.post(
+        f"/api/v1/playlists/{playlist_api.playlist_id}/duplicate"
+    ).json()
 
-    response = playlist_api.client.delete(f"/api/v1/playlists/{playlist_api.playlist_id}/items")
+    response = playlist_api.client.delete(
+        f"/api/v1/playlists/{playlist_api.playlist_id}/items"
+    )
     assert response.status_code == 200
     assert response.json()["items"] == []
     assert persisted_item_order(playlist_api) == []
@@ -330,9 +374,13 @@ def test_both_clear_endpoints_remove_local_and_library_items(playlist_api: Playl
     assert persisted_item_order(playlist_api, duplicate["id"]) == []
 
 
-def test_m3u8_export_is_ordered_utf8_and_safe_for_headers_and_directives(playlist_api: PlaylistApi) -> None:
+def test_m3u8_export_is_ordered_utf8_and_safe_for_headers_and_directives(
+    playlist_api: PlaylistApi,
+) -> None:
     playlist = playlist_api.session.get(Playlist, playlist_api.playlist_id)
-    artist = playlist_api.session.scalar(select(Artist).where(Artist.name == "Test Artist"))
+    artist = playlist_api.session.scalar(
+        select(Artist).where(Artist.name == "Test Artist")
+    )
     song = playlist_api.session.get(Song, playlist_api.first_song_id)
     track = playlist_api.session.get(LibraryTrack, playlist_api.library_track_id)
     playlist.name = 'Mix "name"\r\nX-Injected: true / ..'
@@ -341,7 +389,9 @@ def test_m3u8_export_is_ordered_utf8_and_safe_for_headers_and_directives(playlis
     track.external_id = "video\n#EXT-X-URL"
     playlist_api.session.commit()
 
-    response = playlist_api.client.get(f"/api/v1/playlists/{playlist_api.playlist_id}/export.m3u8")
+    response = playlist_api.client.get(
+        f"/api/v1/playlists/{playlist_api.playlist_id}/export.m3u8"
+    )
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("application/vnd.apple.mpegurl")
@@ -356,12 +406,14 @@ def test_m3u8_export_is_ordered_utf8_and_safe_for_headers_and_directives(playlis
     assert "\n#EXT-X-URL" not in response.text
     assert f"/api/v1/media/songs/{playlist_api.first_song_id}/stream" in response.text
     assert "/api/v1/ytmusic/stream/video%0A%23EXT-X-URL" in response.text
-    assert response.text.index(f"/api/v1/media/songs/{playlist_api.first_song_id}/stream") < response.text.index(
-        "/api/v1/ytmusic/stream/video%0A%23EXT-X-URL"
-    )
+    assert response.text.index(
+        f"/api/v1/media/songs/{playlist_api.first_song_id}/stream"
+    ) < response.text.index("/api/v1/ytmusic/stream/video%0A%23EXT-X-URL")
 
 
-def test_adding_several_songs_in_one_request_appends_them_after_mixed_items(playlist_api: PlaylistApi) -> None:
+def test_adding_several_songs_in_one_request_appends_them_after_mixed_items(
+    playlist_api: PlaylistApi,
+) -> None:
     response = playlist_api.client.post(
         f"/api/v1/playlists/{playlist_api.other_playlist_id}/songs",
         json={"song_ids": [playlist_api.second_song_id, playlist_api.first_song_id]},
@@ -374,7 +426,9 @@ def test_adding_several_songs_in_one_request_appends_them_after_mixed_items(play
     assert [item["position"] for item in response.json()["items"]] == [0, 1]
 
     # A mixed playlist already uses positions 0-2 across both link tables.
-    playlist_api.client.delete(f"/api/v1/playlists/{playlist_api.playlist_id}/songs/{playlist_api.second_song_id}")
+    playlist_api.client.delete(
+        f"/api/v1/playlists/{playlist_api.playlist_id}/songs/{playlist_api.second_song_id}"
+    )
     extra = Song(title="Third song")
     playlist_api.session.add(extra)
     playlist_api.session.commit()
@@ -389,7 +443,9 @@ def test_adding_several_songs_in_one_request_appends_them_after_mixed_items(play
     assert len(positions) == len(set(positions)) == 4
 
 
-def test_removing_single_items_keeps_mixed_positions_dense(playlist_api: PlaylistApi) -> None:
+def test_removing_single_items_keeps_mixed_positions_dense(
+    playlist_api: PlaylistApi,
+) -> None:
     response = playlist_api.client.delete(
         f"/api/v1/playlists/{playlist_api.playlist_id}/songs/{playlist_api.first_song_id}"
     )
@@ -405,28 +461,42 @@ def test_removing_single_items_keeps_mixed_positions_dense(playlist_api: Playlis
         f"/api/v1/playlists/{playlist_api.playlist_id}/tracks/{playlist_api.library_track_id}"
     )
     assert response.status_code == 200, response.text
-    assert persisted_item_order(playlist_api) == [("song", playlist_api.second_song_id, 0)]
+    assert persisted_item_order(playlist_api) == [
+        ("song", playlist_api.second_song_id, 0)
+    ]
 
 
 @pytest.mark.parametrize("name", [" ", "\t\n", "\u2003"])
-def test_creating_blank_playlist_is_rejected(playlist_api: PlaylistApi, name: str) -> None:
+def test_creating_blank_playlist_is_rejected(
+    playlist_api: PlaylistApi, name: str
+) -> None:
     response = playlist_api.client.post("/api/v1/playlists", json={"name": name})
 
     assert response.status_code == 422
     assert len(playlist_api.session.scalars(select(Playlist)).all()) == 2
 
 
-def test_playlist_creation_normalizes_names_before_uniqueness_check(playlist_api: PlaylistApi) -> None:
-    created = playlist_api.client.post("/api/v1/playlists", json={"name": "  Evening mix  "})
+def test_playlist_creation_normalizes_names_before_uniqueness_check(
+    playlist_api: PlaylistApi,
+) -> None:
+    created = playlist_api.client.post(
+        "/api/v1/playlists", json={"name": "  Evening mix  "}
+    )
     assert created.status_code == 201
     assert created.json()["name"] == "Evening mix"
 
-    duplicate = playlist_api.client.post("/api/v1/playlists", json={"name": "Evening mix"})
+    duplicate = playlist_api.client.post(
+        "/api/v1/playlists", json={"name": "Evening mix"}
+    )
     assert duplicate.status_code == 409
 
 
-@pytest.mark.parametrize("operation", ["add", "add-online", "remove", "bulk-remove", "clear", "reorder"])
-def test_playlist_content_changes_update_modification_time(playlist_api: PlaylistApi, operation: str) -> None:
+@pytest.mark.parametrize(
+    "operation", ["add", "add-online", "remove", "bulk-remove", "clear", "reorder"]
+)
+def test_playlist_content_changes_update_modification_time(
+    playlist_api: PlaylistApi, operation: str
+) -> None:
     from datetime import UTC, datetime
 
     playlist = playlist_api.session.get(Playlist, playlist_api.playlist_id)
@@ -438,23 +508,46 @@ def test_playlist_content_changes_update_modification_time(playlist_api: Playlis
         song = Song(title="Additional song")
         playlist_api.session.add(song)
         playlist_api.session.commit()
-        response = playlist_api.client.post(f"{url}/songs", json={"song_ids": [song.id]})
+        response = playlist_api.client.post(
+            f"{url}/songs", json={"song_ids": [song.id]}
+        )
     elif operation == "add-online":
-        response = playlist_api.client.post(f"{url}/online-track", json={"external_id": "new-video", "title": "New song"})
+        response = playlist_api.client.post(
+            f"{url}/online-track",
+            json={"external_id": "new-video", "title": "New song"},
+        )
     elif operation == "remove":
-        response = playlist_api.client.delete(f"{url}/songs/{playlist_api.first_song_id}")
+        response = playlist_api.client.delete(
+            f"{url}/songs/{playlist_api.first_song_id}"
+        )
     elif operation == "bulk-remove":
-        response = playlist_api.client.post(f"{url}/items/bulk-remove", json={"items": [{"item_type": "song", "item_id": playlist_api.first_song_id}]})
+        response = playlist_api.client.post(
+            f"{url}/items/bulk-remove",
+            json={
+                "items": [{"item_type": "song", "item_id": playlist_api.first_song_id}]
+            },
+        )
     elif operation == "clear":
         response = playlist_api.client.delete(f"{url}/items")
     else:
-        response = playlist_api.client.put(f"{url}/reorder", json={"items": [
-            {"item_type": "library_track", "item_id": playlist_api.library_track_id},
-            {"item_type": "song", "item_id": playlist_api.second_song_id},
-            {"item_type": "song", "item_id": playlist_api.first_song_id},
-        ]})
+        response = playlist_api.client.put(
+            f"{url}/reorder",
+            json={
+                "items": [
+                    {
+                        "item_type": "library_track",
+                        "item_id": playlist_api.library_track_id,
+                    },
+                    {"item_type": "song", "item_id": playlist_api.second_song_id},
+                    {"item_type": "song", "item_id": playlist_api.first_song_id},
+                ]
+            },
+        )
 
     assert response.status_code == 200, response.text
     assert datetime.fromisoformat(response.json()["updated_at"]).year > old_time.year
     playlist_api.session.expire_all()
-    assert playlist_api.session.get(Playlist, playlist_api.playlist_id).updated_at.year > old_time.year
+    assert (
+        playlist_api.session.get(Playlist, playlist_api.playlist_id).updated_at.year
+        > old_time.year
+    )

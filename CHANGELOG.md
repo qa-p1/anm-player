@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Final codebase polish
+
+- Separated provider transport/models/parsing/presentation/playback/client/cache orchestration, catalog presentation, playlist transactions, and saved-album presentation while retaining HTTP contracts and package exports.
+- Shared query identity/invalidation and player transport controls; isolated artwork palette extraction, playlist item/drag rendering, equalizer definitions, and settings/storage contracts. Existing layouts and utility controls remain.
+- Album preview requests coalesce in a bounded short-lived cache with independent returned models and cancellation isolation. Album metadata hydration is bounded, download settings are read once per batch, and playlist/status favorite queries are batched.
+- Paused downloads yield to storage migration; empty audio files report unavailable consistently. Cached library/history views refresh after related actions and expose recoverable loading/error feedback.
+- Pinned the existing Starlette dependency to tested version 1.10.0 for reproducible middleware/test-client behavior and clean warnings-as-errors checks.
+- Updated Pillow to 13.0.0 after the runtime dependency audit identified 39 advisories against the existing 12.3.0 pin; image-cache/media behavior is regression tested.
+- Added an architecture map and regression coverage for service wiring, import isolation, provider cache lifecycle, query synchronization, transport controls and query budgets.
+
 ### Utility and reliability upgrade
 
 - Direct sidebar playlist navigation, search, pins, create action, and library/history shortcuts; correct active navigation on detail routes.

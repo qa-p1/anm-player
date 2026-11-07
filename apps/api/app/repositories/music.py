@@ -1,15 +1,23 @@
 from datetime import UTC, datetime
 
-from sqlalchemy import String, and_, case, cast, func, literal, select, text
-from sqlalchemy import update
+from sqlalchemy import String, and_, case, cast, func, literal, select, text, update
 from sqlalchemy.orm import Session, joinedload, selectinload
 
-from app.models import Album, AlbumDownloadItem, Artist, DownloadJob, Playlist, PlaylistLibraryTrack, QueueItem, Song
+from app.core.enums import DownloadStage, DownloadStatus
+from app.core.youtube import youtube_video_id
+from app.models import (
+    Album,
+    AlbumDownloadItem,
+    Artist,
+    DownloadJob,
+    Playlist,
+    PlaylistLibraryTrack,
+    QueueItem,
+    Song,
+)
 from app.models.history import Favorite, History
 from app.models.playlist import PlaylistSong
 from app.repositories.base import Repository
-from app.core.enums import DownloadStage, DownloadStatus
-from app.core.youtube import youtube_video_id
 
 
 class SongRepository(Repository[Song]):
@@ -23,7 +31,14 @@ class SongRepository(Repository[Song]):
     def find_by_file_path(self, file_path: str) -> Song | None:
         legacy = file_path.removeprefix("music/")
         statement = select(Song).where(
-            Song.relative_path.in_({file_path, legacy, file_path.replace("/", "\\"), legacy.replace("/", "\\")})
+            Song.relative_path.in_(
+                {
+                    file_path,
+                    legacy,
+                    file_path.replace("/", "\\"),
+                    legacy.replace("/", "\\"),
+                }
+            )
         )
         return self.session.scalars(statement).first()
 
@@ -54,14 +69,18 @@ class ArtistRepository(Repository[Artist]):
         statement = (
             select(Artist)
             .options(
-                selectinload(Artist.albums).selectinload(Album.songs).joinedload(Song.artist),
+                selectinload(Artist.albums)
+                .selectinload(Album.songs)
+                .joinedload(Song.artist),
                 selectinload(Artist.songs).joinedload(Song.album),
             )
             .where(Artist.id == artist_id)
         )
         return self.session.scalars(statement).unique().first()
 
-    def list_with_counts(self, *, limit: int = 50, offset: int = 0) -> list[tuple[Artist, int, int]]:
+    def list_with_counts(
+        self, *, limit: int = 50, offset: int = 0
+    ) -> list[tuple[Artist, int, int]]:
         statement = (
             select(
                 Artist,
@@ -88,7 +107,9 @@ class AlbumRepository(Repository[Album]):
         super().__init__(session, Album)
 
     def get_or_create(self, title: str, artist_id: int | None) -> Album:
-        statement = select(Album).where(Album.title == title, Album.artist_id == artist_id)
+        statement = select(Album).where(
+            Album.title == title, Album.artist_id == artist_id
+        )
         album = self.session.scalars(statement).first()
         if album:
             return album
@@ -114,8 +135,12 @@ class PlaylistRepository(Repository[Playlist]):
         statement = (
             select(Playlist)
             .options(
-                joinedload(Playlist.songs).joinedload(PlaylistSong.song).joinedload(Song.artist),
-                joinedload(Playlist.songs).joinedload(PlaylistSong.song).joinedload(Song.album),
+                joinedload(Playlist.songs)
+                .joinedload(PlaylistSong.song)
+                .joinedload(Song.artist),
+                joinedload(Playlist.songs)
+                .joinedload(PlaylistSong.song)
+                .joinedload(Song.album),
             )
             .where(Playlist.id == playlist_id)
         )
@@ -132,11 +157,15 @@ class PlaylistRepository(Repository[Playlist]):
             select(
                 func.max(
                     func.coalesce(
-                        select(func.max(PlaylistSong.position)).where(PlaylistSong.playlist_id == playlist_id).scalar_subquery(),
+                        select(func.max(PlaylistSong.position))
+                        .where(PlaylistSong.playlist_id == playlist_id)
+                        .scalar_subquery(),
                         -1,
                     ),
                     func.coalesce(
-                        select(func.max(PlaylistLibraryTrack.position)).where(PlaylistLibraryTrack.playlist_id == playlist_id).scalar_subquery(),
+                        select(func.max(PlaylistLibraryTrack.position))
+                        .where(PlaylistLibraryTrack.playlist_id == playlist_id)
+                        .scalar_subquery(),
                         -1,
                     ),
                 )
@@ -144,12 +173,16 @@ class PlaylistRepository(Repository[Playlist]):
         ).scalar()
         return (highest if highest is not None else -1) + 1
 
-    def add_song(self, playlist_id: int, song_id: int, *, position: int | None = None) -> PlaylistSong:
+    def add_song(
+        self, playlist_id: int, song_id: int, *, position: int | None = None
+    ) -> PlaylistSong:
         if position is None:
             if not self.get(playlist_id):
                 raise ValueError(f"Playlist {playlist_id} not found")
             position = self.next_position(playlist_id)
-        playlist_song = PlaylistSong(playlist_id=playlist_id, song_id=song_id, position=position)
+        playlist_song = PlaylistSong(
+            playlist_id=playlist_id, song_id=song_id, position=position
+        )
         self.session.add(playlist_song)
         return playlist_song
 
@@ -184,7 +217,11 @@ class DownloadJobRepository(Repository[DownloadJob]):
             )
         )
         return next(
-            (job for job in self.session.scalars(statement) if job.source_url and _download_source_key(job.source_url) == source_key),
+            (
+                job
+                for job in self.session.scalars(statement)
+                if job.source_url and _download_source_key(job.source_url) == source_key
+            ),
             None,
         )
 
@@ -197,26 +234,46 @@ class DownloadJobRepository(Repository[DownloadJob]):
             .order_by(DownloadJob.created_at.asc())
             .limit(50)
         ).all()
-        active_statuses = [DownloadStatus.PREPARING, DownloadStatus.DOWNLOADING, DownloadStatus.PROCESSING, DownloadStatus.PAUSED]
+        active_statuses = [
+            DownloadStatus.PREPARING,
+            DownloadStatus.DOWNLOADING,
+            DownloadStatus.PROCESSING,
+            DownloadStatus.PAUSED,
+        ]
         for candidate_id in candidate_ids:
             album_item = self.session.scalars(
-                select(AlbumDownloadItem).where(AlbumDownloadItem.download_job_id == candidate_id)
+                select(AlbumDownloadItem).where(
+                    AlbumDownloadItem.download_job_id == candidate_id
+                )
             ).first()
             if album_item:
-                active_count = self.session.scalar(
-                    select(func.count(AlbumDownloadItem.id))
-                    .join(DownloadJob, DownloadJob.id == AlbumDownloadItem.download_job_id)
-                    .where(
-                        AlbumDownloadItem.album_job_id == album_item.album_job_id,
-                        DownloadJob.status.in_(active_statuses),
+                active_count = (
+                    self.session.scalar(
+                        select(func.count(AlbumDownloadItem.id))
+                        .join(
+                            DownloadJob,
+                            DownloadJob.id == AlbumDownloadItem.download_job_id,
+                        )
+                        .where(
+                            AlbumDownloadItem.album_job_id == album_item.album_job_id,
+                            DownloadJob.status.in_(active_statuses),
+                        )
                     )
-                ) or 0
+                    or 0
+                )
                 if active_count >= album_item.album_job.max_parallel:
                     continue
             result = self.session.execute(
                 update(DownloadJob)
-                .where(DownloadJob.id == candidate_id, DownloadJob.status == DownloadStatus.QUEUED)
-                .values(status=DownloadStatus.PREPARING, stage=DownloadStage.PREPARING, progress=0)
+                .where(
+                    DownloadJob.id == candidate_id,
+                    DownloadJob.status == DownloadStatus.QUEUED,
+                )
+                .values(
+                    status=DownloadStatus.PREPARING,
+                    stage=DownloadStage.PREPARING,
+                    progress=0,
+                )
             )
             if result.rowcount == 1:
                 self.session.commit()
@@ -224,7 +281,9 @@ class DownloadJobRepository(Repository[DownloadJob]):
         self.session.rollback()
         return None
 
-    def list_in_queue_order(self, *, limit: int = 50, offset: int = 0) -> list[DownloadJob]:
+    def list_in_queue_order(
+        self, *, limit: int = 50, offset: int = 0
+    ) -> list[DownloadJob]:
         """Oldest first, matching the worker's claim order; the ID keeps offset paging stable."""
         statement = (
             select(DownloadJob)
@@ -234,7 +293,9 @@ class DownloadJobRepository(Repository[DownloadJob]):
         )
         return list(self.session.scalars(statement))
 
-    def list_by_statuses(self, statuses: list[str], *, limit: int = 50, offset: int = 0) -> list[DownloadJob]:
+    def list_by_statuses(
+        self, statuses: list[str], *, limit: int = 50, offset: int = 0
+    ) -> list[DownloadJob]:
         statement = (
             select(DownloadJob)
             .where(DownloadJob.status.in_(statuses))
@@ -273,8 +334,20 @@ class FavoriteRepository(Repository[Favorite]):
             return False
         return self._find(entity_type, entity_id) is not None
 
+    def ids_for(self, field, entity_ids) -> set[int]:
+        ids = set(entity_ids)
+        if not ids:
+            return set()
+        return {
+            entity_id
+            for entity_id in self.session.scalars(select(field).where(field.in_(ids)))
+            if entity_id is not None
+        }
+
     def list_all(self) -> list[Favorite]:
-        return list(self.session.scalars(select(Favorite).order_by(Favorite.created_at.desc())))
+        return list(
+            self.session.scalars(select(Favorite).order_by(Favorite.created_at.desc()))
+        )
 
     def toggle(self, entity_type: str, entity_id: int) -> bool:
         if entity_type not in FAVORITE_ENTITY_COLUMNS:
@@ -294,7 +367,10 @@ class HistoryRepository(Repository[History]):
     def list_with_songs(self, *, limit: int = 50, offset: int = 0) -> list[History]:
         statement = (
             select(History)
-            .options(joinedload(History.song).joinedload(Song.artist), joinedload(History.song).joinedload(Song.album))
+            .options(
+                joinedload(History.song).joinedload(Song.artist),
+                joinedload(History.song).joinedload(Song.album),
+            )
             .order_by(History.played_at.desc(), History.id.desc())
             .offset(offset)
             .limit(limit)
@@ -305,17 +381,22 @@ class HistoryRepository(Repository[History]):
         ranked = (
             select(
                 History.id.label("history_id"),
-                func.row_number().over(
+                func.row_number()
+                .over(
                     partition_by=self._track_key(),
                     order_by=[History.played_at.desc(), History.id.desc()],
-                ).label("recency_rank"),
+                )
+                .label("recency_rank"),
             )
             .where(History.event_type.in_(["played", "completed"]))
             .subquery()
         )
         statement = (
             select(History)
-            .options(joinedload(History.song).joinedload(Song.artist), joinedload(History.song).joinedload(Song.album))
+            .options(
+                joinedload(History.song).joinedload(Song.artist),
+                joinedload(History.song).joinedload(Song.album),
+            )
             .join(ranked, History.id == ranked.c.history_id)
             .where(ranked.c.recency_rank == 1)
             .order_by(History.played_at.desc(), History.id.desc())
@@ -330,7 +411,10 @@ class HistoryRepository(Repository[History]):
                 and_(History.source == "youtube", History.external_id.is_not(None)),
                 literal("youtube:") + History.external_id,
             ),
-            (History.song_id.is_not(None), literal("local:") + cast(History.song_id, String)),
+            (
+                History.song_id.is_not(None),
+                literal("local:") + cast(History.song_id, String),
+            ),
             (
                 and_(History.source == "local", History.external_id.is_not(None)),
                 literal("local:") + History.external_id,
@@ -342,21 +426,30 @@ class HistoryRepository(Repository[History]):
         ranked = (
             select(
                 History.id.label("history_id"),
-                func.count(History.id).over(partition_by=self._track_key()).label("play_count"),
-                func.row_number().over(
+                func.count(History.id)
+                .over(partition_by=self._track_key())
+                .label("play_count"),
+                func.row_number()
+                .over(
                     partition_by=self._track_key(),
                     order_by=[History.played_at.desc(), History.id.desc()],
-                ).label("recency_rank"),
+                )
+                .label("recency_rank"),
             )
             .where(History.event_type == "played")
             .subquery()
         )
         statement = (
             select(History)
-            .options(joinedload(History.song).joinedload(Song.artist), joinedload(History.song).joinedload(Song.album))
+            .options(
+                joinedload(History.song).joinedload(Song.artist),
+                joinedload(History.song).joinedload(Song.album),
+            )
             .join(ranked, History.id == ranked.c.history_id)
             .where(ranked.c.recency_rank == 1)
-            .order_by(ranked.c.play_count.desc(), History.played_at.desc(), History.id.desc())
+            .order_by(
+                ranked.c.play_count.desc(), History.played_at.desc(), History.id.desc()
+            )
             .limit(limit)
         )
         return list(self.session.scalars(statement).unique())

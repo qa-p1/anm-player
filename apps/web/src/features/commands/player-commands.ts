@@ -1,4 +1,4 @@
-import { audioService } from "@/services/audio-service";
+import { togglePlayback, previousTrack, nextTrack, seekByStep } from "@/features/player/playback-controls";
 import { usePlaybackPreferencesStore } from "@/stores/playback-preferences-store";
 import { usePlayerStore } from "@/stores/player-store";
 import { useUiStore } from "@/stores/ui-store";
@@ -14,28 +14,12 @@ export interface PlayerCommand {
   run: () => void;
 }
 
-function previous() {
-  const player = usePlayerStore.getState();
-  const id = player.currentSong?.id;
-  const track = player.playPreviousSong();
-  if (track) {
-    if (track.id === id) audioService.seek(0);
-    player.setIsPlaying(true);
-  }
-}
-
-function seek(direction: number) {
-  const duration = audioService.getDuration();
-  if (!Number.isFinite(duration) || duration <= 0) return;
-  audioService.seek(Math.max(0, Math.min(duration, audioService.getCurrentTime() + direction * usePlaybackPreferencesStore.getState().seekStepSeconds)));
-}
-
 export const playerCommands: PlayerCommand[] = [
-  { id: "play-pause", label: "Play or pause", group: "Transport", keys: "Space", code: "Space", needsTrack: true, run: () => { const p = usePlayerStore.getState(); if (p.playbackStatus === "error") p.retryCurrentSong(); else p.setIsPlaying(!p.isPlaying); } },
-  { id: "previous", label: "Previous track", group: "Transport", keys: "Ctrl/⌘ ←", code: "ArrowLeft", modified: true, needsTrack: true, run: previous },
-  { id: "next", label: "Next track", group: "Transport", keys: "Ctrl/⌘ →", code: "ArrowRight", modified: true, needsTrack: true, run: () => { const p = usePlayerStore.getState(); if (p.playNextManually()) p.setIsPlaying(true); } },
-  { id: "seek-back", label: "Seek backward", group: "Transport", keys: "←", code: "ArrowLeft", needsTrack: true, run: () => seek(-1) },
-  { id: "seek-forward", label: "Seek forward", group: "Transport", keys: "→", code: "ArrowRight", needsTrack: true, run: () => seek(1) },
+  { id: "play-pause", label: "Play or pause", group: "Transport", keys: "Space", code: "Space", needsTrack: true, run: togglePlayback },
+  { id: "previous", label: "Previous track", group: "Transport", keys: "Ctrl/⌘ ←", code: "ArrowLeft", modified: true, needsTrack: true, run: previousTrack },
+  { id: "next", label: "Next track", group: "Transport", keys: "Ctrl/⌘ →", code: "ArrowRight", modified: true, needsTrack: true, run: nextTrack },
+  { id: "seek-back", label: "Seek backward", group: "Transport", keys: "←", code: "ArrowLeft", needsTrack: true, run: () => seekByStep(-1) },
+  { id: "seek-forward", label: "Seek forward", group: "Transport", keys: "→", code: "ArrowRight", needsTrack: true, run: () => seekByStep(1) },
   { id: "volume-up", label: "Volume up", group: "Transport", keys: "↑", code: "ArrowUp", run: () => { const p = usePlayerStore.getState(); p.setVolume(p.volume + 0.1); } },
   { id: "volume-down", label: "Volume down", group: "Transport", keys: "↓", code: "ArrowDown", run: () => { const p = usePlayerStore.getState(); p.setVolume(p.volume - 0.1); } },
   { id: "mute", label: "Mute or unmute", group: "Transport", keys: "M", code: "KeyM", run: () => usePlayerStore.getState().toggleMute() },

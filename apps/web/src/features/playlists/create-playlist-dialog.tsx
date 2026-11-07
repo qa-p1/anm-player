@@ -1,3 +1,4 @@
+import { invalidatePlaylists } from "@/services/music-invalidation";
 import { useUiStore } from "@/stores/ui-store";
 import { useState } from "react";
 import { useNavigate } from "react-router";
@@ -5,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/toast";
-import { musicKeys, useCreatePlaylist, useAddTracksToPlaylist } from "@/hooks/use-music-queries";
+import { useCreatePlaylist, useAddTracksToPlaylist } from "@/hooks/use-music-queries";
 import { queryClient } from "@/lib/query-client";
 import type { PlayerTrack } from "@/types/player";
 
@@ -28,7 +29,7 @@ export function CreatePlaylistDialog({ open, onOpenChange, tracks = [] }: { open
       } catch (error) {
         toast(`Playlist created; some tracks could not be added. ${error instanceof Error ? error.message : "Try again from the track menu."}`, "error");
       }
-      void queryClient.invalidateQueries({ queryKey: musicKeys.playlists() });
+      void invalidatePlaylists(queryClient);
       setName("");
       onOpenChange(false);
       useUiStore.getState().setPlayerExpanded(false);

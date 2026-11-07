@@ -1,21 +1,15 @@
 from datetime import UTC, datetime
 
-from sqlalchemy import create_engine, select
-from sqlalchemy.orm import sessionmaker
-
 from app.models import Base, LibraryTrack, Playlist, PlaylistLibraryTrack, Song
 from app.models.playlist import PlaylistSong
 from app.repositories.music import (
-    AlbumRepository,
-    ArtistRepository,
-    FavoriteRepository,
-    HistoryRepository,
     PlaylistRepository,
-    SongRepository,
 )
 from app.schemas.music import PlaylistAddOnlineTrackRequest
-from app.services.catalog import CatalogService
 from app.services.library_albums import LibraryAlbumService
+from app.services.playlists import PlaylistService
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import sessionmaker
 
 
 def make_session():
@@ -49,14 +43,7 @@ def test_online_playlist_second_track_uses_position_one() -> None:
         playlist = Playlist(name="Online")
         session.add(playlist)
         session.flush()
-        service = CatalogService(
-            SongRepository(session),
-            ArtistRepository(session),
-            AlbumRepository(session),
-            PlaylistRepository(session),
-            FavoriteRepository(session),
-            HistoryRepository(session),
-        )
+        service = PlaylistService(session)
 
         for index in (1, 2):
             service.add_online_track_to_playlist(
@@ -68,7 +55,9 @@ def test_online_playlist_second_track_uses_position_one() -> None:
             )
 
         positions = session.scalars(
-            select(PlaylistLibraryTrack.position).order_by(PlaylistLibraryTrack.position)
+            select(PlaylistLibraryTrack.position).order_by(
+                PlaylistLibraryTrack.position
+            )
         ).all()
 
     assert positions == [0, 1]
@@ -78,7 +67,9 @@ def test_saved_library_playlist_second_track_uses_position_one() -> None:
     with make_session() as session:
         playlist = Playlist(name="Saved", updated_at=datetime(2000, 1, 1, tzinfo=UTC))
         tracks = [
-            LibraryTrack(external_id=f"track-{index}", title=f"Track {index}", position=index)
+            LibraryTrack(
+                external_id=f"track-{index}", title=f"Track {index}", position=index
+            )
             for index in (1, 2)
         ]
         session.add_all([playlist, *tracks])
@@ -90,7 +81,9 @@ def test_saved_library_playlist_second_track_uses_position_one() -> None:
         service.add_tracks_to_playlist(playlist.id, [tracks[1].id])
 
         positions = session.scalars(
-            select(PlaylistLibraryTrack.position).order_by(PlaylistLibraryTrack.position)
+            select(PlaylistLibraryTrack.position).order_by(
+                PlaylistLibraryTrack.position
+            )
         ).all()
 
     assert positions == [0, 1]

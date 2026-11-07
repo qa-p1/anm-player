@@ -18,9 +18,9 @@ from app.schemas.library import (
     AlbumDownloadJobResponse,
     AlbumStatusRequest,
     AlbumStatusResponse,
-    LibraryArtistDetailResponse,
     LibraryAlbumDetailResponse,
     LibraryAlbumResponse,
+    LibraryArtistDetailResponse,
     LibraryCountsResponse,
     LibraryRemoveResponse,
     LibrarySearchResponse,
@@ -32,7 +32,7 @@ from app.schemas.library import (
     TrackStatusRequest,
     TrackStatusResponse,
 )
-from app.services import LibraryAlbumService
+from app.services.library_albums import LibraryAlbumService
 from app.services.library_scanner import LibraryScannerService
 from app.storage import storage_manager
 from app.storage.coordinator import storage_coordinator

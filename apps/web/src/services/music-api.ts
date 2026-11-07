@@ -34,7 +34,6 @@ import type {
   TrackStatusResponse,
 } from "@/types/api";
 
-// Downloads
 function listDownloads(limit = 100, offset = 0, signal?: AbortSignal) {
   return apiGet<DownloadJob[]>(`/downloads?limit=${limit}&offset=${offset}`, { signal });
 }
@@ -75,7 +74,6 @@ export function removeCompletedDownloads() {
   return apiDelete<{ removed: number }>("/downloads/completed");
 }
 
-// Songs
 function listSongs(limit = 50, offset = 0, signal?: AbortSignal) {
   return apiGet<Song[]>(`/songs?limit=${limit}&offset=${offset}`, { signal });
 }
@@ -94,7 +92,6 @@ export function listFavorites(signal?: AbortSignal) {
   return apiGet<FavoritesResponse>("/favorites", { signal });
 }
 
-// Artists
 function listArtists(limit = 50, offset = 0, signal?: AbortSignal) {
   return apiGet<Artist[]>(`/artists?limit=${limit}&offset=${offset}`, { signal });
 }
@@ -139,7 +136,6 @@ export function removeUnifiedAlbumDownload(publicId: string) {
   return apiDelete<UnifiedAlbum>(`/albums/${encodeURIComponent(publicId)}/download`);
 }
 
-// Playlists
 function listPlaylists(limit = 50, offset = 0, signal?: AbortSignal) {
   return apiGet<Playlist[]>(`/playlists?limit=${limit}&offset=${offset}`, { signal });
 }
@@ -196,12 +192,10 @@ export function removeLibraryTrackFromPlaylist(playlistId: number, trackId: numb
   return apiDelete<PlaylistDetail>(`/playlists/${playlistId}/tracks/${trackId}`);
 }
 
-// Favorites
 export function toggleFavorite(request: FavoriteToggleRequest) {
   return apiPost<{ is_favorited: boolean }, FavoriteToggleRequest>("/favorites/toggle", request);
 }
 
-// History
 export function addHistory(request: HistoryCreateRequest) {
   return apiPost<HistoryEntry, HistoryCreateRequest>("/history", request);
 }
@@ -230,7 +224,6 @@ export function getListeningInsights(days = 30, signal?: AbortSignal) {
   return apiGet<ListeningInsights>(`/insights?days=${days}`, { signal });
 }
 
-// Media streaming
 export function getSongStreamUrl(songId: number): string {
   return `/api/v1/media/songs/${songId}/stream`;
 }
@@ -327,7 +320,6 @@ export function importPlaylistUrl(url: string, name?: string, maxParallel?: numb
   );
 }
 
-// Advanced Search
 function advancedSearchSongs(params: {
   q?: string;
   artist_ids?: string;
@@ -376,7 +368,6 @@ export function enrichSong(songId: number, provider?: string) {
   return apiPost<Song, { provider?: string }>(`/metadata/songs/${songId}/enrich`, { provider });
 }
 
-// Lyrics
 export function getSongLyrics(songId: number, signal?: AbortSignal) {
   return apiGet<LyricsResponse>(
     `/lyrics/songs/${songId}`,

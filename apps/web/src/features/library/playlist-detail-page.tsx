@@ -1,31 +1,14 @@
-import { musicKeys, usePlaylist } from "@/hooks/use-music-queries";
-import { queryClient } from "@/lib/query-client";
+import { musicKeys } from "@/services/music-keys";
+import { usePlaylist } from "@/hooks/use-music-queries";
+import { useQueryClient } from "@tanstack/react-query";
+import { invalidatePlaylists, invalidatePlaylistSummaries } from "@/services/music-invalidation";
 import { CollectionActions } from "@/components/cards/collection-actions";
-import {
-  DndContext,
-  DragOverlay,
-  KeyboardSensor,
-  PointerSensor,
-  TouchSensor,
-  closestCenter,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-  type DragStartEvent,
-} from "@dnd-kit/core";
-import {
-  SortableContext,
-  arrayMove,
-  sortableKeyboardCoordinates,
-  useSortable,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
+import { SortablePlaylist, PlaylistMosaic } from "@/features/playlists/playlist-track-list";
+import { playlistItems, withOrderedItems, itemToPlayerTrack, itemKey, itemReference, type PlaylistItem } from "@/features/playlists/playlist-model";
 import { motion } from "framer-motion";
 import {
   CheckSquare2,
   Copy,
-  GripVertical,
   ListMusic,
   ListPlus,
   Pencil,
@@ -35,14 +18,12 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useMemo, useState, type CSSProperties } from "react";
+import { useMemo, useState} from "react";
 import { useNavigate, useParams } from "react-router";
 import { useShallow } from "zustand/react/shallow";
 
 import { pageTransition } from "@/animations/page-motion";
 import { ArtworkImage } from "@/components/cards/artwork-image";
-import { SongCard } from "@/components/cards/song-card";
-import { TrackRow } from "@/components/cards/track-row";
 import { BackButton } from "@/components/navigation/back-button";
 import { Button } from "@/components/ui/button";
 import {
@@ -55,7 +36,6 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/toast";
-import { cn } from "@/lib/utils";
 import { cachedArtworkUrl } from "@/services/api-client";
 import {
   bulkRemovePlaylistItems,
@@ -67,23 +47,21 @@ import {
   updatePlaylist,
 } from "@/services/music-api";
 import { usePlayerStore } from "@/stores/player-store";
-import type { PlaylistDetail, PlaylistItemReference } from "@/types/api";
+import type { PlaylistDetail } from "@/types/api";
 import type { PlayerTrack } from "@/types/player";
-import { libraryTrackToPlayerTrack, songToPlayerTrack } from "@/types/player";
 import { formatDuration } from "@/utils/format";
 
-type PlaylistItem = NonNullable<PlaylistDetail["items"]>[number];
 type SortChoice = "custom" | "title" | "artist" | "album" | "duration";
 
 export function PlaylistDetailPage() {
   const { playlistId } = useParams<{ playlistId: string }>();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const id = Number(playlistId);
   const { data: playlist, isLoading, error, refetch } = usePlaylist(id);
   function setPlaylist(value: PlaylistDetail) {
     queryClient.setQueryData(musicKeys.playlist(id), value);
-    void queryClient.invalidateQueries({ queryKey: musicKeys.playlistsAll() });
-    void queryClient.invalidateQueries({ queryKey: musicKeys.favorites() });
+    void invalidatePlaylistSummaries(queryClient);
   }
   const [isMutating, setIsMutating] = useState(false);
   const [query, setQuery] = useState("");
@@ -109,8 +87,7 @@ export function PlaylistDetailPage() {
     try {
       await deletePlaylist(playlist.id);
       queryClient.removeQueries({ queryKey: musicKeys.playlist(playlist.id) });
-      void queryClient.invalidateQueries({ queryKey: musicKeys.favorites() });
-      void queryClient.invalidateQueries({ queryKey: musicKeys.playlists() });
+      void invalidatePlaylists(queryClient);
       navigate("/library/playlists");
     } catch (error) {
       toast(error instanceof Error ? error.message : "Could not delete playlist", "error");
@@ -144,7 +121,7 @@ export function PlaylistDetailPage() {
     setIsMutating(true);
     try {
       const duplicate = await duplicatePlaylist(playlist.id);
-      void queryClient.invalidateQueries({ queryKey: musicKeys.playlists() });
+      void invalidatePlaylists(queryClient);
       toast(`Created “${duplicate.name}”`, "success");
       navigate(`/library/playlists/${duplicate.id}`);
     } catch (error) {
@@ -247,8 +224,7 @@ export function PlaylistDetailPage() {
 
   function reloadPlaylist() {
     void refetch();
-    void queryClient.invalidateQueries({ queryKey: musicKeys.playlistsAll() });
-    void queryClient.invalidateQueries({ queryKey: musicKeys.favorites() });
+    void invalidatePlaylistSummaries(queryClient);
   }
 
   if (isLoading) return <div className="flex min-h-screen items-center justify-center"><p className="text-muted-foreground">Loading…</p></div>;
@@ -326,99 +302,6 @@ export function PlaylistDetailPage() {
       </Dialog>
     </motion.div>
   );
-}
-
-function SortablePlaylist({ allItems, visibleItems, context, playlistId, selected, disabled, onToggleSelected, onReorder, onSongRemoved, onTrackRemoved }: {
-  allItems: PlaylistItem[];
-  visibleItems: PlaylistItem[];
-  context: PlayerTrack[];
-  playlistId: number;
-  selected: Set<string>;
-  disabled: boolean;
-  onToggleSelected: (key: string) => void;
-  onReorder: (items: PlaylistItem[]) => void;
-  onSongRemoved: () => void;
-  onTrackRemoved: (trackId: number) => Promise<void>;
-}) {
-  const [activeId, setActiveId] = useState<string | null>(null);
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }), useSensor(TouchSensor, { activationConstraint: { delay: 120, tolerance: 8 } }), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }));
-  const activeItem = visibleItems.find((item) => itemKey(item) === activeId) ?? null;
-
-  function dragEnd(event: DragEndEvent) {
-    setActiveId(null);
-    if (!event.over || event.active.id === event.over.id) return;
-    const from = allItems.findIndex((item) => itemKey(item) === event.active.id);
-    const to = allItems.findIndex((item) => itemKey(item) === event.over?.id);
-    if (from >= 0 && to >= 0) onReorder(arrayMove(allItems, from, to));
-  }
-
-  return (
-    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={(event: DragStartEvent) => setActiveId(String(event.active.id))} onDragCancel={() => setActiveId(null)} onDragEnd={dragEnd}>
-      <SortableContext items={visibleItems.map(itemKey)} strategy={verticalListSortingStrategy}>
-        <ol className="space-y-2">{visibleItems.map((item) => <SortablePlaylistRow key={itemKey(item)} item={item} context={context} playlistId={playlistId} selected={selected.has(itemKey(item))} disabled={disabled} onToggleSelected={() => onToggleSelected(itemKey(item))} onSongRemoved={onSongRemoved} onTrackRemoved={onTrackRemoved} />)}</ol>
-      </SortableContext>
-      <DragOverlay adjustScale={false}>{activeItem ? <PlaylistDragPreview item={activeItem} /> : null}</DragOverlay>
-    </DndContext>
-  );
-}
-
-function SortablePlaylistRow({ item, context, playlistId, selected, disabled, onToggleSelected, onSongRemoved, onTrackRemoved }: { item: PlaylistItem; context: PlayerTrack[]; playlistId: number; selected: boolean; disabled: boolean; onToggleSelected: () => void; onSongRemoved: () => void; onTrackRemoved: (trackId: number) => Promise<void> }) {
-  const id = itemKey(item);
-  const { attributes, listeners, setActivatorNodeRef, setNodeRef, transform, transition, isDragging } = useSortable({ id, disabled });
-  const style: CSSProperties = { transform: CSS.Transform.toString(transform), transition: transition ?? "transform 220ms cubic-bezier(0.22, 1, 0.36, 1)", opacity: isDragging ? 0.28 : 1 };
-  return (
-    <li ref={setNodeRef} style={style} className="flex min-w-0 items-center gap-1.5">
-      <div className="flex w-9 shrink-0 flex-col items-center gap-1">
-        <button ref={setActivatorNodeRef} type="button" {...attributes} {...listeners} className="grid h-8 w-8 touch-none cursor-grab place-items-center rounded-lg text-muted-foreground hover:bg-white/10 hover:text-foreground active:cursor-grabbing" aria-label={`Drag ${itemTitle(item)} to reorder`}><GripVertical className="h-4 w-4" /></button>
-        <input type="checkbox" checked={selected} onChange={onToggleSelected} aria-label={`Select ${itemTitle(item)}`} className="h-4 w-4 rounded border-white/20 accent-primary" />
-      </div>
-      <div className="min-w-0 flex-1">
-        {item.item_type === "song" && item.song ? <SongCard song={item.song} playerContext={context} showAlbum showArtist playlistId={playlistId} onRemoved={onSongRemoved} /> : item.track ? <TrackRow track={libraryTrackToPlayerTrack(item.track)} context={context} leading={<span className="hidden w-7 shrink-0 text-center text-xs tabular-nums text-muted-foreground sm:block">{item.position + 1}</span>} isDownloaded={item.track.is_downloaded} onRemoveFromPlaylist={() => onTrackRemoved(item.track!.id)} /> : null}
-      </div>
-    </li>
-  );
-}
-
-function PlaylistDragPreview({ item }: { item: PlaylistItem }) {
-  const track = itemToPlayerTrack(item);
-  return <div className="flex w-[min(80vw,34rem)] items-center gap-3 rounded-2xl border border-white/20 bg-card/95 p-3 shadow-2xl backdrop-blur-xl"><GripVertical className="h-5 w-5 text-muted-foreground" /><ArtworkImage src={track?.artworkUrl || null} alt="" className="h-12 w-12 rounded-xl object-cover" /><div className="min-w-0"><p className="truncate text-sm font-semibold">{track?.title}</p><p className="truncate text-xs text-muted-foreground">{track?.artistName || "Unknown artist"}</p></div></div>;
-}
-
-function PlaylistMosaic({ items }: { items: PlaylistItem[] }) {
-  const artwork = items.map(itemToPlayerTrack).map((track) => track?.artworkUrl).filter((url): url is string => Boolean(url)).slice(0, 4);
-  if (artwork.length === 0) return <div className="flex h-full w-full items-center justify-center bg-white/10"><ListMusic className="h-20 w-20 text-muted-foreground" /></div>;
-  return <div className={cn("grid h-full w-full", artwork.length === 1 ? "grid-cols-1" : "grid-cols-2")}>{artwork.map((url, index) => <ArtworkImage key={`${url}-${index}`} src={url} alt="" className="h-full min-h-0 w-full object-cover" />)}</div>;
-}
-
-function playlistItems(playlist: PlaylistDetail | null): PlaylistItem[] {
-  if (!playlist) return [];
-  if (playlist.items) return [...playlist.items].sort((left, right) => left.position - right.position);
-  return [
-    ...playlist.songs.map((song, position) => ({ item_type: "song" as const, position, song, track: null })),
-    ...(playlist.library_tracks ?? []).map((entry) => ({ item_type: "library_track" as const, position: entry.position, song: null, track: entry.track })),
-  ].sort((left, right) => left.position - right.position);
-}
-
-function withOrderedItems(playlist: PlaylistDetail, items: PlaylistItem[]): PlaylistDetail {
-  return { ...playlist, items: items.map((item, position) => ({ ...item, position })) };
-}
-
-function itemToPlayerTrack(item: PlaylistItem): PlayerTrack | null {
-  return item.song ? songToPlayerTrack(item.song) : item.track ? libraryTrackToPlayerTrack(item.track) : null;
-}
-
-function itemKey(item: PlaylistItem) {
-  return item.item_type === "song" && item.song ? `song:${item.song.id}` : item.track ? `library_track:${item.track.id}` : `missing:${item.position}`;
-}
-
-function itemReference(item: PlaylistItem): PlaylistItemReference {
-  if (item.item_type === "song" && item.song) return { item_type: "song", item_id: item.song.id };
-  if (item.track) return { item_type: "library_track", item_id: item.track.id };
-  throw new Error("Playlist item is missing its track");
-}
-
-function itemTitle(item: PlaylistItem) {
-  return item.song?.title || item.track?.title || "playlist track";
 }
 
 function toggleSet(values: Set<string>, key: string) {

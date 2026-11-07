@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends
 
 from app.api.deps import LimitQuery, OffsetQuery, ResourceId, get_catalog_service
 from app.schemas.music import ArtistDetailResponse, ArtistResponse
-from app.services import CatalogService
+from app.services.catalog import CatalogService
 
 router = APIRouter()
 

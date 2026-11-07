@@ -151,7 +151,6 @@ export function FilterPanel({ filters, onFiltersChange, onClear }: FilterPanelPr
               </select>
             </div>
 
-            {/* Sort By */}
             <div className="space-y-2">
               <Label htmlFor={`${idPrefix}-sort-by`}>Sort by</Label>
               <select
@@ -175,7 +174,6 @@ export function FilterPanel({ filters, onFiltersChange, onClear }: FilterPanelPr
               </select>
             </div>
 
-            {/* Sort Order */}
             <div className="space-y-2">
               <Label htmlFor={`${idPrefix}-sort-order`}>Sort order</Label>
               <select

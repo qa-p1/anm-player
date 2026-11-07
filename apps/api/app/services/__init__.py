@@ -1,10 +1,6 @@
-"""Service layer exports."""
+"""Service compatibility exports without eagerly initializing other domains."""
 
-from app.services.catalog import CatalogService
-from app.services.downloads import DownloadService
-from app.services.health import HealthService
-from app.services.library_albums import LibraryAlbumService
-from app.services.settings import SettingsService
+from importlib import import_module
 
 __all__ = [
     "CatalogService",
@@ -13,3 +9,20 @@ __all__ = [
     "LibraryAlbumService",
     "SettingsService",
 ]
+
+_EXPORT_MODULES = {
+    "CatalogService": "catalog",
+    "DownloadService": "downloads",
+    "HealthService": "health",
+    "LibraryAlbumService": "library_albums",
+    "SettingsService": "settings",
+}
+
+
+def __getattr__(name: str):
+    module = _EXPORT_MODULES.get(name)
+    if module is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    value = getattr(import_module(f"{__name__}.{module}"), name)
+    globals()[name] = value
+    return value

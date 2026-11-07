@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends
 
 from app.api.deps import get_health_service, require_operator
 from app.schemas.health import AppInfoResponse, HealthResponse, VersionResponse
-from app.services import HealthService
+from app.services.health import HealthService
 
 router = APIRouter()
 

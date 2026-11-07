@@ -1,3 +1,6 @@
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { musicKeys } from "@/services/music-keys";
+import { invalidateHistory } from "@/services/music-invalidation";
 import { motion } from "framer-motion";
 import {
   BarChart3,
@@ -11,14 +14,14 @@ import {
   Trash2,
   Users,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 import { pageTransition } from "@/animations/page-motion";
 import { ArtworkImage } from "@/components/cards/artwork-image";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
-import { cachedArtworkUrl, isRequestCancelled } from "@/services/api-client";
+import { cachedArtworkUrl } from "@/services/api-client";
 import {
   clearHistory,
   deleteHistoryEntry,
@@ -36,39 +39,22 @@ const periods = [
   { label: "All time", value: 0 },
 ] as const;
 
+const EMPTY_HISTORY: HistoryEntry[] = [];
+
 type HistoryFilter = "all" | "played" | "completed" | "skipped";
 
 export function InsightsPage() {
   const [period, setPeriod] = useState(30);
-  const [insights, setInsights] = useState<ListeningInsights | null>(null);
-  const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const client = useQueryClient();
+  const insightsQuery = useQuery({ queryKey: musicKeys.insights(period), queryFn: ({ signal }) => getListeningInsights(period, signal) });
+  const historyQuery = useQuery({ queryKey: musicKeys.historyLog(), queryFn: ({ signal }) => listHistory(100, 0, signal) });
+  const insights = insightsQuery.data;
+  const history = historyQuery.data ?? EMPTY_HISTORY;
+  const isLoading = insightsQuery.isLoading || historyQuery.isLoading;
+  const error = insightsQuery.error || historyQuery.error;
   const [historyFilter, setHistoryFilter] = useState<HistoryFilter>("all");
-  const [isLoading, setIsLoading] = useState(true);
   const [isClearing, setIsClearing] = useState(false);
   const playSong = usePlayerStore((state) => state.playSong);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    setIsLoading(true);
-    Promise.all([
-      getListeningInsights(period, controller.signal),
-      listHistory(100, 0, controller.signal),
-    ])
-      .then(([nextInsights, nextHistory]) => {
-        if (controller.signal.aborted) return;
-        setInsights(nextInsights);
-        setHistory(nextHistory);
-      })
-      .catch((error: unknown) => {
-        if (!isRequestCancelled(error)) {
-          toast(error instanceof Error ? error.message : "Could not load listening insights", "error");
-        }
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setIsLoading(false);
-      });
-    return () => controller.abort();
-  }, [period]);
 
   const filteredHistory = useMemo(
     () => history.filter((entry) => historyFilter === "all" || entry.event_type === historyFilter),
@@ -78,8 +64,7 @@ export function InsightsPage() {
   async function removeHistoryEntry(entryId: number) {
     try {
       await deleteHistoryEntry(entryId);
-      setHistory((entries) => entries.filter((entry) => entry.id !== entryId));
-      setInsights(await getListeningInsights(period));
+      await invalidateHistory(client);
       toast("History entry removed", "success");
     } catch (error) {
       toast(error instanceof Error ? error.message : "Could not remove history entry", "error");
@@ -91,8 +76,7 @@ export function InsightsPage() {
     setIsClearing(true);
     try {
       const result = await clearHistory();
-      setHistory([]);
-      setInsights(await getListeningInsights(period));
+      await invalidateHistory(client);
       toast(`Cleared ${result.deleted} history ${result.deleted === 1 ? "entry" : "entries"}`, "success");
     } catch (error) {
       toast(error instanceof Error ? error.message : "Could not clear listening history", "error");
@@ -136,6 +120,7 @@ export function InsightsPage() {
         </div>
       </header>
 
+      {error && <div role="alert" className="flex flex-wrap items-center gap-2 text-sm text-red-400">{error.message}<Button size="sm" variant="ghost" onClick={() => { void insightsQuery.refetch(); void historyQuery.refetch(); }}>Retry</Button></div>}
       {isLoading && !insights ? (
         <div className="grid min-h-72 place-items-center text-sm text-muted-foreground">Calculating your listening patterns…</div>
       ) : insights ? (

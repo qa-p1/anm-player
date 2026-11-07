@@ -55,14 +55,12 @@ class MetadataEnrichmentService:
         
         logger.info(f"Enriching song {song_id}: {song.title} by {song.artist.name if song.artist else 'Unknown'}")
         
-        # Select providers
         providers = [p for p in self.providers if p.name == provider_name] if provider_name else self.providers
         
         if not providers:
             logger.warning(f"No providers available for {provider_name}")
             return song
         
-        # Search all providers
         all_results: list[MetadataResult] = []
         for provider in providers:
             try:
@@ -83,13 +81,11 @@ class MetadataEnrichmentService:
             logger.warning(f"No metadata found for song {song_id}")
             return song
         
-        # Select best result by confidence
         all_results.sort(key=lambda r: r.confidence, reverse=True)
         best_result = all_results[0]
         
         logger.info(f"Best match: {best_result.title} by {best_result.artist} (confidence: {best_result.confidence:.2f})")
         
-        # Apply metadata to song
         await self._apply_metadata(song, best_result)
         
         self.session.commit()
@@ -165,7 +161,6 @@ class MetadataEnrichmentService:
                 logger.error(f"Provider {provider.name} failed: {exc}")
                 continue
         
-        # Sort by confidence and limit
         all_results.sort(key=lambda r: r.confidence, reverse=True)
         return all_results[:limit]
     
@@ -179,7 +174,6 @@ class MetadataEnrichmentService:
         - Album information
         - Artwork (if available)
         """
-        # Update song
         if metadata.title:
             song.title = metadata.title
         if metadata.track_number:
@@ -191,7 +185,6 @@ class MetadataEnrichmentService:
             artist = self._get_or_create_artist(metadata.artist)
             song.artist = artist
 
-        # Update album
         if metadata.album:
             album_artist_id = song.artist_id
             album = self._get_or_create_album(metadata.album, album_artist_id)
@@ -202,7 +195,6 @@ class MetadataEnrichmentService:
         if album and metadata.year and (not album.year or album.year == 0):
             album.year = metadata.year
         
-        # Fetch and store artwork
         if album and metadata.provider_release_id and not album.artwork_path:
             await self._fetch_artwork(album, metadata.provider_release_id)
 

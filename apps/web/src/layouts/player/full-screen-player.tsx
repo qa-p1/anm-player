@@ -28,8 +28,8 @@ import { QueuePanel } from "@/components/player/queue-panel";
 import { toast } from "@/components/ui/toast";
 import { playbackStatusLabel, useDelayedPlaybackStatus } from "@/hooks/use-delayed-playback-status";
 import { cn } from "@/lib/utils";
-import { cachedArtworkUrl } from "@/services/api-client";
-import { audioService } from "@/services/audio-service";
+import { useDominantArtworkPalette } from "@/hooks/use-artwork-palette";
+import { togglePlayback, seekPlayback, previousTrack, nextTrack } from "@/features/player/playback-controls";
 import { useFavorites, useToggleFavorite } from "@/hooks/use-music-queries";
 import { usePlayerStore } from "@/stores/player-store";
 import { useUiStore } from "@/stores/ui-store";
@@ -62,14 +62,10 @@ export function FullScreenPlayer({ onClose }: FullScreenPlayerProps) {
     playbackError,
     bufferedUntil,
     retryAttempt,
-    setIsPlaying,
-    setCurrentTime,
     setVolume,
     toggleMute,
     toggleShuffle,
     retryCurrentSong,
-    playNextManually,
-    playPreviousSong,
   } = usePlayerStore(useShallow((state) => ({
     currentSong: state.currentSong,
     isPlaying: state.isPlaying,
@@ -82,14 +78,10 @@ export function FullScreenPlayer({ onClose }: FullScreenPlayerProps) {
     playbackError: state.playbackError,
     bufferedUntil: state.bufferedUntil,
     retryAttempt: state.retryAttempt,
-    setIsPlaying: state.setIsPlaying,
-    setCurrentTime: state.setCurrentTime,
     setVolume: state.setVolume,
     toggleMute: state.toggleMute,
     toggleShuffle: state.toggleShuffle,
     retryCurrentSong: state.retryCurrentSong,
-    playNextManually: state.playNextManually,
-    playPreviousSong: state.playPreviousSong,
   })));
   const [view, setView] = useState<PlayerView>("player");
   const requestedPlayerView = useUiStore((state) => state.requestedPlayerView);
@@ -128,33 +120,6 @@ export function FullScreenPlayer({ onClose }: FullScreenPlayerProps) {
   const bufferedProgress = duration > 0 ? Math.max(progress, Math.min(100, (bufferedUntil / duration) * 100)) : progress;
   const volumeProgress = isMuted ? 0 : volume * 100;
   const PlayIcon = isPlaying ? Pause : Play;
-
-  function handlePlayPause() {
-    if (playbackStatus === "error") {
-      retryCurrentSong();
-      return;
-    }
-    setIsPlaying(!isPlaying);
-  }
-
-  function handleSeek(time: number) {
-    setCurrentTime(time);
-    audioService.seek(time);
-  }
-
-  function handlePrevious() {
-    const currentId = currentSong?.id;
-    const previous = playPreviousSong();
-    if (previous) {
-      if (previous.id === currentId) audioService.seek(0);
-      setIsPlaying(true);
-    }
-  }
-
-  function handleNext() {
-    const next = playNextManually();
-    if (next) setIsPlaying(true);
-  }
 
   async function handleToggleFavorite() {
     if (!currentSong || currentSong.source !== "local" || favoriteMutation.isPending) return;
@@ -354,7 +319,7 @@ export function FullScreenPlayer({ onClose }: FullScreenPlayerProps) {
                   max={Math.max(duration, 1)}
                   step={0.1}
                   value={Math.min(currentTime, Math.max(duration, 1))}
-                  onChange={(event) => handleSeek(Number(event.target.value))}
+                  onChange={(event) => seekPlayback(Number(event.target.value))}
                   className="apple-player-range w-full"
                   style={{ "--range-progress": `${progress}%`, "--range-buffered": `${bufferedProgress}%` } as CSSProperties}
                   aria-label="Song progress"
@@ -366,11 +331,11 @@ export function FullScreenPlayer({ onClose }: FullScreenPlayerProps) {
               </div>
 
               <div className="mt-4 flex items-center justify-between px-[8%] sm:mt-6">
-                <PlaybackButton label="Previous track" onClick={handlePrevious}><SkipBack className="h-8 w-8 fill-current sm:h-9 sm:w-9" /></PlaybackButton>
-                <PlaybackButton label={isPlaying ? "Pause" : "Play"} onClick={handlePlayPause} large>
+                <PlaybackButton label="Previous track" onClick={previousTrack}><SkipBack className="h-8 w-8 fill-current sm:h-9 sm:w-9" /></PlaybackButton>
+                <PlaybackButton label={isPlaying ? "Pause" : "Play"} onClick={togglePlayback} large>
                   <PlayIcon className={cn("h-11 w-11 fill-current sm:h-12 sm:w-12", !isPlaying && "translate-x-0.5")} />
                 </PlaybackButton>
-                <PlaybackButton label="Next track" onClick={handleNext}><SkipForward className="h-8 w-8 fill-current sm:h-9 sm:w-9" /></PlaybackButton>
+                <PlaybackButton label="Next track" onClick={nextTrack}><SkipForward className="h-8 w-8 fill-current sm:h-9 sm:w-9" /></PlaybackButton>
               </div>
 
               <div className="mt-4 flex items-center gap-2.5 text-white/55 sm:mt-6">
@@ -419,121 +384,4 @@ function PlayerFooterButton({ label, active, onClick, children }: { label: strin
       {children}
     </button>
   );
-}
-
-interface ArtworkPalette {
-  base: string;
-}
-
-const fallbackPalette: ArtworkPalette = {
-  base: "rgb(73, 78, 84)",
-};
-
-function useDominantArtworkPalette(artworkUrl: string | null) {
-  const [palette, setPalette] = useState<ArtworkPalette>(fallbackPalette);
-
-  useEffect(() => {
-    if (!artworkUrl) {
-      setPalette(fallbackPalette);
-      return;
-    }
-
-    let cancelled = false;
-    const cached = artworkPaletteCache.get(artworkUrl);
-    if (cached) {
-      setPalette(cached);
-      return;
-    }
-    setPalette(fallbackPalette);
-    const image = new Image();
-    image.crossOrigin = "anonymous";
-    image.onload = () => {
-      try {
-        const canvas = document.createElement("canvas");
-        canvas.width = 48;
-        canvas.height = 48;
-        const context = canvas.getContext("2d", { willReadFrequently: true });
-        if (!context) return;
-        context.drawImage(image, 0, 0, 48, 48);
-        const pixels = context.getImageData(0, 0, 48, 48).data;
-        const buckets = new Map<string, { count: number; r: number; g: number; b: number }>();
-
-        for (let index = 0; index < pixels.length; index += 16) {
-          if (pixels[index + 3] < 180) continue;
-          const r = pixels[index];
-          const g = pixels[index + 1];
-          const b = pixels[index + 2];
-          const luminance = r * 0.299 + g * 0.587 + b * 0.114;
-          if (luminance < 14 || luminance > 242) continue;
-          const key = `${r >> 4}-${g >> 4}-${b >> 4}`;
-          const bucket = buckets.get(key) ?? { count: 0, r: 0, g: 0, b: 0 };
-          bucket.count += 1;
-          bucket.r += r;
-          bucket.g += g;
-          bucket.b += b;
-          buckets.set(key, bucket);
-        }
-
-        const dominant = [...buckets.values()].sort((a, b) => colorScore(b) - colorScore(a))[0];
-        if (!dominant || cancelled) return;
-        const source = [dominant.r / dominant.count, dominant.g / dominant.count, dominant.b / dominant.count];
-        const base = boostDominantColor(source);
-        const nextPalette = { base: rgb(base) };
-        if (artworkPaletteCache.size >= 128 && !artworkPaletteCache.has(artworkUrl)) {
-          const oldestKey = artworkPaletteCache.keys().next().value;
-          if (oldestKey) artworkPaletteCache.delete(oldestKey);
-        }
-        artworkPaletteCache.set(artworkUrl, nextPalette);
-        setPalette(nextPalette);
-      } catch {
-        if (!cancelled) setPalette(fallbackPalette);
-      }
-    };
-    image.onerror = () => {
-      if (!cancelled) setPalette(fallbackPalette);
-    };
-    image.src = colorExtractionUrl(cachedArtworkUrl(artworkUrl, 128) ?? artworkUrl);
-    return () => {
-      cancelled = true;
-    };
-  }, [artworkUrl]);
-
-  return palette;
-}
-
-const artworkPaletteCache = new Map<string, ArtworkPalette>();
-
-function colorScore(bucket: { count: number; r: number; g: number; b: number }) {
-  const r = bucket.r / bucket.count;
-  const g = bucket.g / bucket.count;
-  const b = bucket.b / bucket.count;
-  const max = Math.max(r, g, b);
-  const min = Math.min(r, g, b);
-  const saturation = max === 0 ? 0 : (max - min) / max;
-  return bucket.count * (1 + saturation * 0.45);
-}
-
-function boostDominantColor(channels: number[]) {
-  const average = channels.reduce((sum, channel) => sum + channel, 0) / channels.length;
-  return channels.map((channel) => {
-    const saturated = average + (channel - average) * 1.18;
-    return Math.round(Math.max(28, Math.min(184, saturated * 0.72 + 18)));
-  });
-}
-
-function colorExtractionUrl(url: string) {
-  if (!import.meta.env.DEV) return url;
-  try {
-    const parsed = new URL(url, window.location.href);
-    if (parsed.pathname.startsWith("/api/")) {
-      return `${parsed.pathname}${parsed.search}`;
-    }
-  } catch {
-    // Use the original artwork URL when it cannot be parsed.
-  }
-  return url;
-}
-
-function rgb(channels: number[]) {
-  return `rgb(${channels.join(", ")})`;
 }

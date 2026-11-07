@@ -1,8 +1,9 @@
+import { musicKeys } from "@/services/music-keys";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { musicKeys, useCreatePlaylist, useToggleFavorite } from "@/hooks/use-music-queries";
+import { useCreatePlaylist, useToggleFavorite } from "@/hooks/use-music-queries";
 import { playlist } from "@/test/music-fixtures";
 vi.mock("@/services/music-api", () => ({ createPlaylist: vi.fn(async () => playlist()), toggleFavorite: vi.fn(async () => ({ is_favorited: true })) }));
 afterEach(cleanup);

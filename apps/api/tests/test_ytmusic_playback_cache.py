@@ -1,5 +1,4 @@
-from app.services.ytmusic_service import PlaybackData
-from app.services.ytmusic_service.service import YouTubeMusicService
+from app.services.ytmusic_service import PlaybackData, YouTubeMusicService
 
 
 class CountingClient:

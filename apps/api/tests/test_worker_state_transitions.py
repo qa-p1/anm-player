@@ -2,15 +2,23 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-
 import app.workers.downloads.worker as worker_module
+import pytest
 from app.core.enums import DownloadStage, DownloadStatus
-from app.models import AlbumDownloadItem, AlbumDownloadJob, Base, DownloadJob, LibraryAlbum, LibraryTrack, QueueItem, Song
+from app.models import (
+    AlbumDownloadItem,
+    AlbumDownloadJob,
+    Base,
+    DownloadJob,
+    LibraryAlbum,
+    LibraryTrack,
+    QueueItem,
+    Song,
+)
 from app.services.settings import SettingsService
 from app.workers.downloads.worker import DownloadWorker
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 
 def worker_session_factory():
@@ -36,7 +44,15 @@ class FakeYoutubeDL:
         output = output_template.parent / "downloaded.mp3"
         output.write_bytes(b"audio")
         hook = self.options["progress_hooks"][0]
-        hook({"status": "downloading", "downloaded_bytes": 50, "total_bytes": 100, "speed": 2_000_000, "eta": 9})
+        hook(
+            {
+                "status": "downloading",
+                "downloaded_bytes": 50,
+                "total_bytes": 100,
+                "speed": 2_000_000,
+                "eta": 9,
+            }
+        )
         hook({"status": "finished"})
         return {
             "title": "Provider title",
@@ -71,17 +87,27 @@ def test_download_job_success_updates_file_library_queue_and_postprocessing(
     enrichments: list[int] = []
     monkeypatch.setattr(worker_module, "SessionLocal", Session)
     monkeypatch.setattr(worker_module, "YoutubeDL", FakeYoutubeDL)
-    monkeypatch.setattr(worker, "_download_jobs_dir", lambda: music_directory.parent / "downloads" / "jobs")
+    monkeypatch.setattr(
+        worker,
+        "_download_jobs_dir",
+        lambda: music_directory.parent / "downloads" / "jobs",
+    )
     monkeypatch.setattr(worker.tagging, "write_tags", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(worker, "_fetch_lyrics", lambda _session, song_id: lyrics.append(song_id))
-    monkeypatch.setattr(worker, "_enrich_song", lambda _session, song_id: enrichments.append(song_id))
+    monkeypatch.setattr(
+        worker, "_fetch_lyrics", lambda _session, song_id: lyrics.append(song_id)
+    )
+    monkeypatch.setattr(
+        worker, "_enrich_song", lambda _session, song_id: enrichments.append(song_id)
+    )
     monkeypatch.setattr(worker, "_publish", lambda _job_id: None)
 
     worker._download_job(job_id)
 
     with Session() as session:
         completed = session.get(DownloadJob, job_id)
-        queue = session.query(QueueItem).filter(QueueItem.download_job_id == job_id).one()
+        queue = (
+            session.query(QueueItem).filter(QueueItem.download_job_id == job_id).one()
+        )
         song = session.query(Song).one()
         assert completed is not None
         assert completed.status == DownloadStatus.COMPLETED
@@ -112,7 +138,11 @@ def test_progress_hook_honors_cancellation(music_directory, monkeypatch) -> None
     worker = DownloadWorker()
     monkeypatch.setattr(worker_module, "SessionLocal", Session)
     monkeypatch.setattr(worker_module, "YoutubeDL", FakeYoutubeDL)
-    monkeypatch.setattr(worker, "_download_jobs_dir", lambda: music_directory.parent / "downloads" / "jobs")
+    monkeypatch.setattr(
+        worker,
+        "_download_jobs_dir",
+        lambda: music_directory.parent / "downloads" / "jobs",
+    )
 
     with pytest.raises(RuntimeError, match="cancelled"):
         worker._download_job(job_id)
@@ -129,13 +159,17 @@ def test_mark_failed_synchronizes_queue_and_album_progress(monkeypatch) -> None:
         session.add_all([album, track])
         session.flush()
         album_job = AlbumDownloadJob(album_id=album.id, total_tracks=1, max_parallel=1)
-        job = DownloadJob(status=DownloadStatus.DOWNLOADING, source_url="https://example.com/fail")
+        job = DownloadJob(
+            status=DownloadStatus.DOWNLOADING, source_url="https://example.com/fail"
+        )
         session.add_all([album_job, job])
         session.flush()
         session.add_all(
             [
                 QueueItem(download_job_id=job.id, status=DownloadStatus.DOWNLOADING),
-                AlbumDownloadItem(album_job_id=album_job.id, track_id=track.id, download_job_id=job.id),
+                AlbumDownloadItem(
+                    album_job_id=album_job.id, track_id=track.id, download_job_id=job.id
+                ),
             ]
         )
         session.commit()
@@ -149,11 +183,18 @@ def test_mark_failed_synchronizes_queue_and_album_progress(monkeypatch) -> None:
 
     with Session() as session:
         failed = session.get(DownloadJob, job_id)
-        item = session.query(AlbumDownloadItem).filter(AlbumDownloadItem.download_job_id == job_id).one()
+        item = (
+            session.query(AlbumDownloadItem)
+            .filter(AlbumDownloadItem.download_job_id == job_id)
+            .one()
+        )
         album_job = item.album_job
         assert failed.status == DownloadStatus.FAILED
         assert failed.stage == DownloadStage.FAILED
-        assert failed.error_message == "Download failed. The video may be unavailable or unsupported."
+        assert (
+            failed.error_message
+            == "Download failed. The video may be unavailable or unsupported."
+        )
         assert failed.queue_item.status == DownloadStatus.FAILED
         assert item.status == DownloadStatus.FAILED
         assert album_job.failed_tracks == 1
@@ -164,8 +205,14 @@ def test_mark_failed_synchronizes_queue_and_album_progress(monkeypatch) -> None:
 @pytest.mark.parametrize(
     ("error", "message"),
     [
-        (RuntimeError("ffmpeg missing"), "Audio conversion failed. Confirm FFmpeg is installed and available."),
-        (PermissionError("permission denied"), "ANM Player could not write to the configured music directory."),
+        (
+            RuntimeError("ffmpeg missing"),
+            "Audio conversion failed. Confirm FFmpeg is installed and available.",
+        ),
+        (
+            PermissionError("permission denied"),
+            "ANM Player could not write to the configured music directory.",
+        ),
         (RuntimeError("cancelled"), "Download was cancelled."),
     ],
 )
@@ -233,7 +280,9 @@ def test_worker_start_stop_and_single_run_cycle(monkeypatch) -> None:
 def test_claim_next_job_updates_queue_and_honors_storage_gate(monkeypatch) -> None:
     Session = worker_session_factory()
     with Session() as session:
-        job = DownloadJob(status=DownloadStatus.QUEUED, source_url="https://example.com/claim")
+        job = DownloadJob(
+            status=DownloadStatus.QUEUED, source_url="https://example.com/claim"
+        )
         session.add(job)
         session.flush()
         session.add(QueueItem(download_job_id=job.id, status=DownloadStatus.QUEUED))
@@ -260,10 +309,14 @@ def test_claim_next_job_updates_queue_and_honors_storage_gate(monkeypatch) -> No
 def test_mark_failed_returns_job_to_queue_during_storage_migration(monkeypatch) -> None:
     Session = worker_session_factory()
     with Session() as session:
-        job = DownloadJob(status=DownloadStatus.DOWNLOADING, source_url="https://example.com/migrate")
+        job = DownloadJob(
+            status=DownloadStatus.DOWNLOADING, source_url="https://example.com/migrate"
+        )
         session.add(job)
         session.flush()
-        session.add(QueueItem(download_job_id=job.id, status=DownloadStatus.DOWNLOADING))
+        session.add(
+            QueueItem(download_job_id=job.id, status=DownloadStatus.DOWNLOADING)
+        )
         session.commit()
         job_id = job.id
     worker = DownloadWorker()
@@ -284,18 +337,24 @@ def test_mark_failed_returns_job_to_queue_during_storage_migration(monkeypatch) 
 def test_progress_updates_album_and_storage_migration_requeues(monkeypatch) -> None:
     Session = worker_session_factory()
     with Session() as session:
-        album = LibraryAlbum(public_id="progress", external_id="progress", title="Album")
+        album = LibraryAlbum(
+            public_id="progress", external_id="progress", title="Album"
+        )
         track = LibraryTrack(external_id="track", title="Track", position=0)
         session.add_all([album, track])
         session.flush()
         album_job = AlbumDownloadJob(album_id=album.id, total_tracks=1, max_parallel=1)
-        job = DownloadJob(status=DownloadStatus.QUEUED, source_url="https://example.com/progress")
+        job = DownloadJob(
+            status=DownloadStatus.QUEUED, source_url="https://example.com/progress"
+        )
         session.add_all([album_job, job])
         session.flush()
         session.add_all(
             [
                 QueueItem(download_job_id=job.id, status=DownloadStatus.QUEUED),
-                AlbumDownloadItem(album_job_id=album_job.id, track_id=track.id, download_job_id=job.id),
+                AlbumDownloadItem(
+                    album_job_id=album_job.id, track_id=track.id, download_job_id=job.id
+                ),
             ]
         )
         session.commit()
@@ -304,7 +363,9 @@ def test_progress_updates_album_and_storage_migration_requeues(monkeypatch) -> N
     monkeypatch.setattr(worker_module, "SessionLocal", Session)
     monkeypatch.setattr(worker, "_publish", lambda _job_id: None)
 
-    worker._update_progress(job_id, {"status": "downloading", "downloaded_bytes": 25, "total_bytes": 100})
+    worker._update_progress(
+        job_id, {"status": "downloading", "downloaded_bytes": 25, "total_bytes": 100}
+    )
     with Session() as session:
         item = session.query(AlbumDownloadItem).one()
         assert item.status == DownloadStatus.DOWNLOADING
@@ -326,9 +387,15 @@ def test_album_download_finalization_links_existing_song_and_artwork(
     with Session() as session:
         SettingsService(session).set_value("auto_fetch_lyrics", True)
         SettingsService(session).set_value("auto_enrich_downloads", True)
-        album = LibraryAlbum(public_id="album-final", external_id="album-final", title="Album")
+        album = LibraryAlbum(
+            public_id="album-final", external_id="album-final", title="Album"
+        )
         track = LibraryTrack(external_id="track", title="Track", position=0)
-        existing = Song(title="Old", source_url="https://example.com/album-track", is_downloaded=False)
+        existing = Song(
+            title="Old",
+            source_url="https://example.com/album-track",
+            is_downloaded=False,
+        )
         session.add_all([album, track, existing])
         session.flush()
         album_job = AlbumDownloadJob(album_id=album.id, total_tracks=1, max_parallel=1)
@@ -343,7 +410,11 @@ def test_album_download_finalization_links_existing_song_and_artwork(
         )
         session.add_all([album_job, job])
         session.flush()
-        session.add(AlbumDownloadItem(album_job_id=album_job.id, track_id=track.id, download_job_id=job.id))
+        session.add(
+            AlbumDownloadItem(
+                album_job_id=album_job.id, track_id=track.id, download_job_id=job.id
+            )
+        )
         session.commit()
         job_id = job.id
         song_id = existing.id
@@ -353,9 +424,21 @@ def test_album_download_finalization_links_existing_song_and_artwork(
     monkeypatch.setattr(worker_module, "SessionLocal", Session)
     monkeypatch.setattr(worker, "_publish", lambda _job_id: None)
     monkeypatch.setattr(worker.tagging, "write_tags", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(worker, "_cache_artwork", lambda _url: "/api/v1/media/artwork/downloads/cached.jpg")
-    monkeypatch.setattr(worker, "_fetch_lyrics", lambda *_args: (_ for _ in ()).throw(RuntimeError("lyrics")))
-    monkeypatch.setattr(worker, "_enrich_song", lambda *_args: (_ for _ in ()).throw(RuntimeError("metadata")))
+    monkeypatch.setattr(
+        worker,
+        "_cache_artwork",
+        lambda _url: "/api/v1/media/artwork/downloads/cached.jpg",
+    )
+    monkeypatch.setattr(
+        worker,
+        "_fetch_lyrics",
+        lambda *_args: (_ for _ in ()).throw(RuntimeError("lyrics")),
+    )
+    monkeypatch.setattr(
+        worker,
+        "_enrich_song",
+        lambda *_args: (_ for _ in ()).throw(RuntimeError("metadata")),
+    )
 
     worker._save_download(job_id, {"duration": 222, "release_year": 2026}, output)
 
@@ -374,7 +457,9 @@ def test_album_download_finalization_links_existing_song_and_artwork(
         assert item.album_job.album.local_album_id is not None
 
 
-def test_publish_group_fallback_output_and_async_helpers(music_directory, monkeypatch) -> None:
+def test_publish_group_fallback_output_and_async_helpers(
+    music_directory, monkeypatch
+) -> None:
     Session = worker_session_factory()
     with Session() as session:
         job = DownloadJob(
@@ -389,7 +474,11 @@ def test_publish_group_fallback_output_and_async_helpers(music_directory, monkey
     worker = DownloadWorker()
     published: list[dict] = []
     monkeypatch.setattr(worker_module, "SessionLocal", Session)
-    monkeypatch.setattr(worker_module.download_progress_hub, "publish_threadsafe", lambda _id, payload: published.append(payload))
+    monkeypatch.setattr(
+        worker_module.download_progress_hub,
+        "publish_threadsafe",
+        lambda _id, payload: published.append(payload),
+    )
     worker._publish(job_id)
     assert published[0]["group"]["album_id"] == "public-id"
 
@@ -417,3 +506,31 @@ def test_publish_group_fallback_output_and_async_helpers(music_directory, monkey
     result = worker._cache_artwork("https://example.com/art.jpg")
     assert result == "/api/v1/media/artwork/downloads/art.jpg"
     assert worker._cache_artwork(None) is None
+
+
+def test_paused_download_yields_to_storage_migration(monkeypatch) -> None:
+    Session = worker_session_factory()
+    with Session() as session:
+        job = DownloadJob(
+            status=DownloadStatus.PAUSED, source_url="https://example.com/paused"
+        )
+        session.add(job)
+        session.flush()
+        session.add(QueueItem(download_job_id=job.id, status=DownloadStatus.PAUSED))
+        session.commit()
+        job_id = job.id
+
+    monkeypatch.setattr(worker_module, "SessionLocal", Session)
+    cancel_work = worker_module.threading.Event()
+    monkeypatch.setattr(worker_module.storage_coordinator, "cancel_work", cancel_work)
+    monkeypatch.setattr(worker_module.time, "sleep", lambda _seconds: cancel_work.set())
+
+    with pytest.raises(RuntimeError, match="storage migration"):
+        DownloadWorker()._update_progress(
+            job_id, {"status": "downloading", "downloaded_bytes": 1, "total_bytes": 10}
+        )
+
+    with Session() as session:
+        job = session.get(DownloadJob, job_id)
+        assert job.status == DownloadStatus.QUEUED
+        assert job.queue_item.status == DownloadStatus.QUEUED

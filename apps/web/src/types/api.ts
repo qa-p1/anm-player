@@ -507,7 +507,7 @@ export interface LibraryArtistDetail extends LibraryArtist {
   top_tracks: LibraryTrack[];
 }
 
-export interface LibrarySearchResult {
+interface LibrarySearchResult {
   item_type: "album" | "track" | "artist" | "playlist" | string;
   id: number | string;
   title: string;

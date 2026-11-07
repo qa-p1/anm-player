@@ -1,14 +1,17 @@
 import pytest
-from sqlalchemy import create_engine, text
-from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import sessionmaker
-
 from app.core.exceptions import ResourceNotFoundError
 from app.database.session import engine
 from app.models import Base, Favorite, Playlist, PlaylistSong, Song
-from app.repositories.music import AlbumRepository, ArtistRepository, FavoriteRepository, HistoryRepository, PlaylistRepository, SongRepository
-from app.schemas.music import FavoriteToggleRequest, PlaylistAddSongsRequest, PlaylistCreateRequest
+from app.schemas.music import (
+    FavoriteToggleRequest,
+    PlaylistAddSongsRequest,
+    PlaylistCreateRequest,
+)
 from app.services.catalog import CatalogService
+from app.services.playlists import PlaylistService
+from sqlalchemy import create_engine, text
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import sessionmaker
 
 
 def test_application_sqlite_engine_enables_foreign_keys() -> None:
@@ -24,28 +27,16 @@ def test_favorite_target_must_exist() -> None:
     Session = sessionmaker(bind=test_engine, autoflush=False, expire_on_commit=False)
 
     with Session() as session:
-        service = CatalogService(
-            SongRepository(session),
-            ArtistRepository(session),
-            AlbumRepository(session),
-            PlaylistRepository(session),
-            FavoriteRepository(session),
-            HistoryRepository(session),
-        )
+        service = CatalogService(session)
 
         with pytest.raises(ResourceNotFoundError):
-            service.toggle_favorite(FavoriteToggleRequest(entity_type="song", entity_id=999))
+            service.toggle_favorite(
+                FavoriteToggleRequest(entity_type="song", entity_id=999)
+            )
 
 
-def _catalog(session) -> CatalogService:
-    return CatalogService(
-        SongRepository(session),
-        ArtistRepository(session),
-        AlbumRepository(session),
-        PlaylistRepository(session),
-        FavoriteRepository(session),
-        HistoryRepository(session),
-    )
+def _playlists(session) -> PlaylistService:
+    return PlaylistService(session)
 
 
 def test_favorite_has_exactly_one_unique_target() -> None:
@@ -71,9 +62,10 @@ def test_duplicate_playlist_name_is_stable_conflict() -> None:
     Base.metadata.create_all(test_engine)
     Session = sessionmaker(bind=test_engine, autoflush=False, expire_on_commit=False)
     with Session() as session:
-        service = _catalog(session)
+        service = _playlists(session)
         service.create_playlist(PlaylistCreateRequest(name="Road trip"))
         from app.core.exceptions import ConflictError
+
         with pytest.raises(ConflictError):
             service.create_playlist(PlaylistCreateRequest(name="Road trip"))
 
@@ -89,7 +81,7 @@ def test_playlist_addition_prevalidates_entire_request() -> None:
         session.commit()
 
         with pytest.raises(ResourceNotFoundError):
-            _catalog(session).add_songs_to_playlist(
+            _playlists(session).add_songs_to_playlist(
                 playlist.id,
                 PlaylistAddSongsRequest(song_ids=[song.id, 999, song.id]),
             )

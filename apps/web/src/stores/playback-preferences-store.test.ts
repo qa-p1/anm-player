@@ -1,6 +1,7 @@
+import { EQ_PRESETS } from "@/types/audio";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { EQ_PRESETS, usePlaybackPreferencesStore } from "@/stores/playback-preferences-store";
+import { usePlaybackPreferencesStore } from "@/stores/playback-preferences-store";
 
 describe("playback preferences", () => {
   beforeEach(() => {

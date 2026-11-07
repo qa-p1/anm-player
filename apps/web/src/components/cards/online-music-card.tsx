@@ -1,3 +1,5 @@
+import { invalidateLibrary } from "@/services/music-invalidation";
+import { queryClient } from "@/lib/query-client";
 import { Check, Pause, Play, Plus } from "lucide-react";
 import type { MouseEvent } from "react";
 import { useEffect, useState } from "react";
@@ -74,6 +76,7 @@ export function OnlineMusicCard({ item, context, variant = "tile", className, al
     setIsSavingAlbum(true);
     try {
       await addUnifiedAlbumToLibrary(item.browse_id || item.id);
+      void invalidateLibrary(queryClient);
       setIsInLibrary(true);
       toast("Album added to library", "success");
     } catch (error) {

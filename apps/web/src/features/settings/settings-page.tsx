@@ -1,3 +1,6 @@
+import type { AudioFormat, StreamQuality, SettingsSummary, StorageSummary, DirectoryEntry, DirectoryListing } from "@/types/settings";
+import { queryClient } from "@/lib/query-client";
+import { invalidateLibrary } from "@/services/music-invalidation";
 import { motion } from "framer-motion";
 import { Bomb, Database, Download, Folder, FolderPlus, HardDrive, Info, Palette, RefreshCw, Trash2 } from "lucide-react";
 import { useEffect, useId, useMemo, useState } from "react";
@@ -13,61 +16,7 @@ import { apiGet, apiPatch, apiPost } from "@/services/api-client";
 import { getDatabaseBackupUrl } from "@/services/music-api";
 import { applyAccent, accentValues, useThemeStore, type AccentTheme, type ThemeMode } from "@/stores/theme-store";
 
-type AudioFormat = "mp3" | "m4a" | "flac" | "opus" | "ogg";
-type StreamQuality = "low" | "auto" | "high";
 type BrowserPurpose = "migration" | "reset";
-
-interface SettingsSummary {
-  startup_scan_enabled: boolean;
-  download_audio_format: AudioFormat;
-  download_overwrite_existing: boolean;
-  max_concurrent_downloads: number;
-  album_download_max_parallel: number;
-  auto_enrich_downloads: boolean;
-  download_artwork: boolean;
-  auto_fetch_lyrics: boolean;
-  stream_quality: StreamQuality;
-  stream_cache_retention_days: number;
-  artwork_cache_limit_mb: number;
-  theme_mode: ThemeMode;
-  accent_theme: AccentTheme;
-  version: string;
-  environment: string;
-  database_backend: "SQLite";
-  song_count: number;
-}
-
-interface MigrationState {
-  active: boolean;
-  phase: string;
-  error?: string | null;
-  cleanup_warning?: string | null;
-}
-
-interface StorageSummary {
-  data_root: string;
-  used_bytes: number;
-  free_bytes: number;
-  total_bytes: number;
-  categories: Record<"database" | "music" | "downloads" | "artwork" | "lyrics" | "streams" | "config" | "thumbnails" | "logs" | "other", number>;
-  migration: MigrationState;
-}
-
-interface DirectoryEntry {
-  directory_id: string | null;
-  name: string;
-  display_path: string;
-  disabled: boolean;
-  empty: boolean;
-  same_device: boolean | null;
-  reason: string | null;
-}
-
-interface DirectoryListing {
-  current: DirectoryEntry | null;
-  parent: DirectoryEntry | null;
-  directories: DirectoryEntry[];
-}
 
 export function SettingsPage() {
   const [settings, setSettings] = useState<SettingsSummary | null>(null);
@@ -234,6 +183,7 @@ export function SettingsPage() {
         reconciled: number;
         errors: number;
       }, undefined>("/library/sync");
+      await invalidateLibrary(queryClient);
       const changed = result.added + result.updated + result.removed + result.reconciled;
       toast(
         result.errors

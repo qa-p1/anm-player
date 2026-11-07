@@ -1,6 +1,3 @@
-from sqlalchemy import create_engine, event
-from sqlalchemy.orm import sessionmaker
-
 from app.models import (
     Album,
     Artist,
@@ -14,16 +11,16 @@ from app.models import (
     PlaylistSong,
     Song,
 )
-from app.repositories.music import AlbumRepository, ArtistRepository, FavoriteRepository, HistoryRepository, PlaylistRepository, SongRepository
+from app.repositories.music import HistoryRepository, PlaylistRepository
 from app.services.catalog import CatalogService
 from app.services.library_albums import LibraryAlbumService
+from app.services.playlists import PlaylistService
+from sqlalchemy import create_engine, event
+from sqlalchemy.orm import sessionmaker
 
 
 def make_service(session) -> CatalogService:
-    return CatalogService(
-        SongRepository(session), ArtistRepository(session), AlbumRepository(session),
-        PlaylistRepository(session), FavoriteRepository(session), HistoryRepository(session),
-    )
+    return CatalogService(session)
 
 
 def make_session():
@@ -32,7 +29,9 @@ def make_session():
     return sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)()
 
 
-def test_album_and_artist_details_exclude_missing_downloaded_files(music_directory) -> None:
+def test_album_and_artist_details_exclude_missing_downloaded_files(
+    music_directory,
+) -> None:
     (music_directory / "valid.mp3").write_bytes(b"audio")
     with make_session() as session:
         artist = Artist(name="Artist")
@@ -41,10 +40,24 @@ def test_album_and_artist_details_exclude_missing_downloaded_files(music_directo
         album = Album(title="Album", artist_id=artist.id)
         session.add(album)
         session.flush()
-        session.add_all([
-            Song(title="Valid", artist_id=artist.id, album_id=album.id, file_path="valid.mp3", is_downloaded=True),
-            Song(title="Missing", artist_id=artist.id, album_id=album.id, file_path="missing.mp3", is_downloaded=True),
-        ])
+        session.add_all(
+            [
+                Song(
+                    title="Valid",
+                    artist_id=artist.id,
+                    album_id=album.id,
+                    file_path="valid.mp3",
+                    is_downloaded=True,
+                ),
+                Song(
+                    title="Missing",
+                    artist_id=artist.id,
+                    album_id=album.id,
+                    file_path="missing.mp3",
+                    is_downloaded=True,
+                ),
+            ]
+        )
         session.commit()
         service = make_service(session)
 
@@ -55,10 +68,17 @@ def test_album_and_artist_details_exclude_missing_downloaded_files(music_directo
     assert [song.title for song in artist_response.top_songs] == ["Valid"]
 
 
-def test_playlist_marks_only_broken_download_as_streaming_and_merges_positions(music_directory) -> None:
+def test_playlist_marks_only_broken_download_as_streaming_and_merges_positions(
+    music_directory,
+) -> None:
     with make_session() as session:
         playlist = Playlist(name="Mixed")
-        song = Song(title="Broken", source_url="https://music.youtube.com/watch?v=broken", file_path="missing.mp3", is_downloaded=True)
+        song = Song(
+            title="Broken",
+            source_url="https://music.youtube.com/watch?v=broken",
+            file_path="missing.mp3",
+            is_downloaded=True,
+        )
         track = LibraryTrack(external_id="online", title="Online", position=0)
         session.add_all([playlist, song, track])
         session.flush()
@@ -66,7 +86,7 @@ def test_playlist_marks_only_broken_download_as_streaming_and_merges_positions(m
         session.flush()
         LibraryAlbumService(session).add_tracks_to_playlist(playlist.id, [track.id])
 
-        response = make_service(session).get_playlist(playlist.id)
+        response = PlaylistService(session).get_playlist(playlist.id)
 
     assert response.song_count == 2
     assert [item.position for item in response.items] == [0, 1]
@@ -82,13 +102,20 @@ def test_most_played_local_songs_counts_only_play_events() -> None:
         session.add_all([inflated, actually_played])
         session.flush()
         session.add(History(song_id=inflated.id, event_type="played"))
-        session.add_all([History(song_id=inflated.id, event_type="skipped") for _ in range(5)])
-        session.add_all([History(song_id=actually_played.id, event_type="played") for _ in range(2)])
+        session.add_all(
+            [History(song_id=inflated.id, event_type="skipped") for _ in range(5)]
+        )
+        session.add_all(
+            [History(song_id=actually_played.id, event_type="played") for _ in range(2)]
+        )
         session.commit()
 
         results = HistoryRepository(session).get_most_played_history()
 
-        assert [entry.song.title for entry in results[:2]] == ["Played Twice", "Skipped Often"]
+        assert [entry.song.title for entry in results[:2]] == [
+            "Played Twice",
+            "Skipped Often",
+        ]
 
 
 def _statement_count(engine, operation) -> int:
@@ -138,7 +165,9 @@ def _song_list_query_count(song_count: int) -> tuple[int, list]:
         session.commit()
         service = make_service(session)
         responses = []
-        count = _statement_count(engine, lambda: responses.extend(service.list_songs(limit=50)))
+        count = _statement_count(
+            engine, lambda: responses.extend(service.list_songs(limit=50))
+        )
     engine.dispose()
     return count, responses
 
@@ -172,13 +201,17 @@ def _playlist_list_query_count(playlist_count: int) -> tuple[int, list]:
             session.add_all(
                 [
                     PlaylistSong(playlist_id=playlist.id, song_id=song.id, position=0),
-                    PlaylistLibraryTrack(playlist_id=playlist.id, track_id=track.id, position=1),
+                    PlaylistLibraryTrack(
+                        playlist_id=playlist.id, track_id=track.id, position=1
+                    ),
                 ]
             )
         session.commit()
-        service = make_service(session)
         responses = []
-        count = _statement_count(engine, lambda: responses.extend(service.list_playlists(limit=50)))
+        count = _statement_count(
+            engine,
+            lambda: responses.extend(PlaylistService(session).list_playlists(limit=50)),
+        )
     engine.dispose()
     return count, responses
 
@@ -216,13 +249,17 @@ def _favorites_query_count(entity_count: int) -> tuple[int, object]:
                 title=f"Online Track {index}",
                 position=0,
             )
-            session.add_all([artist, album, song, playlist, library_album, library_track])
+            session.add_all(
+                [artist, album, song, playlist, library_album, library_track]
+            )
             session.flush()
             library_album.local_album_id = album.id
             session.add_all(
                 [
                     PlaylistSong(playlist_id=playlist.id, song_id=song.id, position=0),
-                    PlaylistLibraryTrack(playlist_id=playlist.id, track_id=library_track.id, position=1),
+                    PlaylistLibraryTrack(
+                        playlist_id=playlist.id, track_id=library_track.id, position=1
+                    ),
                     Favorite(song_id=song.id),
                     Favorite(artist_id=artist.id),
                     Favorite(album_id=album.id),
@@ -255,3 +292,52 @@ def test_combined_favorites_query_count_does_not_scale_with_results() -> None:
     assert len(many.playlists) == 8
     assert len(many.library_albums) == 8
     assert len(many.library_tracks) == 8
+
+
+def test_empty_audio_files_are_unavailable_in_catalog_and_playlist(
+    music_directory,
+) -> None:
+    (music_directory / "empty.mp3").write_bytes(b"")
+    with make_session() as session:
+        song = Song(title="Empty", file_path="empty.mp3", is_downloaded=True)
+        playlist = Playlist(name="Empty files")
+        session.add_all([song, playlist])
+        session.flush()
+        session.add(PlaylistSong(song_id=song.id, playlist_id=playlist.id, position=0))
+        session.commit()
+        catalog = make_service(session)
+        detail = PlaylistService(session).get_playlist(playlist.id)
+        assert not catalog.list_songs()[0].is_downloaded
+        assert not detail.songs[0].is_downloaded
+
+
+def test_mixed_playlist_detail_batches_track_favorites() -> None:
+    with make_session() as session:
+        playlist = Playlist(name="Many saved tracks")
+        session.add(playlist)
+        session.flush()
+        for index in range(30):
+            track = LibraryTrack(
+                external_id=f"detail-{index}",
+                title=f"Track {index}",
+                position=index,
+                is_in_library=False,
+            )
+            session.add(track)
+            session.flush()
+            session.add(
+                PlaylistLibraryTrack(
+                    playlist_id=playlist.id, track_id=track.id, position=index
+                )
+            )
+            session.add(Favorite(library_track_id=track.id))
+        session.commit()
+        detail = []
+        count = _statement_count(
+            session.get_bind(),
+            lambda: detail.append(PlaylistService(session).get_playlist(playlist.id)),
+        )
+        assert count < 10
+        assert len(detail[0].items) == 30
+        assert all(item.track.is_favorited for item in detail[0].items)
+        assert all(not item.track.is_in_library for item in detail[0].items)

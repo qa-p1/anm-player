@@ -1,8 +1,10 @@
+import { useQuery } from "@tanstack/react-query";
+import { musicKeys } from "@/services/music-keys";
 import { useToggleFavorite } from "@/hooks/use-music-queries";
 import { toast } from "@/components/ui/toast";
 import { motion } from "framer-motion";
 import { Heart, Mic, Play, Shuffle } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { Link, useLocation, useParams } from "react-router";
 import { useShallow } from "zustand/react/shallow";
 
@@ -12,10 +14,10 @@ import { ArtworkImage } from "@/components/cards/artwork-image";
 import { TrackRow } from "@/components/cards/track-row";
 import { BackButton } from "@/components/navigation/back-button";
 import { Button } from "@/components/ui/button";
-import { cachedArtworkUrl, isRequestCancelled } from "@/services/api-client";
+import { cachedArtworkUrl } from "@/services/api-client";
 import { getArtist, getOnlineArtist } from "@/services/music-api";
 import { usePlayerStore } from "@/stores/player-store";
-import type { ArtistDetail, LibraryArtistDetail, LibraryTrack } from "@/types/api";
+import type { LibraryTrack } from "@/types/api";
 import type { PlayerTrack } from "@/types/player";
 import { libraryTrackToPlayerTrack, songToPlayerTrack } from "@/types/player";
 import { cn } from "@/lib/utils";
@@ -25,41 +27,15 @@ export function ArtistDetailPage() {
   const location = useLocation();
   const favoriteMutation = useToggleFavorite();
   const isOnline = location.pathname.includes("/artists/online/");
-  const [localArtist, setLocalArtist] = useState<ArtistDetail | null>(null);
-  const [onlineArtist, setOnlineArtist] = useState<LibraryArtistDetail | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isFavorited, setIsFavorited] = useState(false);
+  const numericId = Number(artistId);
+  const localQuery = useQuery({ queryKey: musicKeys.artist(numericId), queryFn: ({ signal }) => getArtist(numericId, signal), enabled: !isOnline && Number.isSafeInteger(numericId) && numericId > 0 });
+  const onlineQuery = useQuery({ queryKey: musicKeys.onlineArtist(artistId ?? ""), queryFn: ({ signal }) => getOnlineArtist(artistId!, signal), enabled: isOnline && Boolean(artistId) });
+  const localArtist = isOnline ? undefined : localQuery.data;
+  const onlineArtist = isOnline ? onlineQuery.data : undefined;
+  const activeQuery = isOnline ? onlineQuery : localQuery;
+  const isLoading = activeQuery.isLoading;
+  const isFavorited = localArtist?.is_favorited ?? false;
   const { playAlbum } = usePlayerStore(useShallow((state) => ({ playAlbum: state.playAlbum })));
-
-  useEffect(() => {
-    if (!artistId) return;
-    const controller = new AbortController();
-    setIsLoading(true);
-
-    const request = isOnline ? getOnlineArtist(artistId, controller.signal) : getArtist(Number(artistId), controller.signal);
-    request
-      .then((data) => {
-        if (controller.signal.aborted) return;
-        if (isOnline) {
-          setOnlineArtist(data as LibraryArtistDetail);
-          setLocalArtist(null);
-        } else {
-          const artist = data as ArtistDetail;
-          setLocalArtist(artist);
-          setOnlineArtist(null);
-          setIsFavorited(artist.is_favorited);
-        }
-      })
-      .catch((error) => {
-        if (isRequestCancelled(error)) return;
-        console.error("Failed to load artist:", error);
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setIsLoading(false);
-      });
-
-    return () => controller.abort();
-  }, [artistId, isOnline]);
 
   const view = useMemo(() => {
     if (isOnline && onlineArtist) {
@@ -95,8 +71,7 @@ export function ArtistDetailPage() {
   async function handleToggleFavorite() {
     if (!localArtist || favoriteMutation.isPending) return;
     try {
-      const result = await favoriteMutation.mutateAsync({ entity_type: "artist", entity_id: localArtist.id });
-      setIsFavorited(result.is_favorited);
+      await favoriteMutation.mutateAsync({ entity_type: "artist", entity_id: localArtist.id });
     } catch (error) { toast(error instanceof Error ? error.message : "Could not update favorite", "error"); }
   }
 
@@ -117,7 +92,7 @@ export function ArtistDetailPage() {
   }
 
   if (!view) {
-    return <div className="flex min-h-screen items-center justify-center text-muted-foreground">Artist not found</div>;
+    return <div className="flex min-h-[50vh] flex-col items-center justify-center gap-3 text-muted-foreground"><p>{activeQuery.error?.message || "Artist not found"}</p>{activeQuery.error && <Button variant="glass" onClick={() => void activeQuery.refetch()}>Retry</Button>}</div>;
   }
 
   const artistArtworkUrl = cachedArtworkUrl(view.artwork);

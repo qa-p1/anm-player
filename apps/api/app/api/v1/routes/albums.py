@@ -3,10 +3,19 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 
-from app.api.deps import ProviderId, ResourceId, get_library_album_service, require_operator
-from app.schemas.library import AlbumDownloadCreateRequest, AlbumFavoriteRequest, UnifiedAlbumResponse
+from app.api.deps import (
+    ProviderId,
+    ResourceId,
+    get_library_album_service,
+    require_operator,
+)
 from app.models import LibraryAlbum
-from app.services import LibraryAlbumService
+from app.schemas.library import (
+    AlbumDownloadCreateRequest,
+    AlbumFavoriteRequest,
+    UnifiedAlbumResponse,
+)
+from app.services.library_albums import LibraryAlbumService
 
 router = APIRouter()
 

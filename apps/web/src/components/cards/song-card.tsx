@@ -1,9 +1,10 @@
+import { invalidateLibrary } from "@/services/music-invalidation";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 
 import { TrackRow } from "@/components/cards/track-row";
 import { toast } from "@/components/ui/toast";
-import { musicKeys, useRemoveSongFromPlaylist, useToggleFavorite } from "@/hooks/use-music-queries";
+import { useRemoveSongFromPlaylist, useToggleFavorite } from "@/hooks/use-music-queries";
 import { queryClient } from "@/lib/query-client";
 import { enrichSong } from "@/services/music-api";
 import type { Song } from "@/types/api";
@@ -64,8 +65,7 @@ export function SongCard({
   async function handleEnrich() {
     try {
       await enrichSong(song.id);
-      await queryClient.invalidateQueries({ queryKey: musicKeys.song(song.id) });
-      await queryClient.invalidateQueries({ queryKey: musicKeys.songs() });
+      await invalidateLibrary(queryClient);
       toast("Metadata enriched", "success");
     } catch (error) {
       toast(error instanceof Error ? error.message : "Failed to enrich metadata", "error");

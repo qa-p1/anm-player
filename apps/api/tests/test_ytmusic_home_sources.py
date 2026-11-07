@@ -1,22 +1,19 @@
 import asyncio
 
 from app.schemas.ytmusic import OnlineHomeResponse, OnlineHomeSection
-from app.services.ytmusic_service.service import (
-    WEB,
-    AlbumRef,
-    HomePage,
-    HomeSection,
-    InnerTubeSession,
-    YTItem,
-    YouTubeMusicService,
-    _extract_explore_albums,
-    _extract_related_browse_id,
-    _extract_video_charts_section,
-    _normalize_chart_browse_id,
-    _parse_chart_tracks,
-    _select_chart_playlist,
-    _select_related_song_items,
+from app.services.ytmusic_service import YouTubeMusicService
+from app.services.ytmusic_service.models import AlbumRef, HomePage, HomeSection, YTItem
+from app.services.ytmusic_service.parsing import (
+    extract_explore_albums,
+    extract_related_browse_id,
+    extract_video_charts_section,
+    normalize_chart_browse_id,
+    parse_chart_tracks,
+    select_chart_playlist,
+    select_related_song_items,
 )
+from app.services.ytmusic_service.presentation import assemble_home
+from app.services.ytmusic_service.transport import WEB, InnerTubeSession
 
 
 def song(video_id: str, title: str | None = None) -> YTItem:
@@ -51,7 +48,11 @@ def responsive(video_id: str, title: str) -> dict:
     return {
         "musicResponsiveListItemRenderer": {
             "flexColumns": [
-                {"musicResponsiveListItemFlexColumnRenderer": {"text": {"runs": [{"text": title}]}}}
+                {
+                    "musicResponsiveListItemFlexColumnRenderer": {
+                        "text": {"runs": [{"text": title}]}
+                    }
+                }
             ],
             "navigationEndpoint": {"watchEndpoint": {"videoId": video_id}},
         }
@@ -84,7 +85,9 @@ class RecordingSession(InnerTubeSession):
 
 def test_browse_includes_form_data_selected_values() -> None:
     session = RecordingSession()
-    session.browse(client=WEB, browse_id="FEmusic_charts", form_data={"selectedValues": ["ZZ"]})
+    session.browse(
+        client=WEB, browse_id="FEmusic_charts", form_data={"selectedValues": ["ZZ"]}
+    )
     assert session.body["formData"] == {"selectedValues": ["ZZ"]}
 
 
@@ -96,13 +99,16 @@ def test_global_chart_selection_prefers_daily_global_over_top_100() -> None:
             two_row("Daily Top Music Videos Global", "VLdaily"),
         ],
     )
-    section = _extract_video_charts_section(raw)
-    selected = _select_chart_playlist(section, (("daily top music videos", "global"), ("top 100 music videos", "global")))
+    section = extract_video_charts_section(raw)
+    selected = select_chart_playlist(
+        section,
+        (("daily top music videos", "global"), ("top 100 music videos", "global")),
+    )
     assert selected.title == "Daily Top Music Videos Global"
 
 
 def test_india_chart_selection_prefers_trending_20_india() -> None:
-    section = _extract_video_charts_section(
+    section = extract_video_charts_section(
         shelf(
             "Video charts",
             [
@@ -111,26 +117,42 @@ def test_india_chart_selection_prefers_trending_20_india() -> None:
             ],
         )
     )
-    selected = _select_chart_playlist(
+    selected = select_chart_playlist(
         section,
-        (("trending 20", "india"), ("daily top music videos", "india"), ("top 100 music videos", "india")),
+        (
+            ("trending 20", "india"),
+            ("daily top music videos", "india"),
+            ("top 100 music videos", "india"),
+        ),
     )
     assert selected.title == "Trending 20 India"
 
 
 def test_chart_playlist_id_is_not_double_prefixed() -> None:
-    assert _normalize_chart_browse_id("VLPL123") == "VLPL123"
-    assert _normalize_chart_browse_id("PL123") == "VLPL123"
+    assert normalize_chart_browse_id("VLPL123") == "VLPL123"
+    assert normalize_chart_browse_id("PL123") == "VLPL123"
 
 
 def test_chart_tracks_preserve_order_and_deduplicate_video_ids() -> None:
-    raw = {"contents": [responsive("one", "One"), two_row("An album", "MPREbAlbum"), responsive("two", "Two"), responsive("one", "One again")]}
-    assert [item.id for item in _parse_chart_tracks(raw)] == ["one", "two"]
+    raw = {
+        "contents": [
+            responsive("one", "One"),
+            two_row("An album", "MPREbAlbum"),
+            responsive("two", "Two"),
+            responsive("one", "One again"),
+        ]
+    }
+    assert [item.id for item in parse_chart_tracks(raw)] == ["one", "two"]
 
 
 def test_chart_tracks_retain_regional_titles_without_filtering() -> None:
-    raw = {"contents": [responsive("hindi", "Hindi Hit"), responsive("punjabi", "Punjabi Hit")]}
-    assert [item.id for item in _parse_chart_tracks(raw)] == ["hindi", "punjabi"]
+    raw = {
+        "contents": [
+            responsive("hindi", "Hindi Hit"),
+            responsive("punjabi", "Punjabi Hit"),
+        ]
+    }
+    assert [item.id for item in parse_chart_tracks(raw)] == ["hindi", "punjabi"]
 
 
 def test_explore_album_parser_keeps_valid_albums_and_deduplicates() -> None:
@@ -143,16 +165,23 @@ def test_explore_album_parser_keeps_valid_albums_and_deduplicates() -> None:
             two_row("Album Two", "MPREbTwo"),
         ],
     )
-    assert [item.id for item in _extract_explore_albums(raw)] == ["MPREbOne", "MPREbTwo"]
+    assert [item.id for item in extract_explore_albums(raw)] == ["MPREbOne", "MPREbTwo"]
 
 
 def test_home_assembly_returns_only_approved_ids_in_order() -> None:
-    service = YouTubeMusicService()
     provider = HomePage(
         chips=[],
-        sections=[HomeSection(title="Quick Picks", label=None, thumbnail=None, endpoint=None, items=[song("quick")])],
+        sections=[
+            HomeSection(
+                title="Quick Picks",
+                label=None,
+                thumbnail=None,
+                endpoint=None,
+                items=[song("quick")],
+            )
+        ],
     )
-    response = service._assemble_home(
+    response = assemble_home(
         provider,
         ("Daily Top Music Videos Global", "VLglobal", [song("global")]),
         ("Trending 20 India", "VLindia", [song("india")]),
@@ -168,43 +197,62 @@ def test_home_assembly_returns_only_approved_ids_in_order() -> None:
     assert response.chips == []
 
 
-def test_home_assembly_never_calls_generic_search_for_charts() -> None:
-    service = YouTubeMusicService()
-
-    def forbidden(*args, **kwargs):
-        raise AssertionError("generic search must not be called")
-
-    service.client.search = forbidden
-    response = service._assemble_home(None, ("Global", "VLglobal", [song("global")]), None, None)
-    assert [section.id for section in response.sections] == ["today-picks", "global-trending"]
+def test_home_assembly_uses_the_supplied_chart_without_provider_home() -> None:
+    response = assemble_home(None, ("Global", "VLglobal", [song("global")]), None, None)
+    assert [section.id for section in response.sections] == [
+        "today-picks",
+        "global-trending",
+    ]
+    assert response.sections[1].items[0].id == "global"
 
 
 def test_today_pick_prefers_provider_quick_picks_and_falls_back_to_global() -> None:
-    service = YouTubeMusicService()
     provider = HomePage(
         chips=[],
-        sections=[HomeSection(title="Quick Picks", label=None, thumbnail=None, endpoint=None, items=[song("quick")])],
+        sections=[
+            HomeSection(
+                title="Quick Picks",
+                label=None,
+                thumbnail=None,
+                endpoint=None,
+                items=[song("quick")],
+            )
+        ],
     )
-    preferred = service._assemble_home(provider, ("Global", "VLglobal", [song("global")]), None, None)
-    fallback = service._assemble_home(None, ("Global", "VLglobal", [song("global")]), None, None)
+    preferred = assemble_home(
+        provider, ("Global", "VLglobal", [song("global")]), None, None
+    )
+    fallback = assemble_home(None, ("Global", "VLglobal", [song("global")]), None, None)
     assert preferred.sections[0].items[0].id == "quick"
     assert fallback.sections[0].items[0].id == "global"
 
 
 def test_absent_provider_quick_picks_omits_quick_section() -> None:
-    service = YouTubeMusicService()
     provider = HomePage(
         chips=[],
-        sections=[HomeSection(title="Listen Again", label=None, thumbnail=None, endpoint=None, items=[song("recent")])],
+        sections=[
+            HomeSection(
+                title="Listen Again",
+                label=None,
+                thumbnail=None,
+                endpoint=None,
+                items=[song("recent")],
+            )
+        ],
     )
-    response = service._assemble_home(provider, None, None, None)
+    response = assemble_home(provider, None, None, None)
     assert [section.id for section in response.sections] == ["today-picks"]
 
 
 def test_related_tab_uses_page_type_when_tab_order_changes() -> None:
     raw = {
         "tabs": [
-            {"tabRenderer": {"title": "Up next", "endpoint": {"browseEndpoint": {"browseId": "MPUP"}}}},
+            {
+                "tabRenderer": {
+                    "title": "Up next",
+                    "endpoint": {"browseEndpoint": {"browseId": "MPUP"}},
+                }
+            },
             {
                 "tabRenderer": {
                     "title": "Suggestions",
@@ -212,7 +260,9 @@ def test_related_tab_uses_page_type_when_tab_order_changes() -> None:
                         "browseEndpoint": {
                             "browseId": "MPTRrelated",
                             "browseEndpointContextSupportedConfigs": {
-                                "browseEndpointContextMusicConfig": {"pageType": "MUSIC_PAGE_TYPE_TRACK_RELATED"}
+                                "browseEndpointContextMusicConfig": {
+                                    "pageType": "MUSIC_PAGE_TYPE_TRACK_RELATED"
+                                }
                             },
                         }
                     },
@@ -220,17 +270,26 @@ def test_related_tab_uses_page_type_when_tab_order_changes() -> None:
             },
         ]
     }
-    assert _extract_related_browse_id(raw) == "MPTRrelated"
+    assert extract_related_browse_id(raw) == "MPTRrelated"
 
 
 def test_related_parser_excludes_seed_and_non_song_shelves() -> None:
     raw = {
         "contents": [
             shelf("Albums", [two_row("Album", "MPREbAlbum")]),
-            shelf("You might also like", [responsive("seed", "Seed"), responsive("other", "Other"), responsive("other", "Duplicate")]),
+            shelf(
+                "You might also like",
+                [
+                    responsive("seed", "Seed"),
+                    responsive("other", "Other"),
+                    responsive("other", "Duplicate"),
+                ],
+            ),
         ]
     }
-    assert [item.id for item in _select_related_song_items(raw, seed_video_id="seed")] == ["other"]
+    assert [
+        item.id for item in select_related_song_items(raw, seed_video_id="seed")
+    ] == ["other"]
 
 
 def test_related_cache_isolated_by_seed_video_id() -> None:
@@ -259,7 +318,9 @@ def test_duration_hydration_populates_quick_pick_rows() -> None:
             return WEB
 
         def player(self, video_id, *, client):
-            return {"videoDetails": {"lengthSeconds": "247" if video_id == "one" else "181"}}
+            return {
+                "videoDetails": {"lengthSeconds": "247" if video_id == "one" else "181"}
+            }
 
     class FakeClient:
         session = FakeSession()
@@ -313,9 +374,17 @@ def test_failed_chart_refresh_returns_previous_complete_response() -> None:
 
 def test_cold_start_partial_failure_returns_successful_sections() -> None:
     service = YouTubeMusicService()
-    service._provider_home_sync = lambda: (_ for _ in ()).throw(RuntimeError("provider unavailable"))
+    service._provider_home_sync = lambda: (_ for _ in ()).throw(
+        RuntimeError("provider unavailable")
+    )
     service._global_chart_sync = lambda: ("Global", "VLglobal", [song("global")])
-    service._india_chart_sync = lambda: (_ for _ in ()).throw(RuntimeError("india unavailable"))
+    service._india_chart_sync = lambda: (_ for _ in ()).throw(
+        RuntimeError("india unavailable")
+    )
     service._india_explore_sync = lambda: [album("MPREbAlbum")]
     response = asyncio.run(service.home())
-    assert [section.id for section in response.sections] == ["today-picks", "global-trending", "trending-albums"]
+    assert [section.id for section in response.sections] == [
+        "today-picks",
+        "global-trending",
+        "trending-albums",
+    ]

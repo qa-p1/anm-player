@@ -1,33 +1,38 @@
+from secrets import compare_digest
 from typing import Annotated
 
-from fastapi import Depends, Header, HTTPException, Path, Query, Request, WebSocket, status
-from secrets import compare_digest
+from fastapi import (
+    Depends,
+    Header,
+    HTTPException,
+    Path,
+    Query,
+    Request,
+    WebSocket,
+    status,
+)
 from sqlalchemy.orm import Session
 
-from app.database.session import get_session
 from app.core.config import settings
+from app.database.session import get_session
 from app.repositories.music import (
-    AlbumRepository,
-    ArtistRepository,
     DownloadJobRepository,
-    FavoriteRepository,
-    HistoryRepository,
-    PlaylistRepository,
     QueueItemRepository,
-    SongRepository,
-)
-from app.services import (
-    CatalogService,
-    DownloadService,
-    HealthService,
-    LibraryAlbumService,
-    SettingsService,
 )
 from app.services.advanced_search import AdvancedSearchService
+from app.services.catalog import CatalogService
+from app.services.catalog_presenter import CatalogPresenter
+from app.services.downloads import DownloadService
+from app.services.health import HealthService
+from app.services.library_albums import LibraryAlbumService
 from app.services.metadata.service import MetadataEnrichmentService
+from app.services.playlists import PlaylistService
+from app.services.settings import SettingsService
 
 DbSession = Annotated[Session, Depends(get_session)]
-LimitQuery = Annotated[int, Query(ge=1, le=100, description="Maximum number of records to return.")]
+LimitQuery = Annotated[
+    int, Query(ge=1, le=100, description="Maximum number of records to return.")
+]
 OffsetQuery = Annotated[int, Query(ge=0, description="Number of records to skip.")]
 ResourceId = Annotated[
     int,
@@ -44,13 +49,18 @@ def require_operator(
     authorization: Annotated[str | None, Header()] = None,
 ) -> None:
     """Require the configured single-operator token for privileged routes."""
-    _verify_operator(authorization=authorization, client_host=request.client.host if request.client else None)
+    _verify_operator(
+        authorization=authorization,
+        client_host=request.client.host if request.client else None,
+    )
 
 
 def require_websocket_operator(websocket: WebSocket) -> None:
     """Authenticate a WebSocket before accepting its handshake."""
     client_host = websocket.client.host if websocket.client else None
-    _verify_operator(authorization=websocket.headers.get("authorization"), client_host=client_host)
+    _verify_operator(
+        authorization=websocket.headers.get("authorization"), client_host=client_host
+    )
 
 
 def _verify_operator(*, authorization: str | None, client_host: str | None) -> None:
@@ -89,14 +99,7 @@ def get_settings_service(session: DbSession) -> SettingsService:
 
 
 def get_catalog_service(session: DbSession) -> CatalogService:
-    return CatalogService(
-        songs=SongRepository(session),
-        artists=ArtistRepository(session),
-        albums=AlbumRepository(session),
-        playlists=PlaylistRepository(session),
-        favorites=FavoriteRepository(session),
-        history=HistoryRepository(session),
-    )
+    return CatalogService(session)
 
 
 def get_library_album_service(session: DbSession) -> LibraryAlbumService:
@@ -104,7 +107,10 @@ def get_library_album_service(session: DbSession) -> LibraryAlbumService:
 
 
 def get_download_service(session: DbSession) -> DownloadService:
-    return DownloadService(downloads=DownloadJobRepository(session), queue_items=QueueItemRepository(session))
+    return DownloadService(
+        downloads=DownloadJobRepository(session),
+        queue_items=QueueItemRepository(session),
+    )
 
 
 def get_advanced_search_service(session: DbSession) -> AdvancedSearchService:
@@ -113,3 +119,11 @@ def get_advanced_search_service(session: DbSession) -> AdvancedSearchService:
 
 def get_metadata_service(session: DbSession) -> MetadataEnrichmentService:
     return MetadataEnrichmentService(session)
+
+
+def get_playlist_service(session: DbSession) -> PlaylistService:
+    return PlaylistService(session)
+
+
+def get_catalog_presenter(session: DbSession) -> CatalogPresenter:
+    return CatalogPresenter(session)

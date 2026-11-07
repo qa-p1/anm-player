@@ -1,3 +1,4 @@
+import { musicKeys } from "@/services/music-keys";
 import { trackShareUrl } from "@/utils/track-collection";
 import {
   Check,
@@ -39,7 +40,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/toast";
-import { musicKeys, useAddTracksToPlaylist, useAllPlaylists, useCreatePlaylist } from "@/hooks/use-music-queries";
+import { useAddTracksToPlaylist, useAllPlaylists, useCreatePlaylist } from "@/hooks/use-music-queries";
 import { queryClient } from "@/lib/query-client";
 import { cn } from "@/lib/utils";
 import { isRequestCancelled } from "@/services/api-client";

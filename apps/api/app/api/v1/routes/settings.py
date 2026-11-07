@@ -24,8 +24,8 @@ from app.schemas.storage import (
     StorageCategoryUsage,
     StorageSummary,
 )
-from app.services import SettingsService
 from app.services.backup import BackupError, backup_filename, create_database_snapshot
+from app.services.settings import SettingsService
 from app.storage import storage_manager
 from app.storage.coordinator import StorageMigrationError, storage_coordinator
 

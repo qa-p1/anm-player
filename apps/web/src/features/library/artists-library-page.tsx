@@ -1,3 +1,4 @@
+import { musicKeys } from "@/services/music-keys";
 import { motion } from "framer-motion";
 import { Mic } from "lucide-react";
 import { useState } from "react";
@@ -10,7 +11,7 @@ import { EmptyState } from "@/components/empty-states/empty-state";
 import { cachedArtworkUrl } from "@/services/api-client";
 import { listAllArtists } from "@/services/music-api";
 import { useQuery } from "@tanstack/react-query";
-import { musicKeys } from "@/hooks/use-music-queries";
+
 import { CollectionBrowser } from "@/components/filters/collection-browser";
 import { Button } from "@/components/ui/button";
 

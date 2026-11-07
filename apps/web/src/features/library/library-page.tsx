@@ -1,3 +1,6 @@
+import { useQuery } from "@tanstack/react-query";
+import { musicKeys } from "@/services/music-keys";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { AnimatePresence, motion } from "framer-motion";
 import { ChevronLeft, ChevronRight, Clock3, Disc, Heart, ListMusic, Mic, Music, Search } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -9,61 +12,20 @@ import { Button } from "@/components/ui/button";
 import { ArtworkImage } from "@/components/cards/artwork-image";
 import { Input } from "@/components/ui/input";
 import { useMostPlayedHistory } from "@/hooks/use-music-queries";
-import { cachedArtworkUrl, isRequestCancelled } from "@/services/api-client";
+import { cachedArtworkUrl } from "@/services/api-client";
 import { getLibraryCounts, listLibraryAlbums, searchLibrary } from "@/services/music-api";
-import type { LibraryAlbum, LibrarySearchResult } from "@/types/api";
 
 export function LibraryPage() {
   const { data: mostPlayed = [] } = useMostPlayedHistory(1);
-  const [stats, setStats] = useState({
-    songs: 0,
-    albums: 0,
-    artists: 0,
-    playlists: 0,
-  });
-  const [albums, setAlbums] = useState<LibraryAlbum[]>([]);
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<LibrarySearchResult[]>([]);
   const [personalityIndex, setPersonalityIndex] = useState(0);
-
-  useEffect(() => {
-    const controller = new AbortController();
-
-    Promise.all([
-      getLibraryCounts(controller.signal),
-      listLibraryAlbums(undefined, 12, 0, controller.signal),
-    ])
-      .then(([counts, albums]) => {
-        if (controller.signal.aborted) return;
-        setAlbums(albums);
-        setStats(counts);
-      })
-      .catch((error) => {
-        if (!isRequestCancelled(error)) {
-          console.error("Failed to load library stats:", error);
-        }
-      });
-
-    return () => controller.abort();
-  }, []);
-
-  useEffect(() => {
-    const normalized = query.trim();
-    const controller = new AbortController();
-    if (!normalized) {
-      setResults([]);
-      return () => controller.abort();
-    }
-    searchLibrary(normalized, 12, controller.signal)
-      .then((response) => {
-        if (!controller.signal.aborted) setResults(response.results);
-      })
-      .catch((error) => {
-        if (isRequestCancelled(error)) return;
-        setResults([]);
-      });
-    return () => controller.abort();
-  }, [query]);
+  const normalized = useDebouncedValue(query.trim(), 250);
+  const countsQuery = useQuery({ queryKey: musicKeys.counts(), queryFn: ({ signal }) => getLibraryCounts(signal) });
+  const albumsQuery = useQuery({ queryKey: musicKeys.libraryAlbums(12), queryFn: ({ signal }) => listLibraryAlbums(undefined, 12, 0, signal) });
+  const searchQuery = useQuery({ queryKey: musicKeys.librarySearch(normalized), queryFn: ({ signal }) => searchLibrary(normalized, 12, signal), enabled: Boolean(normalized) });
+  const stats = countsQuery.data ?? { songs: 0, albums: 0, artists: 0, playlists: 0 };
+  const albums = albumsQuery.data ?? [];
+  const results = normalized ? searchQuery.data?.results ?? [] : [];
 
   const statsCards = [
     { label: "Songs", value: stats.songs, helper: "Downloaded tracks" },
@@ -160,15 +122,20 @@ export function LibraryPage() {
       </section>
 
       <section className="space-y-3">
+        {(countsQuery.error || albumsQuery.error) && <div role="alert" className="flex items-center gap-2 text-sm text-muted-foreground">Some library information could not be loaded.<Button variant="ghost" size="sm" onClick={() => { void countsQuery.refetch(); void albumsQuery.refetch(); }}>Retry</Button></div>}
         <div className="relative">
           <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
+            aria-label="Search your library"
             placeholder="Search your library"
             className="h-12 pl-12"
           />
         </div>
+        {normalized && searchQuery.isFetching && <p role="status" className="text-sm text-muted-foreground">Searching your library…</p>}
+        {searchQuery.error && normalized && <p role="alert" className="text-sm text-red-400">{searchQuery.error.message}</p>}
+        {normalized && !searchQuery.isFetching && !searchQuery.error && results.length === 0 && <p className="text-sm text-muted-foreground">No library matches. Try another title or artist.</p>}
         {results.length > 0 && (
           <div className="grid gap-2 md:grid-cols-2">
             {results.map((result) => {

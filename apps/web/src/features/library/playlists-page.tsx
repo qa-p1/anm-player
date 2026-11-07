@@ -1,3 +1,5 @@
+import { invalidatePlaylists } from "@/services/music-invalidation";
+import { musicKeys } from "@/services/music-keys";
 import { useLibraryPreferencesStore } from "@/stores/library-preferences-store";
 import { motion } from "framer-motion";
 import { ListMusic, Plus, Search, Pin } from "lucide-react";
@@ -11,7 +13,7 @@ import { EmptyState } from "@/components/empty-states/empty-state";
 import { BackButton } from "@/components/navigation/back-button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/toast";
-import { musicKeys, useAllPlaylists, useCreatePlaylist } from "@/hooks/use-music-queries";
+import { useAllPlaylists, useCreatePlaylist } from "@/hooks/use-music-queries";
 import { queryClient } from "@/lib/query-client";
 import { cachedArtworkUrl } from "@/services/api-client";
 import { importPlaylistUrl } from "@/services/music-api";
@@ -52,7 +54,7 @@ export function PlaylistsPage() {
     setIsImporting(true);
     try {
       await importPlaylistUrl(importUrl.trim());
-      void queryClient.invalidateQueries({ queryKey: musicKeys.playlists() });
+      void invalidatePlaylists(queryClient);
       void queryClient.invalidateQueries({ queryKey: musicKeys.downloadsList() });
       setImportUrl("");
       toast("Playlist import started", "success");

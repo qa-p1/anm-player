@@ -1,5 +1,8 @@
+import { useQuery } from "@tanstack/react-query";
+import { musicKeys } from "@/services/music-keys";
+import { useRecentlyPlayedHistory, useMostPlayedHistory } from "@/hooks/use-music-queries";
+import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
-import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
 
 import { pageTransition } from "@/animations/page-motion";
@@ -7,61 +10,33 @@ import { BackButton } from "@/components/navigation/back-button";
 import { TrackRow } from "@/components/cards/track-row";
 import { ArtworkImage } from "@/components/cards/artwork-image";
 import { CollectionActions } from "@/components/cards/collection-actions";
-import { cachedArtworkUrl, isRequestCancelled } from "@/services/api-client";
-import { getMostPlayedHistory, getRecentlyPlayedHistory, getSmartCollection } from "@/services/music-api";
-import type { HistoryEntry, LibraryTrack, SmartCollection } from "@/types/api";
+import { cachedArtworkUrl } from "@/services/api-client";
+import { getSmartCollection } from "@/services/music-api";
+import type { LibraryTrack, SmartCollection } from "@/types/api";
 import type { PlayerTrack } from "@/types/player";
 import { historyEntryToPlayerTrack, libraryTrackToPlayerTrack } from "@/types/player";
 
 export function SmartCollectionPage() {
   const { collectionId } = useParams<{ collectionId: string }>();
-  const [collection, setCollection] = useState<SmartCollection | null>(null);
-  const [historyEntries, setHistoryEntries] = useState<HistoryEntry[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    if (!collectionId) return;
-    const controller = new AbortController();
-    setIsLoading(true);
-    const historyRequest =
-      collectionId === "recently-played"
-        ? getRecentlyPlayedHistory(100, controller.signal)
-        : collectionId === "most-played"
-          ? getMostPlayedHistory(100, controller.signal)
-          : null;
-
-    const request = historyRequest
-      ? historyRequest.then((entries) => {
-          setHistoryEntries(entries);
-          setCollection({
-            id: collectionId,
-            title: collectionId === "most-played" ? "Most Played" : "Recently Played",
-            description: collectionId === "most-played" ? "Tracks you play most often." : "Tracks you played recently.",
-            tracks: [],
-            albums: [],
-          });
-        })
-      : getSmartCollection(collectionId, 100, controller.signal).then((response) => {
-          setHistoryEntries([]);
-          setCollection(response);
-        });
-
-    request
-      .catch((error) => {
-        if (isRequestCancelled(error)) return;
-        console.error("Failed to load collection:", error);
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setIsLoading(false);
-      });
-    return () => controller.abort();
-  }, [collectionId]);
+  const recent = useRecentlyPlayedHistory(100, { enabled: collectionId === "recently-played" });
+  const most = useMostPlayedHistory(100, { enabled: collectionId === "most-played" });
+  const isHistory = collectionId === "recently-played" || collectionId === "most-played";
+  const saved = useQuery({ queryKey: musicKeys.smartCollection(collectionId ?? ""), queryFn: ({ signal }) => getSmartCollection(collectionId!, 100, signal), enabled: Boolean(collectionId) && !isHistory });
+  const historyQuery = collectionId === "most-played" ? most : recent;
+  const activeQuery = isHistory ? historyQuery : saved;
+  const historyEntries = isHistory ? historyQuery.data ?? [] : [];
+  const collection: SmartCollection | undefined = isHistory ? {
+    id: collectionId!, title: collectionId === "most-played" ? "Most Played" : "Recently Played",
+    description: collectionId === "most-played" ? "Tracks you play most often." : "Tracks you played recently.", tracks: [], albums: [],
+  } : saved.data;
+  const isLoading = activeQuery.isLoading;
 
   const tracks = collection?.tracks.map(libraryTrackToPlayerTrack) ?? [];
   const historyTracks = historyEntries.map(historyEntryToPlayerTrack).filter((track): track is PlayerTrack => Boolean(track));
   const playableTracks = historyTracks.length > 0 ? historyTracks : tracks;
 
   if (isLoading) return <div className="flex min-h-screen items-center justify-center text-muted-foreground">Loading...</div>;
+  if (activeQuery.error) return <div role="alert" className="grid min-h-[50vh] place-content-center gap-3 text-center text-muted-foreground"><p>{activeQuery.error.message}</p><Button variant="glass" onClick={() => void activeQuery.refetch()}>Retry</Button></div>;
   if (!collection) return <div className="flex min-h-screen items-center justify-center text-muted-foreground">Collection not found</div>;
 
   return (

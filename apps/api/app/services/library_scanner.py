@@ -120,7 +120,6 @@ class LibraryScannerService:
                 logger.warning("Skipping unreadable or malformed media file %s: %s", file_path, exc)
                 result.errors += 1
         
-        # Find removed files
         all_songs = self.session.scalars(select(Song)).all()
         for song in all_songs:
             if self.cancel_event is not None and self.cancel_event.is_set():
@@ -436,7 +435,6 @@ class LibraryScannerService:
         """
         file_str = library_storage_path(file_path)
         
-        # Check if file already exists
         existing_song = self.songs.find_by_file_path(file_str)
         if existing_song and not refresh_existing_metadata:
             if existing_song.is_downloaded:
@@ -444,14 +442,11 @@ class LibraryScannerService:
             existing_song.is_downloaded = True
             return "updated"
 
-        # Extract metadata
         metadata = self._extract_metadata(file_path)
         
         if existing_song:
-            # Update existing
             return "updated" if self._update_song_metadata(existing_song, metadata) else "unchanged"
         else:
-            # Create new
             self._create_song_from_metadata(file_str, metadata)
             return "added"
     
@@ -473,25 +468,20 @@ class LibraryScannerService:
                 "duration": None,
             }
             
-            # Get tags based on file type
             tags = audio.tags if hasattr(audio, "tags") else audio
             
             if tags:
-                # Common tag mappings
                 metadata["title"] = self._get_tag(tags, ["TIT2", "title", "©nam"])
                 metadata["artist"] = self._get_tag(tags, ["TPE1", "artist", "©ART"])
                 metadata["album"] = self._get_tag(tags, ["TALB", "album", "©alb"])
                 metadata["album_artist"] = self._get_tag(tags, ["TPE2", "albumartist", "aART"])
 
-                # Track number
                 track = self._get_tag(tags, ["TRCK", "tracknumber", "trkn"])
                 metadata["track_number"] = self._parse_tag_number(track)
 
-                # Disc number
                 disc = self._get_tag(tags, ["TPOS", "discnumber", "disk"])
                 metadata["disc_number"] = self._parse_tag_number(disc)
 
-                # Year
                 year = self._get_tag(tags, ["TDRC", "date", "©day"])
                 if year:
                     year_str = str(year)[:4]
@@ -500,11 +490,9 @@ class LibraryScannerService:
                     except ValueError:
                         pass
             
-            # Duration
             if hasattr(audio.info, "length"):
                 metadata["duration"] = int(audio.info.length)
             
-            # Fallback to filename if no title
             if not metadata["title"]:
                 metadata["title"] = file_path.stem
             
@@ -539,12 +527,10 @@ class LibraryScannerService:
     
     def _create_song_from_metadata(self, file_path: str, metadata: dict) -> Song:
         """Create new song from metadata."""
-        # Get or create artist
         artist = None
         if metadata.get("artist"):
             artist = self.artists.get_or_create(metadata["artist"])
         
-        # Get or create album
         album = None
         if metadata.get("album"):
             album = self.albums.get_or_create(
@@ -552,11 +538,9 @@ class LibraryScannerService:
                 artist.id if artist else None
             )
             
-            # Set album year if available
             if metadata.get("year") and album and not album.year:
                 album.year = metadata["year"]
         
-        # Create song
         song = Song(
             title=metadata.get("title", "Unknown"),
             artist_id=artist.id if artist else None,
@@ -586,7 +570,6 @@ class LibraryScannerService:
         )
         song.is_downloaded = True
         
-        # Update basic fields
         if metadata.get("title"):
             song.title = metadata["title"]
         if metadata.get("duration"):

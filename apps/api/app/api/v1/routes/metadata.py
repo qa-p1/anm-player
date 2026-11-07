@@ -3,9 +3,9 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.api.deps import ResourceId, get_catalog_service, get_metadata_service
+from app.api.deps import ResourceId, get_catalog_presenter, get_metadata_service
 from app.schemas.music import SongResponse
-from app.services.catalog import CatalogService
+from app.services.catalog_presenter import CatalogPresenter
 from app.services.metadata.service import MetadataEnrichmentService
 
 router = APIRouter()
@@ -19,10 +19,12 @@ class EnrichSongRequest(BaseModel):
 async def enrich_song(
     song_id: ResourceId,
     request: EnrichSongRequest,
-    catalog_service: Annotated[CatalogService, Depends(get_catalog_service)],
-    metadata_service: Annotated[MetadataEnrichmentService, Depends(get_metadata_service)],
+    catalog_service: Annotated[CatalogPresenter, Depends(get_catalog_presenter)],
+    metadata_service: Annotated[
+        MetadataEnrichmentService, Depends(get_metadata_service)
+    ],
 ) -> SongResponse:
     song = await metadata_service.enrich_song(song_id, request.provider)
     if not song:
         raise HTTPException(status_code=404, detail="Song not found")
-    return catalog_service.song_to_response(song)
+    return catalog_service.songs_to_response([song])[0]

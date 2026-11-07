@@ -1,3 +1,6 @@
+import { useEffect, useRef } from "react";
+import { invalidateLibrary } from "@/services/music-invalidation";
+import { musicKeys } from "@/services/music-keys";
 import { useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, Download, LoaderCircle } from "lucide-react";
 
@@ -5,7 +8,7 @@ import { useDownloadQueueUi } from "@/components/download-queue-state";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DownloadsPanel } from "@/features/search/downloads-panel";
-import { musicKeys, useDownloads } from "@/hooks/use-music-queries";
+import { useDownloads } from "@/hooks/use-music-queries";
 import { cn } from "@/lib/utils";
 import { toast } from "@/components/ui/toast";
 import {
@@ -85,6 +88,14 @@ export function DownloadQueueDialog() {
   const setOpen = useDownloadQueueUi((state) => state.setOpen);
   const { data: jobs = [] } = useDownloads();
   const queryClient = useQueryClient();
+  const previousStatuses = useRef<Map<number, string> | null>(null);
+  useEffect(() => {
+    const previous = previousStatuses.current;
+    previousStatuses.current = new Map(jobs.map((job) => [job.id, job.status]));
+    if (previous && jobs.some((job) => (job.status === "completed" || job.status === "cancelled") && previous.get(job.id) !== job.status)) {
+      void invalidateLibrary(queryClient);
+    }
+  }, [jobs, queryClient]);
   const visibleJobs = jobs.filter(isVisibleJob);
 
   function upsert(job: DownloadJob) {

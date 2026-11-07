@@ -13,48 +13,39 @@ from typing import Any
 class MetadataResult:
     """Result from metadata provider lookup."""
     
-    # Core fields
     title: str | None = None
     artist: str | None = None
     album: str | None = None
     album_artist: str | None = None
     
-    # Track information
     track_number: int | None = None
     disc_number: int | None = None
     total_tracks: int | None = None
     total_discs: int | None = None
     
-    # Release information
     year: int | None = None
     release_date: str | None = None
     label: str | None = None
     catalog_number: str | None = None
     
-    # Classification
     genre: list[str] | None = None
     style: list[str] | None = None
     
-    # People
     composer: str | None = None
     conductor: str | None = None
     
-    # Identifiers
     isrc: str | None = None
     provider_track_id: str | None = None
     provider_release_id: str | None = None
     provider_artist_id: str | None = None
     
-    # Artwork
     artwork_url: str | None = None
     artwork_urls: dict[str, str] | None = None  # quality -> url mapping
     
-    # Additional data
     duration_ms: int | None = None
     language: str | None = None
     country: str | None = None
     
-    # Provider metadata
     provider: str | None = None
     confidence: float = 0.0  # 0.0 to 1.0
     raw_data: dict[str, Any] | None = None

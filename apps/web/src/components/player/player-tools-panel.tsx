@@ -1,3 +1,4 @@
+import { EQ_FREQUENCIES, EQ_PRESETS, type EqualizerPresetName } from "@/types/audio";
 import {
   AudioLines,
   Bookmark,
@@ -23,10 +24,7 @@ import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import { audioService } from "@/services/audio-service";
 import {
-  EQ_FREQUENCIES,
-  EQ_PRESETS,
   usePlaybackPreferencesStore,
-  type EqualizerPresetName,
 } from "@/stores/playback-preferences-store";
 import { formatTime } from "@/utils/format";
 

@@ -2,9 +2,19 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 
-from app.api.deps import LimitQuery, OffsetQuery, ResourceId, get_download_service, require_operator
-from app.schemas.music import DownloadBatchCreateRequest, DownloadCreateRequest, DownloadJobResponse
-from app.services import DownloadService
+from app.api.deps import (
+    LimitQuery,
+    OffsetQuery,
+    ResourceId,
+    get_download_service,
+    require_operator,
+)
+from app.schemas.music import (
+    DownloadBatchCreateRequest,
+    DownloadCreateRequest,
+    DownloadJobResponse,
+)
+from app.services.downloads import DownloadService
 
 router = APIRouter()
 

@@ -2,10 +2,10 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Response, status
 
-from app.api.deps import LimitQuery, OffsetQuery, ResourceId, get_catalog_service
+from app.api.deps import LimitQuery, OffsetQuery, ResourceId, get_playlist_service
 from app.schemas.music import (
-    PlaylistAddSongsRequest,
     PlaylistAddOnlineTrackRequest,
+    PlaylistAddSongsRequest,
     PlaylistBulkRemoveRequest,
     PlaylistCreateRequest,
     PlaylistDetailResponse,
@@ -14,40 +14,51 @@ from app.schemas.music import (
     PlaylistResponse,
     PlaylistUpdateRequest,
 )
-from app.services import CatalogService
+from app.services.playlists import PlaylistService
 
 router = APIRouter()
 
 
 @router.get("", response_model=list[PlaylistResponse], summary="List playlists")
 def list_playlists(
-    service: Annotated[CatalogService, Depends(get_catalog_service)],
+    service: Annotated[PlaylistService, Depends(get_playlist_service)],
     limit: LimitQuery = 50,
     offset: OffsetQuery = 0,
 ) -> list[PlaylistResponse]:
     return service.list_playlists(limit=limit, offset=offset)
 
 
-@router.post("", response_model=PlaylistResponse, status_code=status.HTTP_201_CREATED, summary="Create playlist")
+@router.post(
+    "",
+    response_model=PlaylistResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create playlist",
+)
 def create_playlist(
-    service: Annotated[CatalogService, Depends(get_catalog_service)],
+    service: Annotated[PlaylistService, Depends(get_playlist_service)],
     request: PlaylistCreateRequest,
 ) -> PlaylistResponse:
     return service.create_playlist(request)
 
 
-@router.get("/{playlist_id}", response_model=PlaylistDetailResponse, summary="Get playlist by ID")
+@router.get(
+    "/{playlist_id}",
+    response_model=PlaylistDetailResponse,
+    summary="Get playlist by ID",
+)
 def get_playlist(
-    service: Annotated[CatalogService, Depends(get_catalog_service)],
+    service: Annotated[PlaylistService, Depends(get_playlist_service)],
     playlist_id: ResourceId,
 ) -> PlaylistDetailResponse:
     return service.get_playlist(playlist_id)
 
 
-@router.patch("/{playlist_id}", response_model=PlaylistDetailResponse, summary="Update a playlist")
+@router.patch(
+    "/{playlist_id}", response_model=PlaylistDetailResponse, summary="Update a playlist"
+)
 def update_playlist(
     request: PlaylistUpdateRequest,
-    service: Annotated[CatalogService, Depends(get_catalog_service)],
+    service: Annotated[PlaylistService, Depends(get_playlist_service)],
     playlist_id: ResourceId,
 ) -> PlaylistDetailResponse:
     return service.update_playlist(playlist_id, request)
@@ -60,7 +71,7 @@ def update_playlist(
     summary="Duplicate a playlist and all of its items",
 )
 def duplicate_playlist(
-    service: Annotated[CatalogService, Depends(get_catalog_service)],
+    service: Annotated[PlaylistService, Depends(get_playlist_service)],
     playlist_id: ResourceId,
     request: PlaylistDuplicateRequest | None = None,
 ) -> PlaylistDetailResponse:
@@ -74,7 +85,7 @@ def duplicate_playlist(
 )
 def reorder_playlist(
     request: PlaylistReorderRequest,
-    service: Annotated[CatalogService, Depends(get_catalog_service)],
+    service: Annotated[PlaylistService, Depends(get_playlist_service)],
     playlist_id: ResourceId,
 ) -> PlaylistDetailResponse:
     return service.reorder_playlist(playlist_id, request)
@@ -87,7 +98,7 @@ def reorder_playlist(
 )
 def bulk_remove_playlist_items(
     request: PlaylistBulkRemoveRequest,
-    service: Annotated[CatalogService, Depends(get_catalog_service)],
+    service: Annotated[PlaylistService, Depends(get_playlist_service)],
     playlist_id: ResourceId,
 ) -> PlaylistDetailResponse:
     return service.bulk_remove_playlist_items(playlist_id, request)
@@ -99,7 +110,7 @@ def bulk_remove_playlist_items(
     summary="Clear all playlist items",
 )
 def clear_playlist_items(
-    service: Annotated[CatalogService, Depends(get_catalog_service)],
+    service: Annotated[PlaylistService, Depends(get_playlist_service)],
     playlist_id: ResourceId,
 ) -> PlaylistDetailResponse:
     return service.clear_playlist(playlist_id)
@@ -113,7 +124,7 @@ def clear_playlist_items(
     deprecated=True,
 )
 def clear_playlist(
-    service: Annotated[CatalogService, Depends(get_catalog_service)],
+    service: Annotated[PlaylistService, Depends(get_playlist_service)],
     playlist_id: ResourceId,
 ) -> PlaylistDetailResponse:
     return service.clear_playlist(playlist_id)
@@ -125,7 +136,7 @@ def clear_playlist(
     summary="Export a playlist as UTF-8 M3U",
 )
 def export_playlist_m3u8(
-    service: Annotated[CatalogService, Depends(get_catalog_service)],
+    service: Annotated[PlaylistService, Depends(get_playlist_service)],
     playlist_id: ResourceId,
 ) -> Response:
     filename, content = service.export_playlist_m3u8(playlist_id)
@@ -136,35 +147,49 @@ def export_playlist_m3u8(
     )
 
 
-@router.delete("/{playlist_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete playlist")
+@router.delete(
+    "/{playlist_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete playlist"
+)
 def delete_playlist(
-    service: Annotated[CatalogService, Depends(get_catalog_service)],
+    service: Annotated[PlaylistService, Depends(get_playlist_service)],
     playlist_id: ResourceId,
 ) -> None:
     service.delete_playlist(playlist_id)
 
 
-@router.post("/{playlist_id}/songs", response_model=PlaylistDetailResponse, summary="Add songs to playlist")
+@router.post(
+    "/{playlist_id}/songs",
+    response_model=PlaylistDetailResponse,
+    summary="Add songs to playlist",
+)
 def add_songs_to_playlist(
-    service: Annotated[CatalogService, Depends(get_catalog_service)],
+    service: Annotated[PlaylistService, Depends(get_playlist_service)],
     playlist_id: ResourceId,
     request: PlaylistAddSongsRequest,
 ) -> PlaylistDetailResponse:
     return service.add_songs_to_playlist(playlist_id, request)
 
 
-@router.post("/{playlist_id}/online-track", response_model=PlaylistDetailResponse, summary="Add online track to playlist")
+@router.post(
+    "/{playlist_id}/online-track",
+    response_model=PlaylistDetailResponse,
+    summary="Add online track to playlist",
+)
 def add_online_track_to_playlist(
-    service: Annotated[CatalogService, Depends(get_catalog_service)],
+    service: Annotated[PlaylistService, Depends(get_playlist_service)],
     playlist_id: ResourceId,
     request: PlaylistAddOnlineTrackRequest,
 ) -> PlaylistDetailResponse:
     return service.add_online_track_to_playlist(playlist_id, request)
 
 
-@router.delete("/{playlist_id}/songs/{song_id}", response_model=PlaylistDetailResponse, summary="Remove song from playlist")
+@router.delete(
+    "/{playlist_id}/songs/{song_id}",
+    response_model=PlaylistDetailResponse,
+    summary="Remove song from playlist",
+)
 def remove_song_from_playlist(
-    service: Annotated[CatalogService, Depends(get_catalog_service)],
+    service: Annotated[PlaylistService, Depends(get_playlist_service)],
     playlist_id: ResourceId,
     song_id: ResourceId,
 ) -> PlaylistDetailResponse:
@@ -177,7 +202,7 @@ def remove_song_from_playlist(
     summary="Remove a saved or online track from playlist",
 )
 def remove_library_track_from_playlist(
-    service: Annotated[CatalogService, Depends(get_catalog_service)],
+    service: Annotated[PlaylistService, Depends(get_playlist_service)],
     playlist_id: ResourceId,
     track_id: ResourceId,
 ) -> PlaylistDetailResponse:

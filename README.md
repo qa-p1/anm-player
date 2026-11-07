@@ -170,7 +170,7 @@ The helper rejects overlapping paths and symbolic links, uses SQLite's backup AP
 
 ## Development
 
-The repository is split into a React/Vite client and a FastAPI service:
+The repository is split into a React/Vite client and a FastAPI service. See [the codebase map](docs/architecture.md) for domain ownership and safe change boundaries:
 
 ```text
 apps/web/       React, TypeScript, Vite, Vitest

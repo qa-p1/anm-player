@@ -1,3 +1,5 @@
+import { previousTrack, nextTrack, seekPlayback } from "@/features/player/playback-controls";
+import { invalidateHistory } from "@/services/music-invalidation";
 import { useEffect, useRef } from "react";
 import { useShallow } from "zustand/react/shallow";
 
@@ -257,30 +259,18 @@ export function useAudioPlayer() {
         state.setIsPlaying(false);
         state.setPlaybackStatus(state.currentSong ? "paused" : "idle");
       },
-      previoustrack: () => {
-        const state = usePlayerStore.getState();
-        const currentId = state.currentSong?.id;
-        const previous = state.playPreviousSong();
-        if (previous) {
-          if (previous.id === currentId) audioService.seek(0);
-          state.setIsPlaying(true);
-        }
-      },
-      nexttrack: () => {
-        const state = usePlayerStore.getState();
-        const nextSong = state.playNextManually();
-        if (nextSong) state.setIsPlaying(true);
-      },
+      previoustrack: previousTrack,
+      nexttrack: nextTrack,
       seekbackward: (details) => {
         const offset = details.seekOffset ?? usePlaybackPreferencesStore.getState().seekStepSeconds;
-        audioService.seek(Math.max(0, audioService.getCurrentTime() - offset));
+        seekPlayback(audioService.getCurrentTime() - offset);
       },
       seekforward: (details) => {
         const offset = details.seekOffset ?? usePlaybackPreferencesStore.getState().seekStepSeconds;
-        audioService.seek(Math.min(audioService.getDuration(), audioService.getCurrentTime() + offset));
+        seekPlayback(audioService.getCurrentTime() + offset);
       },
       seekto: (details) => {
-        if (details.seekTime !== undefined) audioService.seek(details.seekTime);
+        if (details.seekTime !== undefined) seekPlayback(details.seekTime);
       },
     });
     return () => audioService.clearMediaSessionHandlers();
@@ -491,7 +481,7 @@ function historyPayload(song: PlayerTrack): HistoryCreateRequest | null {
 }
 
 function invalidatePlaybackHistory() {
-  return queryClient.invalidateQueries({ queryKey: ["music", "history"] });
+  return invalidateHistory(queryClient);
 }
 
 function recordPlayedHistory(song: PlayerTrack, playbackRequestId: number, playedSessionRef: { current: string | null }) {

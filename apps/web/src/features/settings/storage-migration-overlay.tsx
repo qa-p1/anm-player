@@ -1,3 +1,4 @@
+import type { StorageMigrationStatus } from "@/types/settings";
 import { AlertTriangle, Check, CheckCircle2, Database, LoaderCircle, RefreshCw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
@@ -6,22 +7,8 @@ import { apiGet } from "@/services/api-client";
 import { suspendPersistence } from "@/lib/persist-storage";
 import { audioService } from "@/services/audio-service";
 
-interface MigrationStatus {
-  active: boolean;
-  operation_kind?: "migration" | "reset";
-  phase: string;
-  message: string;
-  files_processed: number;
-  files_total: number;
-  bytes_processed: number;
-  bytes_total: number;
-  percent: number;
-  error: string | null;
-  cleanup_warning: string | null;
-}
-
 export function StorageMigrationOverlay() {
-  const [migration, setMigration] = useState<MigrationStatus | null>(null);
+  const [migration, setMigration] = useState<StorageMigrationStatus | null>(null);
   const [operationKind, setOperationKind] = useState<"migration" | "reset">("migration");
   const [view, setView] = useState<"idle" | "moving" | "verified" | "failed">("idle");
   const wasActive = useRef(false);
@@ -67,7 +54,7 @@ export function StorageMigrationOverlay() {
     }
 
     function showDetectedMigration(event: Event) {
-      const next = (event as CustomEvent<MigrationStatus>).detail;
+      const next = (event as CustomEvent<StorageMigrationStatus>).detail;
       if (!next) return;
       terminalView.current = false;
       setMigration(next);
@@ -86,7 +73,7 @@ export function StorageMigrationOverlay() {
     async function poll() {
       if (terminalView.current) return;
       try {
-        const next = await apiGet<MigrationStatus>("/settings/storage/migrations/current");
+        const next = await apiGet<StorageMigrationStatus>("/settings/storage/migrations/current");
         if (!cancelled) {
           setMigration(next);
           if (next.operation_kind) setOperationKind(next.operation_kind);

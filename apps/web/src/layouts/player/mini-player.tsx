@@ -9,7 +9,7 @@ import { ArtworkImage } from "@/components/cards/artwork-image";
 import { TrackMetadata } from "@/components/cards/track-metadata";
 import { Button } from "@/components/ui/button";
 import { playbackStatusLabel, useDelayedPlaybackStatus } from "@/hooks/use-delayed-playback-status";
-import { audioService } from "@/services/audio-service";
+import { togglePlayback, seekPlayback, previousTrack, nextTrack } from "@/features/player/playback-controls";
 import { usePlayerStore } from "@/stores/player-store";
 
 interface MiniPlayerProps {
@@ -25,17 +25,12 @@ export function MiniPlayer({ onOpen }: MiniPlayerProps) {
     queue,
     currentSong,
     isPlaying,
-    setIsPlaying,
     currentTime,
     duration,
     playbackStatus,
     playbackError,
     bufferedUntil,
     retryAttempt,
-    setCurrentTime,
-    retryCurrentSong,
-    playPreviousSong,
-    playNextManually,
   } = usePlayerStore(useShallow((state) => ({
     volume: state.volume,
     isMuted: state.isMuted,
@@ -44,17 +39,12 @@ export function MiniPlayer({ onOpen }: MiniPlayerProps) {
     queue: state.queue,
     currentSong: state.currentSong,
     isPlaying: state.isPlaying,
-    setIsPlaying: state.setIsPlaying,
     currentTime: state.currentTime,
     duration: state.duration,
     playbackStatus: state.playbackStatus,
     playbackError: state.playbackError,
     bufferedUntil: state.bufferedUntil,
     retryAttempt: state.retryAttempt,
-    setCurrentTime: state.setCurrentTime,
-    retryCurrentSong: state.retryCurrentSong,
-    playPreviousSong: state.playPreviousSong,
-    playNextManually: state.playNextManually,
   })));
   const displayedPlaybackStatus = useDelayedPlaybackStatus(playbackStatus);
 
@@ -64,33 +54,6 @@ export function MiniPlayer({ onOpen }: MiniPlayerProps) {
   const bufferedProgress = duration > 0 ? Math.max(progress, Math.min(100, (bufferedUntil / duration) * 100)) : progress;
   const PlayPauseIcon = isPlaying ? Pause : Play;
   const artworkUrl = currentSong.artworkUrl;
-
-  function handlePlayPause() {
-    if (playbackStatus === "error") {
-      retryCurrentSong();
-      return;
-    }
-    setIsPlaying(!isPlaying);
-  }
-
-  function handleSeek(time: number) {
-    setCurrentTime(time);
-    audioService.seek(time);
-  }
-
-  function handlePrevious() {
-    const currentId = currentSong?.id;
-    const previous = playPreviousSong();
-    if (previous) {
-      if (previous.id === currentId) audioService.seek(0);
-      setIsPlaying(true);
-    }
-  }
-
-  function handleNext() {
-    const next = playNextManually();
-    if (next) setIsPlaying(true);
-  }
 
   return (
     <motion.div
@@ -106,7 +69,7 @@ export function MiniPlayer({ onOpen }: MiniPlayerProps) {
         max={Math.max(duration, 1)}
         step={0.1}
         value={Math.min(currentTime, Math.max(duration, 1))}
-        onChange={(event) => handleSeek(Number(event.target.value))}
+        onChange={(event) => seekPlayback(Number(event.target.value))}
         className="apple-player-range absolute inset-x-0 top-[-0.44rem] z-10 w-full"
         style={{ "--range-progress": `${progress}%`, "--range-buffered": `${bufferedProgress}%` } as CSSProperties}
         aria-label="Mini-player song progress"
@@ -133,16 +96,16 @@ export function MiniPlayer({ onOpen }: MiniPlayerProps) {
             </div>
           </div>
         </div>
-        <Button size="icon" variant="ghost" className="hidden h-9 w-9 sm:inline-flex" aria-label="Previous track" onClick={handlePrevious}><SkipBack className="h-4 w-4 fill-current" /></Button>
+        <Button size="icon" variant="ghost" className="hidden h-9 w-9 sm:inline-flex" aria-label="Previous track" onClick={previousTrack}><SkipBack className="h-4 w-4 fill-current" /></Button>
         <Button
           size="icon"
           variant="glass"
           aria-label={playbackStatus === "error" ? "Retry playback" : isPlaying ? "Pause" : "Play"}
-          onClick={handlePlayPause}
+          onClick={togglePlayback}
         >
           <PlayPauseIcon className="h-4 w-4 fill-current" />
         </Button>
-        <Button size="icon" variant="ghost" className="h-9 w-9" aria-label="Next track" onClick={handleNext}><SkipForward className="h-4 w-4 fill-current" /></Button>
+        <Button size="icon" variant="ghost" className="h-9 w-9" aria-label="Next track" onClick={nextTrack}><SkipForward className="h-4 w-4 fill-current" /></Button>
         <Button size="icon" variant="ghost" className="h-9 w-9" aria-label={`Open queue, ${queue.length} upcoming tracks`} title="Open queue" onClick={() => useUiStore.getState().requestPlayerView("queue")}><ListMusic className="h-4 w-4" /></Button>
       </div>
       <div className="hidden items-center gap-3 border-t border-white/5 px-4 py-2 text-xs text-muted-foreground sm:flex">

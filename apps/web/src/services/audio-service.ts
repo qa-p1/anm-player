@@ -3,8 +3,8 @@ import {
   getSongStreamUrl,
   getYouTubeStreamUrl,
 } from "@/services/music-api";
-import type { EqualizerGains } from "@/stores/playback-preferences-store";
-import { EQ_FREQUENCIES } from "@/stores/playback-preferences-store";
+import type { EqualizerGains } from "@/types/audio";
+import { EQ_FREQUENCIES } from "@/types/audio";
 import type { PlayerTrack } from "@/types/player";
 
 type AudioEventCallback = () => void;
