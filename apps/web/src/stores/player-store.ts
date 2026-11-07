@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
+import { shuffleTracks } from "@/utils/track-collection";
 import { createPersistStorage } from "@/lib/persist-storage";
 import type { PlayerTrack } from "@/types/player";
 import { normalizeStoredPlayerQueue, normalizeStoredPlayerTrack } from "@/types/player";
@@ -65,6 +66,7 @@ interface PlayerState {
 
   setQueue: (songs: PlayerTrack[]) => void;
   addToQueue: (song: PlayerTrack) => void;
+  addTracksToQueue: (songs: PlayerTrack[]) => void;
   playNext: (song: PlayerTrack) => void;
   removeFromQueue: (index: number) => void;
   reorderQueue: (fromIndex: number, toIndex: number) => void;
@@ -242,7 +244,7 @@ export const usePlayerStore = create<PlayerState>()(
           if (!state.currentSong) playbackStatus = "idle";
           else if (isPlaying && playbackStatus === "error") playbackStatus = "loading";
           else if (!isPlaying && playbackStatus !== "error") playbackStatus = "paused";
-          return { isPlaying, playbackStatus };
+          return { isPlaying: Boolean(state.currentSong) && isPlaying, playbackStatus };
         }),
         setCurrentTime: (currentTime) => set({ currentTime: Math.max(0, finiteOr(currentTime, 0)) }),
         setDuration: (duration) => set({ duration: Math.max(0, finiteOr(duration, 0)) }),
@@ -280,9 +282,11 @@ export const usePlayerStore = create<PlayerState>()(
           originalQueue: rebuildOriginalQueue(state.originalQueue, state.queue, songs),
           ...clearUndo,
         })),
-        addToQueue: (song) => {
+        addToQueue: (song) => get().addTracksToQueue([song]),
+        addTracksToQueue: (songs) => {
+          if (songs.length === 0) return;
           const state = get();
-          const queue = [...state.queue, song];
+          const queue = [...state.queue, ...songs];
           set({ queue, originalQueue: rebuildOriginalQueue(state.originalQueue, state.queue, queue), ...clearUndo });
         },
         playNext: (song) => {
@@ -292,7 +296,7 @@ export const usePlayerStore = create<PlayerState>()(
         },
         removeFromQueue: (index) => {
           const state = get();
-          if (index < 0 || index >= state.queue.length) return;
+          if (!validQueueIndex(index, state.queue)) return;
           const queue = state.queue.filter((_, queueIndex) => queueIndex !== index);
           set({
             queue,
@@ -545,16 +549,22 @@ export const usePlayerStore = create<PlayerState>()(
       // Playback position changes several times per second; coalesce writes.
       storage: createPersistStorage({ writeDelayMs: 1_000 }),
       version: 3,
-      migrate: (persistedState) => {
-        if (!persistedState || typeof persistedState !== "object") return persistedState;
-        const state = persistedState as Record<string, unknown>;
+      migrate: (persistedState) => persistedState,
+      merge: (persistedState, current) => {
+        if (!persistedState || typeof persistedState !== "object") return current;
+        const stored = persistedState as Record<string, unknown>;
         return {
-          ...state,
-          currentSong: normalizeStoredPlayerTrack(state.currentSong),
-          queue: normalizeStoredPlayerQueue(state.queue),
-          originalQueue: normalizeStoredPlayerQueue(state.originalQueue),
-          queueHistory: normalizeStoredPlayerQueue(state.queueHistory),
-          queueSnapshots: normalizeQueueSnapshots(state.queueSnapshots),
+          ...current,
+          currentSong: normalizeStoredPlayerTrack(stored.currentSong),
+          queue: normalizeStoredPlayerQueue(stored.queue),
+          originalQueue: normalizeStoredPlayerQueue(stored.originalQueue),
+          queueHistory: normalizeStoredPlayerQueue(stored.queueHistory).slice(-250),
+          queueSnapshots: normalizeQueueSnapshots(stored.queueSnapshots),
+          currentTime: typeof stored.currentTime === "number" ? Math.max(0, finiteOr(stored.currentTime, 0)) : 0,
+          volume: typeof stored.volume === "number" && Number.isFinite(stored.volume) ? clamp(stored.volume, 0, 1) : current.volume,
+          isMuted: stored.isMuted === true,
+          shuffle: stored.shuffle === true,
+          repeat: stored.repeat === "one" || stored.repeat === "all" ? stored.repeat : "off",
         };
       },
       partialize: (state) => ({
@@ -572,15 +582,6 @@ export const usePlayerStore = create<PlayerState>()(
     },
   ),
 );
-
-function shuffleTracks(tracks: PlayerTrack[]): PlayerTrack[] {
-  const shuffled = [...tracks];
-  for (let index = shuffled.length - 1; index > 0; index -= 1) {
-    const swapIndex = Math.floor(Math.random() * (index + 1));
-    [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
-  }
-  return shuffled;
-}
 
 function normalizedStartIndex(index: number, length: number): number {
   if (!Number.isFinite(index)) return 0;

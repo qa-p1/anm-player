@@ -109,6 +109,7 @@ export function StorageMigrationOverlay() {
                   "anm-playback-preferences",
                   "anm-lyrics-preferences",
                   "anm-search-history",
+                  "anm-library-preferences",
                   "aura-theme",
                   "aura-accent",
                 ]) {

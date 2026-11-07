@@ -1,43 +1,15 @@
+import { playerCommands } from "@/features/commands/player-commands";
 import { Keyboard, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useUiStore } from "@/stores/ui-store";
 
-const shortcutGroups = [
-  {
-    title: "Transport",
-    shortcuts: [
-      ["Space", "Play or pause"],
-      ["⌘/Ctrl", "+", "← / →", "Previous or next track"],
-      ["← / →", "Seek backward or forward"],
-      ["↑ / ↓", "Volume up or down"],
-      ["M", "Mute or unmute"],
-    ],
-  },
-  {
-    title: "Playback modes",
-    shortcuts: [
-      ["S", "Toggle shuffle"],
-      ["R", "Cycle repeat mode"],
-      ["A", "Toggle autoplay radio"],
-      ["[ / ]", "Decrease or increase speed"],
-      ["0", "Reset speed to 1×"],
-      ["T", "Start or cancel a 30-minute timer"],
-    ],
-  },
-  {
-    title: "Player views",
-    shortcuts: [
-      ["Q", "Open the queue"],
-      ["L", "Open lyrics"],
-      ["E", "Open playback studio"],
-      ["B", "Bookmark the current position"],
-      ["Esc", "Return or close player"],
-      ["?", "Open this shortcut guide"],
-    ],
-  },
-] as const;
+const shortcutGroups = ["Transport", "Playback modes", "Player views"].map((title) => ({
+  title,
+  shortcuts: playerCommands.filter((command) => command.group === title).map((command) => [command.keys, command.label]),
+}));
+shortcutGroups.push({ title: "Navigation", shortcuts: [["Ctrl/⌘ K", "Quick find and commands"], ["/", "Open search"], ["?", "Open this guide"], ["Esc", "Close dialog or player"]] });
 
 export function ShortcutHelpDialog() {
   const open = useUiStore((state) => state.isShortcutHelpOpen);
@@ -46,7 +18,7 @@ export function ShortcutHelpDialog() {
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent className="max-w-2xl">
         <DialogHeader><DialogTitle className="flex items-center gap-2"><Keyboard className="h-5 w-5 text-primary" />Keyboard shortcuts</DialogTitle><DialogDescription>Control ANM Player without leaving the keyboard. Shortcuts pause while you type in a field.</DialogDescription></DialogHeader>
-        <div className="grid gap-5 sm:grid-cols-3">
+        <div className="grid gap-5 sm:grid-cols-2">
           {shortcutGroups.map((group) => (
             <section key={group.title}><h3 className="mb-3 text-sm font-bold">{group.title}</h3><dl className="space-y-3">{group.shortcuts.map((shortcut, index) => {
               const description = shortcut[shortcut.length - 1];

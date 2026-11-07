@@ -1,5 +1,6 @@
 import asyncio
 
+import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
@@ -490,9 +491,11 @@ def test_downloaded_unified_track_stream_url_matches_a_real_media_route(music_di
     assert any(route.matches(scope)[0] == Match.FULL for route in app.router.routes)
 
 
-def test_importing_the_same_playlist_twice_creates_distinct_playlists(monkeypatch) -> None:
+@pytest.mark.parametrize("track_occurrences", [1, 3])
+@pytest.mark.parametrize("source_url", ["https://music.youtube.com/watch?v=video-1", None])
+def test_importing_the_same_playlist_twice_creates_distinct_playlists(monkeypatch, track_occurrences, source_url) -> None:
     import app.services.library_albums as library_albums_module
-    from app.models import Playlist
+    from app.models import AlbumDownloadJob, Playlist
 
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
@@ -505,10 +508,12 @@ def test_importing_the_same_playlist_twice_creates_distinct_playlists(monkeypatc
                 external_id="video-1",
                 title="Song",
                 position=0,
-                source_url="https://music.youtube.com/watch?v=video-1",
+                source_url=source_url,
             )
         ],
     )
+
+    preview.tracks *= track_occurrences
 
     async def fake_album(_browse_id: str) -> OnlineAlbumPreview:
         return preview
@@ -521,5 +526,12 @@ def test_importing_the_same_playlist_twice_creates_distinct_playlists(monkeypatc
         second = asyncio.run(service.import_playlist_url(url=url))
 
         names = [session.get(Playlist, result["playlist_id"]).name for result in (first, second)]
+
+        jobs = [session.get(AlbumDownloadJob, result["download_job_id"]) for result in (first, second)]
+        expected_downloads = 1 if source_url else 0
+        assert all(job.total_tracks == len(job.items) == expected_downloads for job in jobs)
+        if not source_url:
+            assert all(job.status == "completed" and job.progress == 100 for job in jobs)
+        assert first["tracks"] == second["tracks"] == 1
 
     assert names == ["Road Trip", "Road Trip (2)"]

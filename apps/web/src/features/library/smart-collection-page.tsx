@@ -1,17 +1,14 @@
 import { motion } from "framer-motion";
-import { Play } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
-import { useShallow } from "zustand/react/shallow";
 
 import { pageTransition } from "@/animations/page-motion";
 import { BackButton } from "@/components/navigation/back-button";
 import { TrackRow } from "@/components/cards/track-row";
 import { ArtworkImage } from "@/components/cards/artwork-image";
-import { Button } from "@/components/ui/button";
+import { CollectionActions } from "@/components/cards/collection-actions";
 import { cachedArtworkUrl, isRequestCancelled } from "@/services/api-client";
 import { getMostPlayedHistory, getRecentlyPlayedHistory, getSmartCollection } from "@/services/music-api";
-import { usePlayerStore } from "@/stores/player-store";
 import type { HistoryEntry, LibraryTrack, SmartCollection } from "@/types/api";
 import type { PlayerTrack } from "@/types/player";
 import { historyEntryToPlayerTrack, libraryTrackToPlayerTrack } from "@/types/player";
@@ -21,7 +18,6 @@ export function SmartCollectionPage() {
   const [collection, setCollection] = useState<SmartCollection | null>(null);
   const [historyEntries, setHistoryEntries] = useState<HistoryEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const { playAlbum } = usePlayerStore(useShallow((state) => ({ playAlbum: state.playAlbum })));
 
   useEffect(() => {
     if (!collectionId) return;
@@ -72,13 +68,10 @@ export function SmartCollectionPage() {
     <motion.div {...pageTransition} className="mx-auto max-w-7xl space-y-8 px-3 py-4 sm:px-6 lg:px-8 lg:py-7">
       <BackButton fallback="/library" />
       <section className="space-y-4">
-        <p className="text-sm font-semibold text-primary">More Collection</p>
+        <p className="text-sm font-semibold text-primary">Made from your library</p>
         <h1 className="text-4xl font-black tracking-normal sm:text-5xl">{collection.title}</h1>
         <p className="max-w-2xl text-muted-foreground">{collection.description}</p>
-        <Button onClick={() => playAlbum(playableTracks, 0)} disabled={playableTracks.length === 0}>
-          <Play className="h-4 w-4 fill-current" />
-          Play
-        </Button>
+        <CollectionActions tracks={playableTracks} name={collection.title} />
       </section>
 
       {collection.albums.length > 0 && (

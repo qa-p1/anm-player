@@ -1,6 +1,6 @@
 import { motion } from "framer-motion";
 import { Album, Clock3, Mic2, Music2, Pin, PinOff, Search, Trash2, Video, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 
 import { pageTransition } from "@/animations/page-motion";
@@ -29,8 +29,17 @@ const starterSearches = ["Global top songs", "New pop songs", "Lo-fi focus", "ED
 
 export function SearchPage() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const [query, setQuery] = useState(() => searchParams.get("q") ?? "");
-  const [activeFilter, setActiveFilter] = useState<SearchFilter>("songs");
+  const query = searchParams.get("q") ?? "";
+  const activeFilter: SearchFilter = filters.find((filter) => filter.id === searchParams.get("filter"))?.id ?? "songs";
+  function setQuery(value: string) {
+    setSearchParams((current) => { const next = new URLSearchParams(current); if (value) next.set("q", value); else next.delete("q"); return next; }, { replace: true });
+  }
+  function setActiveFilter(value: SearchFilter) {
+    setSearchParams((current) => { const next = new URLSearchParams(current); next.set("filter", value); return next; }, { replace: true });
+  }
+  const moreController = useRef<AbortController | null>(null);
+  const searchInput = useRef<HTMLInputElement>(null);
+  useEffect(() => { searchInput.current?.focus(); }, []);
   const [items, setItems] = useState<OnlineMusicItem[]>([]);
   const [continuation, setContinuation] = useState<string | null>(null);
   const [albumStatuses, setAlbumStatuses] = useState<Record<string, AlbumStatusItem>>({});
@@ -50,6 +59,7 @@ export function SearchPage() {
 
   useEffect(() => {
     const controller = new AbortController();
+    moreController.current?.abort();
     setError(null);
     setContinuation(null);
 
@@ -75,17 +85,8 @@ export function SearchPage() {
         if (!controller.signal.aborted) setIsSearching(false);
       });
 
-    return () => controller.abort();
+    return () => { controller.abort(); moreController.current?.abort(); };
   }, [normalizedQuery, activeFilter, recordSearch]);
-
-  useEffect(() => {
-    const current = searchParams.get("q") ?? "";
-    if (current === normalizedQuery) return;
-    const next = new URLSearchParams(searchParams);
-    if (normalizedQuery) next.set("q", normalizedQuery);
-    else next.delete("q");
-    setSearchParams(next, { replace: true });
-  }, [normalizedQuery, searchParams, setSearchParams]);
 
   useEffect(() => {
     const albumIds = Array.from(
@@ -134,19 +135,23 @@ export function SearchPage() {
   }, [items, downloadJobsKey]);
 
   async function loadMore() {
-    if (!continuation || !normalizedQuery) return;
+    if (!continuation || !normalizedQuery || isSearching) return;
+    const controller = new AbortController();
+    moreController.current = controller;
     setIsSearching(true);
     try {
-      const response = await searchYouTubeMusic(normalizedQuery, activeFilter, continuation);
+      const response = await searchYouTubeMusic(normalizedQuery, activeFilter, continuation, controller.signal);
+      if (controller.signal.aborted) return;
       setItems((current) => {
         const seen = new Set(current.map((item) => `${item.kind}:${item.id}`));
-        return [...current, ...response.items.filter((item) => !seen.has(`${item.kind}:${item.id}`))];
+        return [...current, ...response.items.filter((item) => { const key = `${item.kind}:${item.id}`; if (seen.has(key)) return false; seen.add(key); return true; })];
       });
       setContinuation(response.continuation);
     } catch (loadError) {
+      if (isRequestCancelled(loadError)) return;
       setError(loadError instanceof Error ? loadError.message : "Could not load more results.");
     } finally {
-      setIsSearching(false);
+      if (!controller.signal.aborted) setIsSearching(false);
     }
   }
 
@@ -160,11 +165,15 @@ export function SearchPage() {
         <div className="relative">
           <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
           <Input
+            ref={searchInput}
+            id="music-search"
+            aria-label="Search YouTube Music"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Search songs, albums, artists, playlists, or moods"
-            className="h-14 pl-12 pr-4 text-base sm:h-16 sm:text-lg"
+            className="h-14 pl-12 pr-12 text-base sm:h-16 sm:text-lg"
           />
+          {query && <button type="button" aria-label="Clear search" onClick={() => { setQuery(""); searchInput.current?.focus(); }} className="absolute right-3 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-full hover:bg-white/10"><X className="h-4 w-4" /></button>}
         </div>
         <div className="no-scrollbar flex gap-2 overflow-x-auto pb-1">
           {filters.map((filter) => {
@@ -174,6 +183,7 @@ export function SearchPage() {
               <button
                 key={filter.id}
                 type="button"
+                aria-pressed={active}
                 onClick={() => setActiveFilter(filter.id)}
                 className={cn(
                   "flex h-10 shrink-0 items-center gap-2 rounded-full px-4 text-sm font-semibold transition",

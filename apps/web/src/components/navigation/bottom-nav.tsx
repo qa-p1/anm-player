@@ -1,16 +1,16 @@
 import { motion } from "framer-motion";
 import { NavLink, useLocation } from "react-router";
 
-import { navItems } from "@/components/navigation/nav-items";
+import { navItems, isNavigationActive } from "@/components/navigation/nav-items";
 import { cn } from "@/lib/utils";
 
 export function BottomNav() {
   const location = useLocation();
 
   return (
-    <nav className="fixed inset-x-3 bottom-3 z-50 grid grid-cols-5 rounded-[1.75rem] border border-white/10 bg-background/78 p-2 shadow-glass backdrop-blur-2xl lg:hidden">
+    <nav aria-label="Mobile navigation" className="fixed inset-x-3 bottom-3 z-50 grid grid-cols-5 rounded-[1.75rem] border border-white/10 bg-background/78 p-2 shadow-glass backdrop-blur-2xl lg:hidden">
       {navItems.map((item) => {
-        const isActive = location.pathname === item.path;
+        const isActive = isNavigationActive(location.pathname, item.path);
         const Icon = item.icon;
 
         return (

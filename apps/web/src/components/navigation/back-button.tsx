@@ -12,7 +12,7 @@ export function BackButton({ fallback = "/library", label = "Back" }: BackButton
   const navigate = useNavigate();
 
   function handleBack() {
-    if (window.history.length > 1) {
+    if (typeof window.history.state?.idx === "number" && window.history.state.idx > 0) {
       navigate(-1);
     } else {
       navigate(fallback);

@@ -2,6 +2,7 @@ version: 2
 updates:
   - package-ecosystem: npm
     directory: /
+    open-pull-requests-limit: 0
     schedule:
       interval: weekly
     ignore:
@@ -19,6 +20,7 @@ updates:
         update-types: [minor, patch]
   - package-ecosystem: pip
     directory: /apps/api
+    open-pull-requests-limit: 0
     schedule:
       interval: weekly
     groups:
@@ -26,6 +28,7 @@ updates:
         update-types: [minor, patch]
   - package-ecosystem: docker
     directory: /docker
+    open-pull-requests-limit: 0
     schedule:
       interval: weekly
     ignore:
@@ -39,6 +42,7 @@ updates:
         update-types: [minor, patch]
   - package-ecosystem: github-actions
     directory: /
+    open-pull-requests-limit: 0
     schedule:
       interval: weekly
     groups:

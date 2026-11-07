@@ -30,7 +30,7 @@ import { playbackStatusLabel, useDelayedPlaybackStatus } from "@/hooks/use-delay
 import { cn } from "@/lib/utils";
 import { cachedArtworkUrl } from "@/services/api-client";
 import { audioService } from "@/services/audio-service";
-import { toggleFavorite as toggleFavoriteApi } from "@/services/music-api";
+import { useFavorites, useToggleFavorite } from "@/hooks/use-music-queries";
 import { usePlayerStore } from "@/stores/player-store";
 import { useUiStore } from "@/stores/ui-store";
 import type { PlayerTrack } from "@/types/player";
@@ -49,6 +49,7 @@ function playerTrackFavoriteState(track: PlayerTrack | null | undefined): boolea
 
 export function FullScreenPlayer({ onClose }: FullScreenPlayerProps) {
   const navigate = useNavigate();
+  const favoriteMutation = useToggleFavorite();
   const {
     currentSong,
     isPlaying,
@@ -93,20 +94,18 @@ export function FullScreenPlayer({ onClose }: FullScreenPlayerProps) {
   const [view, setView] = useState<PlayerView>("player");
   const requestedPlayerView = useUiStore((state) => state.requestedPlayerView);
   const consumePlayerViewRequest = useUiStore((state) => state.consumePlayerViewRequest);
-  const [isFavorited, setIsFavorited] = useState(playerTrackFavoriteState(currentSong));
+  const { data: favorites } = useFavorites({ enabled: currentSong?.source === "local" });
+  const isFavorited = !favorites || currentSong?.source !== "local" ? playerTrackFavoriteState(currentSong)
+    : currentSong.localKind === "song" ? favorites.songs.some((song) => song.id === currentSong.songId)
+      : favorites.library_tracks.some((track) => track.id === currentSong.libraryTrackId);
   const palette = useDominantArtworkPalette(currentSong?.artworkUrl ?? null);
   const displayedPlaybackStatus = useDelayedPlaybackStatus(playbackStatus);
-
-  const currentFavoriteState = playerTrackFavoriteState(currentSong);
-  useEffect(() => {
-    setIsFavorited(currentFavoriteState);
-  }, [currentSong?.id, currentFavoriteState]);
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
+      if (event.key !== "Escape" || event.defaultPrevented || document.querySelector('[role="dialog"], [role="menu"]')) return;
       if (view !== "player") setView("player");
       else onClose();
     };
@@ -158,14 +157,13 @@ export function FullScreenPlayer({ onClose }: FullScreenPlayerProps) {
   }
 
   async function handleToggleFavorite() {
-    if (!currentSong || currentSong.source !== "local") return;
+    if (!currentSong || currentSong.source !== "local" || favoriteMutation.isPending) return;
     try {
-      const result = await toggleFavoriteApi(
+      const result = await favoriteMutation.mutateAsync(
         currentSong.localKind === "song"
           ? { entity_type: "song", entity_id: currentSong.songId }
           : { entity_type: "library_track", entity_id: currentSong.libraryTrackId },
       );
-      setIsFavorited(result.is_favorited);
       toast(result.is_favorited ? "Added to favorites" : "Removed from favorites", "success");
     } catch (error) {
       toast(error instanceof Error ? error.message : "Failed to update favorite", "error");

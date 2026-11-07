@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Annotated, Literal
 from urllib.parse import urlsplit
 
-from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
+from pydantic import BaseModel, Field, HttpUrl, StringConstraints, field_validator, model_validator
 
 from app.schemas.artwork import ArtworkResponseModel
 from app.schemas.library import LibraryAlbumResponse, LibraryTrackResponse, MixedPlaylistTrackResponse
@@ -112,8 +112,11 @@ class AlbumDetailResponse(AlbumResponse):
     songs: list[SongResponse] = []
 
 
+PlaylistName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=255)]
+
+
 class PlaylistCreateRequest(BaseModel):
-    name: str = Field(min_length=1, max_length=255)
+    name: PlaylistName
     description: str | None = Field(default=None, max_length=2000)
 
 
@@ -121,18 +124,8 @@ PositiveId = Annotated[int, Field(gt=0, le=2_147_483_647)]
 
 
 class PlaylistUpdateRequest(BaseModel):
-    name: str | None = Field(default=None, min_length=1, max_length=255)
+    name: PlaylistName | None = None
     description: str | None = Field(default=None, max_length=2000)
-
-    @field_validator("name")
-    @classmethod
-    def validate_name(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        value = value.strip()
-        if not value:
-            raise ValueError("Playlist name cannot be blank")
-        return value
 
     @model_validator(mode="after")
     def validate_patch(self) -> "PlaylistUpdateRequest":
@@ -144,17 +137,7 @@ class PlaylistUpdateRequest(BaseModel):
 
 
 class PlaylistDuplicateRequest(BaseModel):
-    name: str | None = Field(default=None, min_length=1, max_length=255)
-
-    @field_validator("name")
-    @classmethod
-    def validate_name(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        value = value.strip()
-        if not value:
-            raise ValueError("Playlist name cannot be blank")
-        return value
+    name: PlaylistName | None = None
 
 
 class PlaylistItemReference(BaseModel):

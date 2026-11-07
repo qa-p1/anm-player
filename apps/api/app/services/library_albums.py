@@ -779,6 +779,8 @@ class LibraryAlbumService:
             next_position += 1
             added += 1
 
+        if added:
+            PlaylistRepository(self.session).touch(playlist_id)
         self.session.commit()
         return added
 
@@ -827,22 +829,25 @@ class LibraryAlbumService:
                 self.session.flush()
             saved_track_ids.append(track.id)
 
+        saved_track_ids = list(dict.fromkeys(saved_track_ids))
         self.session.commit()
         added = self.add_tracks_to_playlist(playlist.id, saved_track_ids, force=False)
 
+        downloadable_tracks = [
+            track
+            for track_id in saved_track_ids
+            if (track := self.session.get(LibraryTrack, track_id)) is not None and track.source_url
+        ]
         runtime = SettingsService(self.session)
         album_job = AlbumDownloadJob(
             album_id=self._ensure_import_album(preview).id,
             status=DownloadStatus.QUEUED,
-            total_tracks=len(saved_track_ids),
+            total_tracks=len(downloadable_tracks),
             max_parallel=max_parallel or runtime.get_int("album_download_max_parallel", 5),
         )
         self.session.add(album_job)
         self.session.flush()
-        for track_id in saved_track_ids:
-            track = self.session.get(LibraryTrack, track_id)
-            if not track or not track.source_url:
-                continue
+        for track in downloadable_tracks:
             download = DownloadJob(
                 status=DownloadStatus.QUEUED,
                 stage="Queued",
@@ -860,6 +865,10 @@ class LibraryAlbumService:
             self.session.flush()
             self.session.add(QueueItem(download_job=download, status=DownloadStatus.QUEUED, item_type="playlist_track"))
             self.session.add(AlbumDownloadItem(album_job_id=album_job.id, track_id=track.id, download_job_id=download.id))
+        if not downloadable_tracks:
+            album_job.status = DownloadStatus.COMPLETED
+            album_job.progress = 100
+            album_job.completed_at = datetime.now(UTC)
         self.session.commit()
         return {"playlist_id": playlist.id, "tracks": added, "download_job_id": album_job.id}
 

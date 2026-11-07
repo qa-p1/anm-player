@@ -406,3 +406,55 @@ def test_removing_single_items_keeps_mixed_positions_dense(playlist_api: Playlis
     )
     assert response.status_code == 200, response.text
     assert persisted_item_order(playlist_api) == [("song", playlist_api.second_song_id, 0)]
+
+
+@pytest.mark.parametrize("name", [" ", "\t\n", "\u2003"])
+def test_creating_blank_playlist_is_rejected(playlist_api: PlaylistApi, name: str) -> None:
+    response = playlist_api.client.post("/api/v1/playlists", json={"name": name})
+
+    assert response.status_code == 422
+    assert len(playlist_api.session.scalars(select(Playlist)).all()) == 2
+
+
+def test_playlist_creation_normalizes_names_before_uniqueness_check(playlist_api: PlaylistApi) -> None:
+    created = playlist_api.client.post("/api/v1/playlists", json={"name": "  Evening mix  "})
+    assert created.status_code == 201
+    assert created.json()["name"] == "Evening mix"
+
+    duplicate = playlist_api.client.post("/api/v1/playlists", json={"name": "Evening mix"})
+    assert duplicate.status_code == 409
+
+
+@pytest.mark.parametrize("operation", ["add", "add-online", "remove", "bulk-remove", "clear", "reorder"])
+def test_playlist_content_changes_update_modification_time(playlist_api: PlaylistApi, operation: str) -> None:
+    from datetime import UTC, datetime
+
+    playlist = playlist_api.session.get(Playlist, playlist_api.playlist_id)
+    old_time = datetime(2000, 1, 1, tzinfo=UTC)
+    playlist.updated_at = old_time
+    playlist_api.session.commit()
+    url = f"/api/v1/playlists/{playlist_api.playlist_id}"
+    if operation == "add":
+        song = Song(title="Additional song")
+        playlist_api.session.add(song)
+        playlist_api.session.commit()
+        response = playlist_api.client.post(f"{url}/songs", json={"song_ids": [song.id]})
+    elif operation == "add-online":
+        response = playlist_api.client.post(f"{url}/online-track", json={"external_id": "new-video", "title": "New song"})
+    elif operation == "remove":
+        response = playlist_api.client.delete(f"{url}/songs/{playlist_api.first_song_id}")
+    elif operation == "bulk-remove":
+        response = playlist_api.client.post(f"{url}/items/bulk-remove", json={"items": [{"item_type": "song", "item_id": playlist_api.first_song_id}]})
+    elif operation == "clear":
+        response = playlist_api.client.delete(f"{url}/items")
+    else:
+        response = playlist_api.client.put(f"{url}/reorder", json={"items": [
+            {"item_type": "library_track", "item_id": playlist_api.library_track_id},
+            {"item_type": "song", "item_id": playlist_api.second_song_id},
+            {"item_type": "song", "item_id": playlist_api.first_song_id},
+        ]})
+
+    assert response.status_code == 200, response.text
+    assert datetime.fromisoformat(response.json()["updated_at"]).year > old_time.year
+    playlist_api.session.expire_all()
+    assert playlist_api.session.get(Playlist, playlist_api.playlist_id).updated_at.year > old_time.year

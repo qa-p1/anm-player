@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 
 import { TrackRow } from "@/components/cards/track-row";
@@ -33,12 +33,14 @@ export function SongCard({
 }: SongCardProps) {
   const navigate = useNavigate();
   const [isFavorited, setIsFavorited] = useState(song.is_favorited);
+  useEffect(() => { setIsFavorited(song.is_favorited); }, [song]);
   const toggleFavoriteMutation = useToggleFavorite();
   const removeSongMutation = useRemoveSongFromPlaylist();
 
   const track = songToPlayerTrack(song);
   const contextTracks = playerContext ?? context?.map(songToPlayerTrack);
   async function handleToggleFavorite() {
+    if (toggleFavoriteMutation.isPending) return;
     try {
       const result = await toggleFavoriteMutation.mutateAsync({ entity_type: "song", entity_id: song.id });
       setIsFavorited(result.is_favorited);

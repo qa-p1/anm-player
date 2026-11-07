@@ -1,3 +1,5 @@
+import { CreatePlaylistDialog } from "@/features/playlists/create-playlist-dialog";
+import { exportTracks } from "@/utils/track-collection";
 import {
   DndContext,
   DragOverlay,
@@ -57,6 +59,7 @@ interface QueueEntry {
 
 export function QueuePanel({ onClose }: { onClose: () => void }) {
   const {
+    currentSong,
     queue,
     queueHistory,
     queueSnapshots,
@@ -79,6 +82,7 @@ export function QueuePanel({ onClose }: { onClose: () => void }) {
     replayHistoryItem,
     setIsPlaying,
   } = usePlayerStore(useShallow((state) => ({
+    currentSong: state.currentSong,
     queue: state.queue,
     queueHistory: state.queueHistory,
     queueSnapshots: state.queueSnapshots,
@@ -101,6 +105,7 @@ export function QueuePanel({ onClose }: { onClose: () => void }) {
     replayHistoryItem: state.replayHistoryItem,
     setIsPlaying: state.setIsPlaying,
   })));
+  const [playlistOpen, setPlaylistOpen] = useState(false);
   const [tab, setTab] = useState<QueueTab>("up-next");
   const [query, setQuery] = useState("");
   const [snapshotName, setSnapshotName] = useState("");
@@ -193,6 +198,7 @@ export function QueuePanel({ onClose }: { onClose: () => void }) {
             ) : (
               <SortableQueue
                 entries={queueEntries(filteredQueue)}
+                lastQueueIndex={queue.length - 1}
                 onMove={reorderQueue}
                 onPlay={playIndex}
                 onMoveNext={moveQueueItemNext}
@@ -220,8 +226,9 @@ export function QueuePanel({ onClose }: { onClose: () => void }) {
         <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto pb-4">
           <div className="mb-4 flex gap-2 rounded-2xl bg-white/8 p-3">
             <Input value={snapshotName} onChange={(event) => setSnapshotName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") saveSnapshot(); }} placeholder="Queue name" className="h-10 border-white/10 bg-black/10 text-sm text-white placeholder:text-white/40" />
-            <Button onClick={saveSnapshot} disabled={queue.length === 0}><Save className="h-4 w-4" />Save current</Button>
+            <Button onClick={saveSnapshot} disabled={queue.length === 0 && !currentSong}><Save className="h-4 w-4" />Save current</Button>
           </div>
+          <Button variant="glass" className="mb-4" onClick={() => setPlaylistOpen(true)} disabled={!currentSong && queue.length === 0}><Save className="h-4 w-4" />Save as library playlist</Button>
           {queueSnapshots.length === 0 ? <EmptyQueue icon={Save} title="No saved queues" description="Save a listening session and return to it any time on this device." /> : (
             <ul className="space-y-2">
               {queueSnapshots.map((snapshot) => (
@@ -233,6 +240,7 @@ export function QueuePanel({ onClose }: { onClose: () => void }) {
           )}
         </div>
       )}
+      <CreatePlaylistDialog open={playlistOpen} onOpenChange={setPlaylistOpen} tracks={currentSong ? [currentSong, ...queue] : queue} />
     </section>
   );
 }
@@ -247,8 +255,9 @@ function queueEntries(items: Array<{ song: PlayerTrack; queueIndex: number }>): 
   });
 }
 
-function SortableQueue({ entries, onMove, onPlay, onMoveNext, onMoveEnd, onRemove }: {
+function SortableQueue({ entries, lastQueueIndex, onMove, onPlay, onMoveNext, onMoveEnd, onRemove }: {
   entries: QueueEntry[];
+  lastQueueIndex: number;
   onMove: (fromIndex: number, toIndex: number) => void;
   onPlay: (index: number) => void;
   onMoveNext: (index: number) => void;
@@ -274,7 +283,7 @@ function SortableQueue({ entries, onMove, onPlay, onMoveNext, onMoveEnd, onRemov
   return (
     <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={(event: DragStartEvent) => setActiveId(String(event.active.id))} onDragCancel={() => setActiveId(null)} onDragEnd={handleDragEnd}>
       <SortableContext items={entries.map((entry) => entry.id)} strategy={verticalListSortingStrategy}>
-        <ul className="space-y-2">{entries.map((entry) => <SortableQueueRow key={entry.id} entry={entry} lastQueueIndex={Math.max(...entries.map((item) => item.queueIndex))} onPlay={onPlay} onMoveNext={onMoveNext} onMoveEnd={onMoveEnd} onRemove={onRemove} />)}</ul>
+        <ul className="space-y-2">{entries.map((entry) => <SortableQueueRow key={entry.id} entry={entry} lastQueueIndex={lastQueueIndex} onPlay={onPlay} onMoveNext={onMoveNext} onMoveEnd={onMoveEnd} onRemove={onRemove} />)}</ul>
       </SortableContext>
       <DragOverlay adjustScale={false} dropAnimation={{ duration: 240, easing: "cubic-bezier(0.22, 1, 0.36, 1)" }}>{activeEntry ? <QueueDragPreview song={activeEntry.song} /> : null}</DragOverlay>
     </DndContext>
@@ -318,36 +327,9 @@ function EmptyQueue({ icon: Icon, title, description }: { icon: typeof ListMusic
   return <div className="flex h-full min-h-56 flex-col items-center justify-center p-6 text-center"><Icon className="mb-4 h-10 w-10 text-white/35" /><p className="text-lg font-bold">{title}</p><p className="mt-1 max-w-sm text-sm text-white/50">{description}</p></div>;
 }
 
-function exportTracks(tracks: PlayerTrack[], name: string) {
-  const lines = ["#EXTM3U"];
-  for (const track of tracks) {
-    const duration = Math.round(track.durationSeconds ?? -1);
-    lines.push(`#EXTINF:${duration},${track.artistName ? `${track.artistName} - ` : ""}${track.title}`);
-    lines.push(trackExportUrl(track));
-  }
-  const blob = new Blob([`${lines.join("\n")}\n`], { type: "audio/x-mpegurl;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = `${safeFileName(name)}.m3u8`;
-  anchor.click();
-  window.setTimeout(() => URL.revokeObjectURL(url), 0);
-}
-
-function trackExportUrl(track: PlayerTrack) {
-  if (track.source === "youtube") return track.rawItem.url || `https://music.youtube.com/watch?v=${track.videoId}`;
-  if (track.localKind === "song") return track.rawSong.source_url || new URL(`/api/v1/media/songs/${track.songId}/stream`, window.location.href).toString();
-  return track.rawLibraryTrack.source_url || new URL(`/api/v1/media/library-tracks/${track.libraryTrackId}/stream`, window.location.href).toString();
-}
-
-function safeFileName(name: string) {
-  const reserved = new Set(['<', '>', ':', '"', '/', '\\', '|', '?', '*']);
-  return Array.from(name.trim(), (character) => reserved.has(character) || character.charCodeAt(0) < 32 ? "-" : character).join("").replace(/\s+/g, " ").slice(0, 100) || "anm-queue";
-}
-
 function formatQueueDuration(seconds: number) {
   if (!seconds) return "unknown length";
-  const hours = Math.floor(seconds / 3_600);
-  const minutes = Math.ceil((seconds % 3_600) / 60);
+  const hours = Math.floor(Math.ceil(seconds / 60) / 60);
+  const minutes = Math.ceil(seconds / 60) % 60;
   return hours ? `${hours}h ${minutes}m` : `${minutes}m`;
 }

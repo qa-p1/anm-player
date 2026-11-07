@@ -180,10 +180,6 @@ export function clearPlaylistItems(playlistId: number) {
   return apiDelete<PlaylistDetail>(`/playlists/${playlistId}/items`);
 }
 
-export function getPlaylistExportUrl(playlistId: number) {
-  return `/api/v1/playlists/${playlistId}/export.m3u8`;
-}
-
 export function addSongsToPlaylist(playlistId: number, request: PlaylistAddSongsRequest) {
   return apiPost<PlaylistDetail, PlaylistAddSongsRequest>(`/playlists/${playlistId}/songs`, request);
 }
@@ -261,12 +257,24 @@ export function searchYouTubeMusic(query: string, filter = "all", continuation?:
   return apiGet<OnlineSearchResponse>(`/ytmusic/search?${params.toString()}`, { signal });
 }
 
-export function getLibraryAlbumStatuses(externalIds: string[], signal?: AbortSignal) {
-  return apiPost<AlbumStatusResponse, { external_ids: string[] }>("/library/albums/status", { external_ids: externalIds }, { signal });
+export function getLibraryAlbumStatuses(externalIds: string[], signal?: AbortSignal): Promise<AlbumStatusResponse> {
+  return collectStatuses<AlbumStatusResponse["statuses"][number]>("/library/albums/status", externalIds, signal);
 }
 
-export function getLibraryTrackStatuses(externalIds: string[], signal?: AbortSignal) {
-  return apiPost<TrackStatusResponse, { external_ids: string[] }>("/library/tracks/status", { external_ids: externalIds }, { signal });
+export function getLibraryTrackStatuses(externalIds: string[], signal?: AbortSignal): Promise<TrackStatusResponse> {
+  return collectStatuses<TrackStatusResponse["statuses"][number]>("/library/tracks/status", externalIds, signal);
+}
+
+async function collectStatuses<T>(path: string, externalIds: string[], signal?: AbortSignal): Promise<{ statuses: T[] }> {
+  const ids = [...new Set(externalIds)];
+  const statuses: T[] = [];
+  // Status endpoints accept at most 200 IDs, including after search pagination.
+  for (let offset = 0; offset < ids.length; offset += 200) {
+    signal?.throwIfAborted();
+    const response = await apiPost<{ statuses: T[] }, { external_ids: string[] }>(path, { external_ids: ids.slice(offset, offset + 200) }, { signal });
+    statuses.push(...response.statuses);
+  }
+  return { statuses };
 }
 
 export function listLibraryAlbums(query?: string, limit = 50, offset = 0, signal?: AbortSignal) {

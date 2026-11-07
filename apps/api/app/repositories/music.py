@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 from sqlalchemy import String, and_, case, cast, func, literal, select, text
 from sqlalchemy import update
 from sqlalchemy.orm import Session, joinedload, selectinload
@@ -118,6 +120,11 @@ class PlaylistRepository(Repository[Playlist]):
             .where(Playlist.id == playlist_id)
         )
         return self.session.scalars(statement).unique().first()
+
+    def touch(self, playlist_id: int) -> None:
+        playlist = self.get(playlist_id)
+        if playlist is not None:
+            playlist.updated_at = datetime.now(UTC)
 
     def next_position(self, playlist_id: int) -> int:
         """Return the first free position across both song and library-track links."""
@@ -288,25 +295,37 @@ class HistoryRepository(Repository[History]):
         statement = (
             select(History)
             .options(joinedload(History.song).joinedload(Song.artist), joinedload(History.song).joinedload(Song.album))
-            .order_by(History.played_at.desc())
+            .order_by(History.played_at.desc(), History.id.desc())
             .offset(offset)
             .limit(limit)
         )
         return list(self.session.scalars(statement).unique())
 
     def get_recent_history(self, *, limit: int = 50) -> list[History]:
+        ranked = (
+            select(
+                History.id.label("history_id"),
+                func.row_number().over(
+                    partition_by=self._track_key(),
+                    order_by=[History.played_at.desc(), History.id.desc()],
+                ).label("recency_rank"),
+            )
+            .where(History.event_type.in_(["played", "completed"]))
+            .subquery()
+        )
         statement = (
             select(History)
             .options(joinedload(History.song).joinedload(Song.artist), joinedload(History.song).joinedload(Song.album))
-            .where(History.event_type.in_(["played", "completed"]))
-            .order_by(History.played_at.desc())
-            .limit(max(limit * 8, 100))
+            .join(ranked, History.id == ranked.c.history_id)
+            .where(ranked.c.recency_rank == 1)
+            .order_by(History.played_at.desc(), History.id.desc())
+            .limit(limit)
         )
-        entries = list(self.session.scalars(statement).unique())
-        return self._dedupe_history(entries, limit=limit)
+        return list(self.session.scalars(statement).unique())
 
-    def get_most_played_history(self, *, limit: int = 50) -> list[History]:
-        track_key = case(
+    @staticmethod
+    def _track_key():
+        return case(
             (
                 and_(History.source == "youtube", History.external_id.is_not(None)),
                 literal("youtube:") + History.external_id,
@@ -318,12 +337,14 @@ class HistoryRepository(Repository[History]):
             ),
             else_=literal("history:") + cast(History.id, String),
         )
+
+    def get_most_played_history(self, *, limit: int = 50) -> list[History]:
         ranked = (
             select(
                 History.id.label("history_id"),
-                func.count(History.id).over(partition_by=track_key).label("play_count"),
+                func.count(History.id).over(partition_by=self._track_key()).label("play_count"),
                 func.row_number().over(
-                    partition_by=track_key,
+                    partition_by=self._track_key(),
                     order_by=[History.played_at.desc(), History.id.desc()],
                 ).label("recency_rank"),
             )
@@ -339,28 +360,6 @@ class HistoryRepository(Repository[History]):
             .limit(limit)
         )
         return list(self.session.scalars(statement).unique())
-
-    def _dedupe_history(self, entries: list[History], *, limit: int) -> list[History]:
-        seen: set[str] = set()
-        result: list[History] = []
-        for entry in entries:
-            key = self._history_key(entry)
-            if key in seen:
-                continue
-            seen.add(key)
-            result.append(entry)
-            if len(result) >= limit:
-                break
-        return result
-
-    def _history_key(self, entry: History) -> str:
-        if entry.source == "youtube" and entry.external_id:
-            return f"youtube:{entry.external_id}"
-        if entry.song_id:
-            return f"local:{entry.song_id}"
-        if entry.source == "local" and entry.external_id:
-            return f"local:{entry.external_id}"
-        return f"history:{entry.id}"
 
 
 def _download_source_key(source_url: str) -> str:

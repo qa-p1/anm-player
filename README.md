@@ -18,7 +18,11 @@ There is no current screenshot in the repository; I would rather leave this sect
 - Synced lyrics with per-track timing offsets and display controls, plus editable local lyrics, metadata, and artwork enrichment
 - Listening insights for time, streaks, daily/hourly activity, and top tracks, artists, and albums, with replayable and manageable history
 - Managed SQLite storage with in-app reconciliation, usage reporting, cache cleanup, live database backups, verified moves, and a guarded fresh start
+- Direct sidebar playlists with pins and filtering, quick library/history navigation, and universal quick find (`Ctrl/Cmd K`, also available on mobile)
+- Collection play/shuffle/queue/export/save actions, song multiselect, and searchable/sortable playlist, artist, and album browsing
 - Responsive desktop and narrow layouts with reduced-motion support
+
+Use **Quick find** to jump to a playlist, play a local song, or run a player command. Press **?** for the shortcut guide. Collection controls act on the displayed songs, or the selection when song selection is enabled. Playlist pins are saved on this device. M3U exports use this running app’s stream URLs, so ANM Player must remain reachable to play them.
 
 See [CHANGELOG.md](CHANGELOG.md) for the complete v0.2.0 expansion list.
 

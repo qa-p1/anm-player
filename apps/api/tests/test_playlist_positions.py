@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
@@ -74,7 +76,7 @@ def test_online_playlist_second_track_uses_position_one() -> None:
 
 def test_saved_library_playlist_second_track_uses_position_one() -> None:
     with make_session() as session:
-        playlist = Playlist(name="Saved")
+        playlist = Playlist(name="Saved", updated_at=datetime(2000, 1, 1, tzinfo=UTC))
         tracks = [
             LibraryTrack(external_id=f"track-{index}", title=f"Track {index}", position=index)
             for index in (1, 2)
@@ -84,6 +86,7 @@ def test_saved_library_playlist_second_track_uses_position_one() -> None:
         service = LibraryAlbumService(session)
 
         service.add_tracks_to_playlist(playlist.id, [tracks[0].id])
+        assert playlist.updated_at.year > 2000
         service.add_tracks_to_playlist(playlist.id, [tracks[1].id])
 
         positions = session.scalars(

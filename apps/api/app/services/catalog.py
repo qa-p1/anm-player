@@ -281,6 +281,7 @@ class CatalogService:
             raise ResourceNotFoundError("Playlist not found", details={"playlist_id": playlist_id})
         for _, link in self._ordered_playlist_links(playlist_id):
             self.playlists.session.delete(link)
+        self.playlists.touch(playlist_id)
         self.playlists.session.commit()
         return self.get_playlist(playlist_id)
 
@@ -307,6 +308,7 @@ class CatalogService:
 
         try:
             self._assign_playlist_positions([current[key] for key in requested_keys])
+            self.playlists.touch(playlist_id)
             self.playlists.session.commit()
         except IntegrityError as exc:
             self.playlists.session.rollback()
@@ -502,6 +504,7 @@ class CatalogService:
         next_position = self.playlists.next_position(playlist_id)
         for offset, song_id in enumerate(song_ids):
             self.playlists.add_song(playlist_id, song_id, position=next_position + offset)
+        self.playlists.touch(playlist_id)
         try:
             self.playlists.session.commit()
         except IntegrityError as exc:
@@ -554,6 +557,8 @@ class CatalogService:
                     position=self.playlists.next_position(playlist_id),
                 )
             )
+        if not existing_link:
+            self.playlists.touch(playlist_id)
         try:
             self.playlists.session.commit()
         except IntegrityError as exc:
@@ -614,6 +619,7 @@ class CatalogService:
         ]
         try:
             self._assign_playlist_positions(remaining)
+            self.playlists.touch(playlist_id)
             self.playlists.session.commit()
         except IntegrityError as exc:
             self.playlists.session.rollback()

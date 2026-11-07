@@ -1,3 +1,4 @@
+import { shuffleTracks } from "@/utils/track-collection";
 import { motion } from "framer-motion";
 import { Check, Disc, Download, Heart, LoaderCircle, Play, Plus, Shuffle, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -62,6 +63,7 @@ export function AlbumDetailPage() {
     queryClient.setQueryData(musicKeys.unifiedAlbum(albumId), next);
     void queryClient.invalidateQueries({ queryKey: musicKeys.downloadsList() });
     void queryClient.invalidateQueries({ queryKey: musicKeys.albums() });
+    void queryClient.invalidateQueries({ queryKey: musicKeys.favorites() });
   }
 
   async function run(name: MutationName, action: () => Promise<UnifiedAlbum>, success?: string) {
@@ -83,7 +85,7 @@ export function AlbumDetailPage() {
 
   function handleShuffle() {
     if (!playerTracks.length) return;
-    const shuffled = [...playerTracks].sort(() => Math.random() - 0.5);
+    const shuffled = shuffleTracks(playerTracks);
     playAlbum(shuffled, 0);
   }
 

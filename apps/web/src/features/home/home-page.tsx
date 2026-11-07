@@ -78,10 +78,10 @@ export function HomePage() {
       return () => controller.abort();
     }
 
-    Promise.all(chunk(externalIds, 200).map((ids) => getLibraryTrackStatuses(ids, controller.signal)))
-      .then((responses) => {
+    getLibraryTrackStatuses(externalIds, controller.signal)
+      .then((response) => {
         if (controller.signal.aborted) return;
-        setDownloadedTracks(Object.fromEntries(responses.flatMap((response) => response.statuses).map((status) => [status.external_id, status.is_downloaded])));
+        setDownloadedTracks(Object.fromEntries(response.statuses.map((status) => [status.external_id, status.is_downloaded])));
       })
       .catch((statusError: unknown) => {
         if (!isRequestCancelled(statusError)) console.error("Could not check Home track download status:", statusError);
@@ -334,8 +334,4 @@ function uniqueItems(items: OnlineMusicItem[]): OnlineMusicItem[] {
 function sectionFromItems(id: string, title: string, items: OnlineMusicItem[], layout: OnlineHomeSection["layout"]): OnlineHomeSection | undefined {
   if (items.length === 0) return undefined;
   return { id, title, subtitle: null, layout, items, continuation: null };
-}
-
-function chunk<T>(items: T[], size: number): T[][] {
-  return Array.from({ length: Math.ceil(items.length / size) }, (_, index) => items.slice(index * size, (index + 1) * size));
 }

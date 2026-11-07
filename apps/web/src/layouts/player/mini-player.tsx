@@ -1,5 +1,7 @@
+import { useUiStore } from "@/stores/ui-store";
+import { formatTime } from "@/utils/format";
 import { motion } from "framer-motion";
-import { LoaderCircle, Pause, Play, SkipBack, SkipForward, WifiOff } from "lucide-react";
+import { LoaderCircle, Pause, Play, SkipBack, SkipForward, WifiOff, ListMusic, Mic2, Volume2, VolumeX } from "lucide-react";
 import type { CSSProperties } from "react";
 import { useShallow } from "zustand/react/shallow";
 
@@ -16,6 +18,11 @@ interface MiniPlayerProps {
 
 export function MiniPlayer({ onOpen }: MiniPlayerProps) {
   const {
+    volume,
+    isMuted,
+    toggleMute,
+    setVolume,
+    queue,
     currentSong,
     isPlaying,
     setIsPlaying,
@@ -30,6 +37,11 @@ export function MiniPlayer({ onOpen }: MiniPlayerProps) {
     playPreviousSong,
     playNextManually,
   } = usePlayerStore(useShallow((state) => ({
+    volume: state.volume,
+    isMuted: state.isMuted,
+    toggleMute: state.toggleMute,
+    setVolume: state.setVolume,
+    queue: state.queue,
     currentSong: state.currentSong,
     isPlaying: state.isPlaying,
     setIsPlaying: state.setIsPlaying,
@@ -46,7 +58,6 @@ export function MiniPlayer({ onOpen }: MiniPlayerProps) {
   })));
   const displayedPlaybackStatus = useDelayedPlaybackStatus(playbackStatus);
 
-  // Don't show mini player if no song is loaded
   if (!currentSong) return null;
 
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
@@ -87,7 +98,7 @@ export function MiniPlayer({ onOpen }: MiniPlayerProps) {
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: 18, scale: 0.98 }}
       transition={{ duration: 0.2, ease: "easeOut" }}
-      className="glass-panel fixed bottom-24 left-4 right-4 z-40 overflow-hidden rounded-[1.4rem] transition hover:bg-card/80 lg:bottom-5 lg:left-auto lg:right-6 lg:w-[32rem]"
+      className="glass-panel fixed bottom-24 left-4 right-4 z-40 overflow-hidden rounded-[1.4rem] transition hover:bg-card/80 lg:bottom-5 lg:left-auto lg:right-6 lg:w-[min(40rem,calc(100vw-18rem))]"
     >
       <input
         type="range"
@@ -99,6 +110,8 @@ export function MiniPlayer({ onOpen }: MiniPlayerProps) {
         className="apple-player-range absolute inset-x-0 top-[-0.44rem] z-10 w-full"
         style={{ "--range-progress": `${progress}%`, "--range-buffered": `${bufferedProgress}%` } as CSSProperties}
         aria-label="Mini-player song progress"
+        disabled={duration <= 0}
+        aria-valuetext={`${formatTime(currentTime)} of ${formatTime(duration)}`}
       />
 
       <div className="flex items-center justify-between gap-2 p-3">
@@ -130,6 +143,13 @@ export function MiniPlayer({ onOpen }: MiniPlayerProps) {
           <PlayPauseIcon className="h-4 w-4 fill-current" />
         </Button>
         <Button size="icon" variant="ghost" className="h-9 w-9" aria-label="Next track" onClick={handleNext}><SkipForward className="h-4 w-4 fill-current" /></Button>
+        <Button size="icon" variant="ghost" className="h-9 w-9" aria-label={`Open queue, ${queue.length} upcoming tracks`} title="Open queue" onClick={() => useUiStore.getState().requestPlayerView("queue")}><ListMusic className="h-4 w-4" /></Button>
+      </div>
+      <div className="hidden items-center gap-3 border-t border-white/5 px-4 py-2 text-xs text-muted-foreground sm:flex">
+        <span className="tabular-nums">{formatTime(currentTime)} / {formatTime(duration)}</span>
+        <button type="button" onClick={() => useUiStore.getState().requestPlayerView("lyrics")} className="ml-auto flex items-center gap-1.5 hover:text-foreground"><Mic2 className="h-3.5 w-3.5" />Lyrics</button>
+        <button type="button" onClick={toggleMute} aria-label={isMuted ? "Unmute" : "Mute"} className="grid h-7 w-7 place-items-center rounded-full hover:bg-white/10">{isMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}</button>
+        <input type="range" min={0} max={1} step={0.01} value={isMuted ? 0 : volume} onChange={(event) => setVolume(Number(event.target.value))} aria-label="Mini-player volume" aria-valuetext={`${Math.round((isMuted ? 0 : volume) * 100)} percent`} className="w-20 accent-primary" />
       </div>
     </motion.div>
   );

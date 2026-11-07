@@ -259,3 +259,39 @@ def test_most_played_history_preserves_orphaned_local_track_identity() -> None:
         result = HistoryRepository(session).get_most_played_history(limit=1)
 
     assert result[0].title == "Deleted lifetime favorite"
+
+
+def test_recent_history_keeps_distinct_tracks_after_long_repeat_sessions() -> None:
+    now = datetime.now(UTC)
+    with make_session() as session:
+        session.add(history_event(title="Older", artist="Artist", event_type="played", when=now - timedelta(days=1), external_id="older"))
+        session.add_all(
+            history_event(title="Repeated", artist="Artist", event_type="played", when=now, external_id="repeat")
+            for _ in range(120)
+        )
+        session.add(history_event(title="Skipped", artist="Artist", event_type="skipped", when=now + timedelta(seconds=1), external_id="skipped"))
+        session.commit()
+
+        recent = HistoryRepository(session).get_recent_history(limit=2)
+
+    assert [entry.external_id for entry in recent] == ["repeat", "older"]
+
+
+def test_recent_history_uses_latest_event_and_keeps_orphaned_local_tracks_distinct() -> None:
+    now = datetime.now(UTC)
+    with make_session() as session:
+        events = [
+            History(source="local", external_id="1", title="First", event_type="played", played_at=now),
+            History(source="local", external_id="2", title="Second", event_type="played", played_at=now),
+            History(source="local", external_id="1", title="First completed", event_type="completed", played_at=now),
+        ]
+        session.add_all(events)
+        session.commit()
+        repository = HistoryRepository(session)
+
+        recent = repository.get_recent_history(limit=2)
+        first_page = repository.list_with_songs(limit=1)
+        second_page = repository.list_with_songs(limit=1, offset=1)
+
+    assert [entry.title for entry in recent] == ["First completed", "Second"]
+    assert [entry.id for entry in first_page + second_page] == [events[2].id, events[1].id]

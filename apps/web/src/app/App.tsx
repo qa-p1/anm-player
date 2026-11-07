@@ -53,7 +53,6 @@ function RunningApp() {
       .catch(() => undefined);
   }, [setMode]);
 
-  // Initialize audio player and keyboard shortcuts
   useAudioPlayer();
   useKeyboardShortcuts();
 

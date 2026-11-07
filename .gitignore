@@ -31,3 +31,6 @@ htmlcov/
 .claude/
 .DS_Store
 Thumbs.db
+
+# A Windows storage root is a relative directory when opened on Unix.
+/apps/api/[A-Za-z]:*/

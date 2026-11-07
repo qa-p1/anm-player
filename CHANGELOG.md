@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### Utility and reliability upgrade
+
+- Direct sidebar playlist navigation, search, pins, create action, and library/history shortcuts; correct active navigation on detail routes.
+- Quick find (`Ctrl/Cmd K`, or the mobile search button) searches pages, playlists, local songs, and player commands. `/` opens online search; `F` opens the player.
+- Shared play-all, shuffle, queue-all, save-as-playlist, and M3U controls on songs, favorites, playlists, and smart collections; song multiselect supports working with just the selection.
+- Playlist search and sorting by name, latest update, or track count; album/artist search and sorting, and an album downloaded-only filter.
+- Mini-player queue access, lyrics, elapsed/total time, mute, and volume controls; long dialogs scroll within the viewport and page loading preserves navigation/player controls.
+- Shared keyboard command definitions drive help and quick find. Shortcuts respect native controls, dialogs, browser modifiers, and IME composition.
+- Favorites and playlist edits refresh related views; API query ownership replaces duplicated private collection state. Clearing filters cannot leave the library stuck loading.
+- Search query/filter state follows URLs and navigation; cancelled pagination cannot append stale results to a new search. Search fields have clear actions.
+- Saving repeated queue entries no longer aborts playlist creation. Saved queues support a lone current track. Collection exports use playable app stream URLs and sanitize metadata.
+- Damaged stored player/pin data recovers safely; empty-player playback, fractional queue indices, hidden playlist filters, filtered selections, nested Escape handlers, and near-hour duration summaries are guarded.
+- Recently played ranks the full history before limiting; history timestamp ties paginate consistently. Playlist names share validation and content edits update modification times. Duplicate/missing-source imported tracks cannot strand download jobs.
+- Patched vulnerable serialization, Vite, Undici, Zod, and selector-parser dependencies within supported version ranges; production audit is clean and no high/critical development advisories remain.
+- Removed existing Dependabot branches and disabled new version-update pull requests. Security alerts remain enabled.
+
 ### Changed
 
 - The Docker API image runs Python 3.14.7 (CI now tests 3.13 and 3.14) and the web image runs nginx 1.31.5.

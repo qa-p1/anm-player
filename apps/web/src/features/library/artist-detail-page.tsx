@@ -1,3 +1,5 @@
+import { useToggleFavorite } from "@/hooks/use-music-queries";
+import { toast } from "@/components/ui/toast";
 import { motion } from "framer-motion";
 import { Heart, Mic, Play, Shuffle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -11,7 +13,7 @@ import { TrackRow } from "@/components/cards/track-row";
 import { BackButton } from "@/components/navigation/back-button";
 import { Button } from "@/components/ui/button";
 import { cachedArtworkUrl, isRequestCancelled } from "@/services/api-client";
-import { getArtist, getOnlineArtist, toggleFavorite } from "@/services/music-api";
+import { getArtist, getOnlineArtist } from "@/services/music-api";
 import { usePlayerStore } from "@/stores/player-store";
 import type { ArtistDetail, LibraryArtistDetail, LibraryTrack } from "@/types/api";
 import type { PlayerTrack } from "@/types/player";
@@ -21,6 +23,7 @@ import { cn } from "@/lib/utils";
 export function ArtistDetailPage() {
   const { artistId } = useParams<{ artistId: string }>();
   const location = useLocation();
+  const favoriteMutation = useToggleFavorite();
   const isOnline = location.pathname.includes("/artists/online/");
   const [localArtist, setLocalArtist] = useState<ArtistDetail | null>(null);
   const [onlineArtist, setOnlineArtist] = useState<LibraryArtistDetail | null>(null);
@@ -90,9 +93,11 @@ export function ArtistDetailPage() {
   ];
 
   async function handleToggleFavorite() {
-    if (!localArtist) return;
-    const result = await toggleFavorite({ entity_type: "artist", entity_id: localArtist.id });
-    setIsFavorited(result.is_favorited);
+    if (!localArtist || favoriteMutation.isPending) return;
+    try {
+      const result = await favoriteMutation.mutateAsync({ entity_type: "artist", entity_id: localArtist.id });
+      setIsFavorited(result.is_favorited);
+    } catch (error) { toast(error instanceof Error ? error.message : "Could not update favorite", "error"); }
   }
 
   function handlePlayAll() {

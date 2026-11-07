@@ -1,3 +1,4 @@
+import { trackShareUrl } from "@/utils/track-collection";
 import {
   Check,
   Download,
@@ -38,11 +39,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/toast";
-import { musicKeys, useAddOnlineTrackToPlaylist, useAddSongsToPlaylist, useAllPlaylists, useCreatePlaylist } from "@/hooks/use-music-queries";
+import { musicKeys, useAddTracksToPlaylist, useAllPlaylists, useCreatePlaylist } from "@/hooks/use-music-queries";
 import { queryClient } from "@/lib/query-client";
 import { cn } from "@/lib/utils";
 import { isRequestCancelled } from "@/services/api-client";
-import { addLibraryTracksToPlaylist, getLibraryTrackStatuses, queueDownload } from "@/services/music-api";
+import { getLibraryTrackStatuses, queueDownload } from "@/services/music-api";
 import { usePlayerStore } from "@/stores/player-store";
 import { usePlaybackPreferencesStore } from "@/stores/playback-preferences-store";
 import type { PlayerTrack } from "@/types/player";
@@ -85,8 +86,7 @@ export function TrackActionsMenu({
   const [newPlaylistName, setNewPlaylistName] = useState("");
   const { data: playlists = [] } = useAllPlaylists({ enabled: isOpen });
   const createPlaylistMutation = useCreatePlaylist();
-  const addSongsToPlaylistMutation = useAddSongsToPlaylist();
-  const addOnlineTrackMutation = useAddOnlineTrackToPlaylist();
+  const addTracksMutation = useAddTracksToPlaylist();
 
   useEffect(() => {
     if (isDownloaded !== undefined) setResolvedDownloaded(isDownloaded);
@@ -117,13 +117,7 @@ export function TrackActionsMenu({
 
   async function addToPlaylist(playlistId: number, reportResult = true): Promise<boolean> {
     try {
-      if (track.source === "local" && track.localKind === "song") {
-        await addSongsToPlaylistMutation.mutateAsync({ playlistId, songIds: [track.songId] });
-      } else if (track.source === "local") {
-        await addLibraryTracksToPlaylist(playlistId, [track.libraryTrackId]);
-      } else {
-        await addOnlineTrackMutation.mutateAsync({ playlistId, track: onlineTrackPayload(track) });
-      }
+      await addTracksMutation.mutateAsync({ playlistId, tracks: [track] });
       setIsOpen(false);
       if (reportResult) toast("Added to playlist", "success");
       return true;
@@ -137,7 +131,7 @@ export function TrackActionsMenu({
 
   async function handleCreatePlaylist() {
     const name = newPlaylistName.trim();
-    if (!name) return;
+    if (!name || createPlaylistMutation.isPending || addTracksMutation.isPending) return;
     try {
       const playlist = await createPlaylistMutation.mutateAsync({ name });
       const added = await addToPlaylist(playlist.id, false);
@@ -242,7 +236,7 @@ export function TrackActionsMenu({
               </DropdownMenuItem>
               {playlists.length > 0 && <DropdownMenuSeparator />}
               {playlists.map((playlist) => (
-                <DropdownMenuItem key={playlist.id} onClick={() => addToPlaylist(playlist.id)}>
+                <DropdownMenuItem key={playlist.id} disabled={addTracksMutation.isPending} onClick={() => addToPlaylist(playlist.id)}>
                   <ListMusic className="mr-2 h-4 w-4" />
                   <span className="truncate">{playlist.name}</span>
                 </DropdownMenuItem>
@@ -317,6 +311,8 @@ export function TrackActionsMenu({
           <Input
             value={newPlaylistName}
             onChange={(event) => setNewPlaylistName(event.target.value)}
+            aria-label="Playlist name"
+            maxLength={255}
             placeholder="Playlist name"
             onKeyDown={(event) => {
               if (event.key === "Enter") void handleCreatePlaylist();
@@ -326,7 +322,7 @@ export function TrackActionsMenu({
             <Button variant="ghost" onClick={() => setShowCreateDialog(false)}>Cancel</Button>
             <Button
               onClick={handleCreatePlaylist}
-              disabled={createPlaylistMutation.isPending || addSongsToPlaylistMutation.isPending || addOnlineTrackMutation.isPending || !newPlaylistName.trim()}
+              disabled={createPlaylistMutation.isPending || addTracksMutation.isPending || !newPlaylistName.trim()}
             >
               {createPlaylistMutation.isPending ? "Creating..." : "Create & add"}
             </Button>
@@ -352,25 +348,4 @@ export function TrackActionsMenu({
       </Dialog>
     </>
   );
-}
-
-function onlineTrackPayload(track: Extract<PlayerTrack, { source: "youtube" }>) {
-  const item = track.rawItem;
-  return {
-    external_id: track.videoId,
-    title: track.title,
-    artist_name: track.artistName,
-    artist_external_id: item.artists[0]?.id ?? null,
-    album_title: track.albumTitle,
-    duration_seconds: track.durationSeconds,
-    source_url: item.url,
-    artwork_url: item.thumbnail,
-    explicit: item.explicit,
-  };
-}
-
-function trackShareUrl(track: PlayerTrack) {
-  if (track.source === "youtube") return track.rawItem.url || `https://music.youtube.com/watch?v=${track.videoId}`;
-  const sourceUrl = track.localKind === "song" ? track.rawSong.source_url : track.rawLibraryTrack.source_url;
-  return sourceUrl || window.location.href;
 }

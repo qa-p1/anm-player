@@ -1,36 +1,24 @@
 import { motion } from "framer-motion";
 import { Mic } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link } from "react-router";
 
 import { pageTransition } from "@/animations/page-motion";
 import { BackButton } from "@/components/navigation/back-button";
 import { ArtworkImage } from "@/components/cards/artwork-image";
 import { EmptyState } from "@/components/empty-states/empty-state";
-import { cachedArtworkUrl, isRequestCancelled } from "@/services/api-client";
+import { cachedArtworkUrl } from "@/services/api-client";
 import { listAllArtists } from "@/services/music-api";
-import type { Artist } from "@/types/api";
+import { useQuery } from "@tanstack/react-query";
+import { musicKeys } from "@/hooks/use-music-queries";
+import { CollectionBrowser } from "@/components/filters/collection-browser";
+import { Button } from "@/components/ui/button";
 
 export function ArtistsLibraryPage() {
-  const [artists, setArtists] = useState<Artist[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    
-    listAllArtists(controller.signal)
-      .then(setArtists)
-      .catch((error) => {
-        if (!isRequestCancelled(error)) {
-          console.error("Failed to load artists:", error);
-        }
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setIsLoading(false);
-      });
-
-    return () => controller.abort();
-  }, []);
+  const { data: artists = [], isLoading, error, refetch } = useQuery({ queryKey: musicKeys.artists(), queryFn: ({ signal }) => listAllArtists(signal) });
+  const [query, setQuery] = useState("");
+  const [sort, setSort] = useState("name");
+  const visible = artists.filter((artist) => artist.name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())).sort((a, b) => sort === "songs" ? b.song_count - a.song_count : sort === "albums" ? b.album_count - a.album_count : a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
 
   return (
     <motion.div {...pageTransition} className="mx-auto max-w-7xl space-y-8 px-3 py-4 sm:px-6 lg:px-8 lg:py-7">
@@ -45,6 +33,8 @@ export function ArtistsLibraryPage() {
         </p>
       </section>
 
+      <CollectionBrowser label="artists" query={query} onQueryChange={setQuery} sort={sort} onSortChange={setSort} options={[{ value: "name", label: "Name" }, { value: "songs", label: "Most songs" }, { value: "albums", label: "Most albums" }]} />
+      {error && <div role="alert" className="text-sm text-red-400">{error.message}<Button variant="ghost" onClick={() => void refetch()}>Retry</Button></div>}
       <section>
         {isLoading ? (
           <p className="text-center text-muted-foreground">Loading...</p>
@@ -56,7 +46,7 @@ export function ArtistsLibraryPage() {
           />
         ) : (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6">
-            {artists.map((artist) => {
+            {visible.map((artist) => {
               const artworkUrl = cachedArtworkUrl(artist.artwork_path || artist.artwork_url);
               return (
               <Link
@@ -87,6 +77,7 @@ export function ArtistsLibraryPage() {
             )})}
           </div>
         )}
+        {!isLoading && artists.length > 0 && visible.length === 0 && <EmptyState icon={Mic} title="No matching artists" description="Try another name." />}
       </section>
     </motion.div>
   );

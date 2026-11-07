@@ -38,6 +38,7 @@ export function FilterPanel({ filters, onFiltersChange, onClear }: FilterPanelPr
           size="sm"
           onClick={() => setIsOpen(!isOpen)}
           className="gap-2"
+          aria-expanded={isOpen}
         >
           <Filter className="h-4 w-4" />
           Filters
@@ -55,7 +56,7 @@ export function FilterPanel({ filters, onFiltersChange, onClear }: FilterPanelPr
       {isOpen && (
         <div className="glass-panel rounded-2xl p-5">
           <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-            {/* Year Range */}
+
             <div className="space-y-2">
               <p className="text-sm font-medium">Year range</p>
               <div className="flex gap-2">
@@ -93,7 +94,6 @@ export function FilterPanel({ filters, onFiltersChange, onClear }: FilterPanelPr
               </div>
             </div>
 
-            {/* Duration Range */}
             <div className="space-y-2">
               <p className="text-sm font-medium">Duration (minutes)</p>
               <div className="flex gap-2">
@@ -101,11 +101,11 @@ export function FilterPanel({ filters, onFiltersChange, onClear }: FilterPanelPr
                   type="number"
                   aria-label="Minimum duration in minutes"
                   placeholder="Min"
-                  value={filters.durationMin ? Math.floor(filters.durationMin / 60) : ""}
+                  value={filters.durationMin === undefined ? "" : filters.durationMin / 60}
                   onChange={(e) =>
                     onFiltersChange({
                       ...filters,
-                      durationMin: e.target.value ? parseInt(e.target.value) * 60 : undefined,
+                      durationMin: e.target.value ? Number(e.target.value) * 60 : undefined,
                     })
                   }
                   className="w-20"
@@ -117,11 +117,11 @@ export function FilterPanel({ filters, onFiltersChange, onClear }: FilterPanelPr
                   type="number"
                   aria-label="Maximum duration in minutes"
                   placeholder="Max"
-                  value={filters.durationMax ? Math.floor(filters.durationMax / 60) : ""}
+                  value={filters.durationMax === undefined ? "" : filters.durationMax / 60}
                   onChange={(e) =>
                     onFiltersChange({
                       ...filters,
-                      durationMax: e.target.value ? parseInt(e.target.value) * 60 : undefined,
+                      durationMax: e.target.value ? Number(e.target.value) * 60 : undefined,
                     })
                   }
                   className="w-20"
@@ -131,7 +131,6 @@ export function FilterPanel({ filters, onFiltersChange, onClear }: FilterPanelPr
               </div>
             </div>
 
-            {/* Artwork Filter */}
             <div className="space-y-2">
               <Label htmlFor={`${idPrefix}-artwork`}>Artwork</Label>
               <select
