@@ -8,6 +8,7 @@ import { queryClient } from "@/lib/query-client";
 import { audioService } from "@/services/audio-service";
 import { addHistory, getYouTubeRelated } from "@/services/music-api";
 import { usePlaybackPreferencesStore } from "@/stores/playback-preferences-store";
+import { knownTrackDuration } from "@/stores/track-duration-store";
 import { usePlayerStore } from "@/stores/player-store";
 import type { HistoryCreateRequest } from "@/types/api";
 import type { PlayerTrack } from "@/types/player";
@@ -443,6 +444,15 @@ function playbackErrorMessage(error: unknown): string {
 }
 
 function historyPayload(song: PlayerTrack): HistoryCreateRequest | null {
+  const payload = baseHistoryPayload(song);
+  if (!payload || (payload.duration_seconds ?? 0) > 0) return payload;
+  // Providers sometimes omit a length; record what the audio actually reports.
+  const measured = usePlayerStore.getState().currentSong?.id === song.id ? audioService.getDuration() : NaN;
+  const known = knownTrackDuration(song.id, null) ?? (Number.isFinite(measured) && measured > 0 ? Math.round(measured) : null);
+  return { ...payload, duration_seconds: known };
+}
+
+function baseHistoryPayload(song: PlayerTrack): HistoryCreateRequest | null {
   if (song.source === "local" && song.localKind === "song") {
     return {
       source: "local",

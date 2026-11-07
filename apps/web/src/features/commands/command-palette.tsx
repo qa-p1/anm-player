@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { navItems, libraryNavItems } from "@/components/navigation/nav-items";
+import { libraryNavItems, navItems, smartNavItems } from "@/components/navigation/nav-items";
 import { playerCommands } from "@/features/commands/player-commands";
 import { useAllPlaylists, useAllSongs } from "@/hooks/use-music-queries";
 import { useUiStore } from "@/stores/ui-store";
@@ -25,7 +25,7 @@ export function CommandPalette() {
   const matches = (text: string) => term.split(/\s+/).every((word) => text.toLocaleLowerCase().includes(word));
   const go = (path: string) => { useUiStore.getState().setPlayerExpanded(false); navigate(path); };
   const results = [
-    ...[...navItems, ...libraryNavItems].filter((item) => matches(item.label)).map((item) => ({ id: item.path, label: item.label, detail: "Go to", icon: item.icon, run: () => go(item.path) })),
+    ...[...navItems, ...libraryNavItems, ...smartNavItems].filter((item) => matches(item.label)).map((item) => ({ id: item.path, label: item.label, detail: "Go to", icon: item.icon, run: () => go(item.path) })),
     ...playlists.filter((item) => matches(item.name)).map((item) => ({ id: `playlist:${item.id}`, label: item.name, detail: `${item.song_count} tracks · Playlist`, icon: ListMusic, run: () => go(`/library/playlists/${item.id}`) })),
     ...(term ? songs.filter((item) => matches(`${item.title} ${item.artist_name || ""} ${item.album_title || ""}`)).slice(0, 20).map((item) => ({ id: `song:${item.id}`, label: item.title, detail: item.artist_name || "Library song", icon: Music2, run: () => usePlayerStore.getState().playSong(songToPlayerTrack(item)) })) : []),
     ...playerCommands.filter((item) => (!item.needsTrack || currentSong) && matches(item.label)).map((item) => ({ id: item.id, label: item.label, detail: item.keys, icon: Command, run: item.run })),

@@ -19,3 +19,8 @@ class ResourceNotFoundError(AppError):
 class ConflictError(AppError):
     status_code = HTTPStatus.CONFLICT
     code = "conflict"
+
+
+class InvalidInputError(AppError):
+    status_code = HTTPStatus.UNPROCESSABLE_ENTITY
+    code = "invalid_input"

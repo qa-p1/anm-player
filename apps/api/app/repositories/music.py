@@ -364,14 +364,17 @@ class HistoryRepository(Repository[History]):
     def __init__(self, session: Session) -> None:
         super().__init__(session, History)
 
-    def list_with_songs(self, *, limit: int = 50, offset: int = 0) -> list[History]:
+    def list_with_songs(
+        self, *, limit: int = 50, offset: int = 0, event_type: str | None = None
+    ) -> list[History]:
+        statement = select(History).options(
+            joinedload(History.song).joinedload(Song.artist),
+            joinedload(History.song).joinedload(Song.album),
+        )
+        if event_type is not None:
+            statement = statement.where(History.event_type == event_type)
         statement = (
-            select(History)
-            .options(
-                joinedload(History.song).joinedload(Song.artist),
-                joinedload(History.song).joinedload(Song.album),
-            )
-            .order_by(History.played_at.desc(), History.id.desc())
+            statement.order_by(History.played_at.desc(), History.id.desc())
             .offset(offset)
             .limit(limit)
         )

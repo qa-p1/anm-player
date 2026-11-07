@@ -1,8 +1,8 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, Request, Response, status
 
-from app.api.deps import LimitQuery, OffsetQuery, ResourceId, get_playlist_service
+from app.api.deps import LimitQuery, OffsetQuery, ResourceId, get_playlist_service, require_operator
 from app.schemas.music import (
     PlaylistAddOnlineTrackRequest,
     PlaylistAddSongsRequest,
@@ -14,6 +14,8 @@ from app.schemas.music import (
     PlaylistResponse,
     PlaylistUpdateRequest,
 )
+from app.core.exceptions import InvalidInputError
+from app.services.playlist_artwork import MAX_UPLOAD_BYTES
 from app.services.playlists import PlaylistService
 
 router = APIRouter()
@@ -207,3 +209,40 @@ def remove_library_track_from_playlist(
     track_id: ResourceId,
 ) -> PlaylistDetailResponse:
     return service.remove_library_track_from_playlist(playlist_id, track_id)
+
+
+@router.put(
+    "/{playlist_id}/artwork",
+    response_model=PlaylistDetailResponse,
+    summary="Upload a custom playlist cover (raw JPEG, PNG or WebP body)",
+    dependencies=[Depends(require_operator)],
+)
+async def set_playlist_artwork(
+    request: Request,
+    service: Annotated[PlaylistService, Depends(get_playlist_service)],
+    playlist_id: ResourceId,
+) -> PlaylistDetailResponse:
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > MAX_UPLOAD_BYTES:
+        raise InvalidInputError("Cover images must be 10 MB or smaller.")
+    content = bytearray()
+    async for chunk in request.stream():
+        content.extend(chunk)
+        if len(content) > MAX_UPLOAD_BYTES:
+            raise InvalidInputError("Cover images must be 10 MB or smaller.")
+    return service.set_playlist_artwork(
+        playlist_id, bytes(content), request.headers.get("content-type")
+    )
+
+
+@router.delete(
+    "/{playlist_id}/artwork",
+    response_model=PlaylistDetailResponse,
+    summary="Remove a custom playlist cover",
+    dependencies=[Depends(require_operator)],
+)
+def remove_playlist_artwork(
+    service: Annotated[PlaylistService, Depends(get_playlist_service)],
+    playlist_id: ResourceId,
+) -> PlaylistDetailResponse:
+    return service.remove_playlist_artwork(playlist_id)

@@ -29,3 +29,6 @@
 /media
 /downloads
 **/storage-state.json
+
+# A legacy Windows storage root becomes a relative folder on Unix.
+/apps/api/[A-Za-z]:*

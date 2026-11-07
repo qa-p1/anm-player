@@ -18,7 +18,7 @@ import { usePlayerStore } from "@/stores/player-store";
 import type { AlbumStatusItem, OnlineMusicItem } from "@/types/api";
 import { onlineItemToPlayerTrack } from "@/types/player";
 import { cn } from "@/lib/utils";
-import { formatDuration } from "@/utils/format";
+import { TrackDuration } from "@/components/cards/track-duration";
 
 interface OnlineMusicCardProps {
   item: OnlineMusicItem;
@@ -27,9 +27,11 @@ interface OnlineMusicCardProps {
   className?: string;
   albumStatus?: AlbumStatusItem;
   isDownloaded?: boolean;
+  /** Flat tracklist rows instead of glass cards (used inside list panels). */
+  flat?: boolean;
 }
 
-export function OnlineMusicCard({ item, context, variant = "tile", className, albumStatus, isDownloaded = false }: OnlineMusicCardProps) {
+export function OnlineMusicCard({ item, context, variant = "tile", className, albumStatus, isDownloaded = false, flat = false }: OnlineMusicCardProps) {
   const navigate = useNavigate();
   const { currentSong, isPlaying, playSong, setIsPlaying } = usePlayerStore(useShallow((state) => ({
     currentSong: state.currentSong,
@@ -114,18 +116,21 @@ export function OnlineMusicCard({ item, context, variant = "tile", className, al
           subtitle={item.subtitle ?? item.kind}
           className={className}
           isDownloaded={isDownloaded}
+          variant={flat ? "list" : "card"}
+          explicit={item.explicit}
+          status={flat && isDownloaded ? "Offline" : null}
         />
       );
     }
     return (
-      <article className={cn("glass-panel group relative flex min-w-0 items-center gap-3 rounded-2xl p-2.5 transition hover:bg-white/10 sm:p-3", className)}>
+      <article className={cn(flat ? "group relative flex min-w-0 items-center gap-3 rounded-xl p-2 transition hover:bg-white/[0.06]" : "glass-panel group relative flex min-w-0 items-center gap-3 rounded-2xl p-2.5 transition hover:bg-white/10 sm:p-3", className)}>
         <button type="button" onClick={play} aria-label={`Open ${item.title}`} className="flex min-w-0 flex-1 items-center gap-3 text-left after:absolute after:inset-0 after:rounded-2xl focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-ring">
           <Artwork artworkUrl={artworkUrl} title={item.title} round={false} />
           <span className="min-w-0 flex-1">
             <span className="block truncate text-sm font-semibold">{item.title}</span>
             <span className="block truncate text-xs text-muted-foreground">{item.subtitle ?? item.kind}</span>
           </span>
-          <span className="hidden text-xs text-muted-foreground sm:block">{formatDuration(item.duration_seconds)}</span>
+          <TrackDuration trackId={`youtube:${item.id}`} seconds={item.duration_seconds} className="hidden text-xs text-muted-foreground sm:block" />
           <PlayIcon className="h-4 w-4 shrink-0 fill-current" />
         </button>
         <div className="relative z-10 shrink-0">{actions}</div>

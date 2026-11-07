@@ -13,6 +13,7 @@ from sqlalchemy import select
 from app.api.deps import DbSession, ResourceId, require_operator
 from app.models import Album, Artist, History, LibraryAlbum, LibraryTrack, Song
 from app.repositories.music import SongRepository
+from app.services import playlist_artwork
 from app.services.artwork_cache import ArtworkCacheService
 from app.services.file_paths import resolve_library_path
 from app.core.youtube import youtube_video_id
@@ -121,6 +122,16 @@ async def cached_artwork(session: DbSession, size: str, filename: str) -> FileRe
             pass
 
     return FileResponse(str(artwork_path), media_type="image/jpeg")
+
+
+@router.get("/artwork/playlists/{filename}", summary="Serve an uploaded playlist cover")
+async def playlist_cover(filename: str) -> FileResponse:
+    path = playlist_artwork.cover_file(filename)
+    if path is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid artwork path")
+    if not path.is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Playlist cover not found")
+    return FileResponse(str(path), media_type="image/jpeg", headers={"Cache-Control": "public, max-age=31536000, immutable"})
 
 
 @router.get("/artwork/downloads/{filename}", summary="Serve persistent downloaded artwork")

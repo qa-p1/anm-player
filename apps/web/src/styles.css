@@ -190,3 +190,45 @@
     transform: translateY(0) scale(1);
   }
 }
+
+@layer utilities {
+  .eq-bar {
+    transform-origin: bottom;
+    animation: eq-bounce 900ms ease-in-out infinite;
+  }
+
+  .eq-bar:nth-child(2) { animation-delay: -320ms; animation-duration: 760ms; }
+  .eq-bar:nth-child(3) { animation-delay: -560ms; animation-duration: 1040ms; }
+
+  .eq-paused .eq-bar {
+    animation-play-state: paused;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .eq-bar { animation: none; transform: scaleY(0.6); }
+  }
+
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+@keyframes eq-bounce {
+  0%, 100% { transform: scaleY(0.3); }
+  50% { transform: scaleY(1); }
+}
+
+@layer utilities {
+  .tooltip-in {
+    animation: tooltip-in 140ms ease-out both;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .tooltip-in { animation: none; }
+  }
+}
+
+@keyframes tooltip-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}

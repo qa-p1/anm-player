@@ -8,7 +8,7 @@ import { audioService } from "@/services/audio-service";
 import { useAppLifecycleStore } from "@/stores/app-lifecycle-store";
 import { usePlayerStore } from "@/stores/player-store";
 
-export function CloseAppButton() {
+export function CloseAppButton({ compact = false }: { compact?: boolean }) {
   const [isClosing, setIsClosing] = useState(false);
 
   async function closeApp() {
@@ -24,6 +24,14 @@ export function CloseAppButton() {
       setIsClosing(false);
       toast(error instanceof Error ? error.message : "Could not close the app. Try again.", "error");
     }
+  }
+
+  if (compact) {
+    return (
+      <button type="button" disabled={isClosing} onClick={() => void closeApp()} aria-label={isClosing ? "Closing app" : "Close app"} title="Close app" className="grid h-9 w-9 place-items-center rounded-xl text-muted-foreground transition hover:bg-red-500/10 hover:text-red-400 disabled:opacity-50">
+        <Power className="h-4 w-4" />
+      </button>
+    );
   }
 
   return (

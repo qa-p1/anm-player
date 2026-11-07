@@ -1,232 +1,103 @@
 # ANM Player
 
-ANM Player (Another Music Player) is a single-user music library and player that I run on a local computer. It can browse YouTube Music, stream a track, save music for offline playback, and keep local albums, playlists, favorites, lyrics, and listening history together.
+Your own music app that runs on your computer. Search anything on YouTube Music, play it straight away, save songs for offline listening, and keep your playlists, favorites and listening history in one place. No account, no ads, no subscription.
 
-This is deliberately not a public music service. ANM Player has one operator token and assumes every person who can reach its web interface is trusted. The default Docker and native setups bind to `127.0.0.1` for that reason.
+It's built for one person. Your library stays on your computer, or on your own server if you use Docker.
 
-There is no current screenshot in the repository; I would rather leave this section plain than publish an image that no longer matches the interface.
+---
 
-## What works today
+## Getting started
 
-- YouTube Music home, search, album, artist, related-track browsing, autoplay radio, and recent or pinned searches
-- Streaming with visible buffering/error states, retry-and-skip recovery, a persistent editable queue, shuffle, repeat-one, and repeat-all
-- Advanced playback controls including speed, pitch preservation, configurable seek steps, output-device selection, A-B repeat, bookmarks, and sleep/stop timers
-- A ten-band equalizer with presets, preamp, stereo balance, mono downmix, and normalization
-- Media Session controls, an expanded keyboard shortcut system, a rich mini player, and offline/reconnection feedback
-- Background downloads through yt-dlp and FFmpeg, with live progress, pause/resume, cancel, and single or bulk retry
-- Local songs, artists, albums, saved online albums, favorites, and mixed local/online playlists with editing, duplication, drag reordering, bulk actions, sharing, and M3U8 export
-- Synced lyrics with per-track timing offsets and display controls, plus editable local lyrics, metadata, and artwork enrichment
-- Listening insights for time, streaks, daily/hourly activity, and top tracks, artists, and albums, with replayable and manageable history
-- Managed SQLite storage with in-app reconciliation, usage reporting, cache cleanup, live database backups, verified moves, and a guarded fresh start
-- Direct sidebar playlists with pins and filtering, quick library/history navigation, and universal quick find (`Ctrl/Cmd K`, also available on mobile)
-- Collection play/shuffle/queue/export/save actions, song multiselect, and searchable/sortable playlist, artist, and album browsing
-- Responsive desktop and narrow layouts with reduced-motion support
+You need three free programs installed first:
 
-Use **Quick find** to jump to a playlist, play a local song, or run a player command. Press **?** for the shortcut guide. Collection controls act on the displayed songs, or the selection when song selection is enabled. Playlist pins are saved on this device. M3U exports use this running app’s stream URLs, so ANM Player must remain reachable to play them.
+- [Python 3.13](https://www.python.org/downloads/)
+- [Node.js 24 LTS](https://nodejs.org/)
+- [FFmpeg](https://ffmpeg.org/download.html) (used to save songs for offline listening)
 
-See [CHANGELOG.md](CHANGELOG.md) for the complete v0.2.0 expansion list.
+Then download ANM Player from the [latest release](https://github.com/qa-p1/anm-player/releases/latest) (or clone this repository) and start it:
 
-Provider responses and stream formats can change without notice. ANM Player also has no accounts, remote synchronization, DRM support, or provider-independent catalog.
+- **Windows:** double-click `start-anm-player.cmd`
+- **Mac or Linux:** open a terminal in the folder and run `./start-anm-player.sh` (the first time, run `chmod +x start-anm-player.sh` before it)
 
-## Docker quick start
+The first start takes a few minutes while everything installs. After that it opens in seconds. Your browser opens ANM Player automatically at <http://127.0.0.1:5173>.
 
-Docker Compose is the recommended way to run ANM Player. It publishes only the Nginx web service on loopback; the API remains on the internal Compose network.
+**To close it,** click the power button at the bottom of the sidebar. Closing the browser tab alone keeps it running in the background.
 
-Clone the repository and create the local environment file:
+> **Self-hosting with Docker?** Docker includes the app and its dependencies—no Python or Node installation needed. Follow the [Docker setup and update guide](docs/advanced-setup.md#docker-quick-start).
 
-```powershell
-git clone https://github.com/qa-p1/anm-player.git
-Set-Location anm-player
-Copy-Item .env.example .env
-py -3.13 -c "from pathlib import Path; import secrets; p=Path('.env'); s=p.read_text(); p.write_text(s.replace('API_ACCESS_TOKEN=', 'API_ACCESS_TOKEN='+secrets.token_urlsafe(48), 1))"
-docker compose up --build -d
-```
+---
 
-On macOS or Linux:
+## Finding music
 
-```bash
-git clone https://github.com/qa-p1/anm-player.git
-cd anm-player
-cp .env.example .env
-python3.13 -c "from pathlib import Path; import secrets; p=Path('.env'); s=p.read_text(); p.write_text(s.replace('API_ACCESS_TOKEN=', 'API_ACCESS_TOKEN='+secrets.token_urlsafe(48), 1))"
-docker compose up --build -d
-```
+- **Home** shows today's picks, quick picks based on what you play, and what's trending.
+- **Search** finds songs, videos, albums and artists. Your recent searches stay as chips; pin the ones you use a lot.
+- **Quick find** (`Ctrl K`, or the magnifier at the top of the sidebar) jumps to any page, playlist or song in your library, or runs a player command.
+- Click any **artist or album name** on a song to open that artist or album.
 
-Open <http://127.0.0.1:5173>. Stop the stack with `docker compose down`. Named volumes keep the database and media between starts; `docker compose down --volumes` deletes those volumes and should not be used unless that is intentional.
+## Playing music
 
-## Double-click and run
+- Click a song to play it. Hover a cover and press the play button to play a whole album, playlist or artist.
+- The **mini player** sits at the bottom. Drag the thin line on its top edge to skip around in the song. Click anywhere else on it to open the full player.
+- On a phone, **swipe** the mini player left or right to change songs, or up to open the full player.
+- The **full player** has lyrics, the queue, and the playback studio (speed, equalizer, sleep timer, A-B repeat and bookmarks).
+- When a song ends and the queue is empty, **autoplay** keeps going with similar music. Turn it off with `A`.
 
-The native launcher is the simplest option when Docker is not wanted. It requires Python 3.13, Node.js 24 LTS, npm, and FFmpeg on `PATH`.
+## Your library
 
-1. Clone the repository or extract a downloaded source archive.
-2. On Windows, double-click `start-anm-player.cmd`.
-3. On macOS or Linux, run `chmod +x start-anm-player.sh` once, then run `./start-anm-player.sh`.
-4. The first run creates `apps/api/.venv`, installs pinned Python and npm dependencies, creates `.env`, generates an API token, applies database migrations, and starts both servers in the background.
-5. The browser opens only after the API and web server are ready, then the launcher exits. A terminal opened just for the launcher can close; the app keeps running on Windows, macOS, and Linux. If you ran the command in an existing terminal, it returns to your prompt and you can close that terminal. First setup can take several minutes; later starts skip dependency installation while the lockfiles are unchanged.
+Open **Library** from the sidebar to see everything you've saved: songs, albums, artists, playlists and favorites, plus Recently added, Recently played and Most played.
 
-Run `./start-anm-player.sh --stop` on macOS/Linux or `start-anm-player.cmd --stop` on Windows to stop both servers. Running the launcher again while the app is already running opens the existing instance. Background logs are saved to `.aura/launcher.log`. If either server fails, the background launcher stops the other and records the failure there.
+- **Heart** a song, album or artist to add it to Favorites.
+- **Save an album** with "Add to library", and download it for offline listening with "Download".
+- Albums and playlists can be shown as a grid or a list. Your choice is remembered.
 
-You can also select **Close app** at the bottom of the sidebar (or in Settings on smaller screens). This stops playback and shuts down both servers; the browser displays a message that you can close the tab. The launcher also cleans up leftover API/Vite processes belonging to this checkout when starting or stopping. Other programs using the same ports are left alone.
+## Playlists
 
-In fish, bash, and zsh, include `./` when running the shell script from the project folder: `./start-anm-player.sh`. The `.cmd` file is for Windows. Open `http://127.0.0.1:5173/` to use the app; port 8000 serves the backend API.
+- Create one with the **+** next to "Playlists" in the sidebar, or with "New playlist" on the Playlists page.
+- Add songs from any song's **⋯** menu → Add to playlist.
+- Under every playlist you'll find **Recommended** songs that match what's already in it. Press **Add** to drop one in, or **Refresh** for new ideas.
+- Drag songs to reorder them, tick several to play, queue or remove them together, and search inside a playlist.
+- Click the cover to **upload your own picture**. Pin favorite playlists so they stay at the top of the sidebar.
+- Import a YouTube Music playlist with **Import URL** on the Playlists page.
 
-Use `--foreground` if you want live terminal logs and `Ctrl+C` shutdown instead of background launch. Closing the browser does not stop the background app; it runs until you use `--stop`, log out, or shut down the computer.
+## Insights
 
-Available launcher flags:
+**Insights** shows how much you listen, your streak, when you listen most, and your top songs, artists and albums for the last week, month, three months or all time.
 
-```text
---no-browser
---setup-only
---force-install
---foreground
---stop
---api-port PORT
---web-port PORT
-```
+Your full listening history is underneath. Filter it by played, completed or skipped, and press **Load more** to keep going back. You can remove single entries or clear everything.
 
-Both wrappers resolve the repository root before invoking the shared launcher, including when the checkout path contains spaces.
+## Keyboard shortcuts
 
-## Native installation by hand
+Press `?` anytime to see them all. The most useful:
 
-The launcher is preferred because it handles token generation and coordinated shutdown. For a manual Windows PowerShell setup:
+| Key | Does |
+| --- | --- |
+| `Space` | Play or pause |
+| `←` / `→` | Skip back / forward a few seconds |
+| `Ctrl ←` / `Ctrl →` | Previous / next song |
+| `↑` / `↓` | Volume up / down |
+| `M` | Mute |
+| `S` / `R` | Shuffle / repeat |
+| `L` / `Q` | Open lyrics / queue |
+| `F` | Open the full player |
+| `T` | 30-minute sleep timer |
+| `Ctrl K` | Quick find |
 
-```powershell
-py -3.13 -m venv apps/api/.venv
-apps/api/.venv/Scripts/python.exe -m pip install -r apps/api/requirements.txt
-npm ci
-Copy-Item .env.example .env
-# Set API_ACCESS_TOKEN in .env to a generated URL-safe secret before continuing.
-Set-Location apps/api
-.venv/Scripts/python.exe -m alembic upgrade head
-.venv/Scripts/python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
-```
+## Settings and backups
 
-In a second terminal from the repository root, run `npm run dev`. On Unix, replace the virtual-environment executable with `apps/api/.venv/bin/python` and use `python3.13 -m venv apps/api/.venv`.
+**Settings** is where you pick the download quality, where your music is stored, lyrics and playback options, and the look of the app.
 
-The native web interface is <http://127.0.0.1:5173>. Vite proxies same-origin API and WebSocket requests to the backend and adds the operator token server-side.
+- **Download Database Backup** saves a copy of your library (playlists, favorites, history) without stopping the app.
+- **Sync library now** picks up songs you've added or removed by hand.
 
-## Environment
+---
 
-`.env.example` contains only boot and deployment settings. Playback, download format, enrichment, retention, and album parallelism are managed in ANM Player's Settings page and stored in SQLite.
+## Good to know
 
-| Variable | Default/example | Purpose |
-| --- | --- | --- |
-| `COMPOSE_PROJECT_NAME` | `anm-player` | Stable Compose project and volume prefix |
-| `WEB_BIND_HOST` | `127.0.0.1` | Host interface published by the production web container |
-| `WEB_PORT` | `5173` | Web port |
-| `API_ENV` | `production` | Strict runtime mode: `production`, `development`, or `test` |
-| `API_ACCESS_TOKEN` | blank | Operator token; required in production and generated by the launcher |
-| `API_TRUSTED_HOSTS` | `localhost,127.0.0.1` | Comma-separated accepted Host headers |
-| `AURA_DATA_ROOT` | `./data` | Initial managed data root for native runs |
-| `AURA_STATE_FILE` | `./.aura/storage-state.json` | Durable pointer to the active data root |
-| `DOWNLOAD_WORKER_POLL_INTERVAL_SECONDS` | `1` | Worker polling interval |
-| `STREAM_FETCH_MAX_CONCURRENCY` | `2` | Maximum concurrent stream-cache downloads |
-| `STREAM_MAX_FILE_MB` | `256` | Per-stream cache file limit |
-| `STREAM_CACHE_BUDGET_MB` | `2048` | Total stream-cache budget |
-| `ARTWORK_MAX_RESPONSE_MB` | `12` | Artwork response limit |
-| `ARTWORK_MAX_PIXELS` | `40000000` | Maximum decoded artwork dimensions by pixel count |
-| `ARTWORK_MAX_CONCURRENCY` | `4` | Concurrent artwork cache writes |
+- **Keep it on your computer.** Anyone who can open ANM Player in a browser can control it, so don't expose it to your network or the internet.
+- **If search or playback stops working,** YouTube Music may have changed something. Wait a little and try again.
+- **"Port already in use"?** Something else is using it. Start with `start-anm-player.cmd --web-port 5180` (or `./start-anm-player.sh --web-port 5180`).
+- Only download music you're allowed to. ANM Player doesn't give you rights to any music.
 
-Relative storage paths are resolved from the repository, not from the shell's current directory. An existing `.env` is never replaced by the launcher. A blank token is filled once; an explicit placeholder is rejected so it cannot silently reach production.
+Want Docker, manual installation, storage details or to work on the code? See [Advanced setup](docs/advanced-setup.md). What's new in each version is in the [changelog](CHANGELOG.md).
 
-## Storage and backups
-
-The managed root contains:
-
-```text
-aura.db
-music/
-downloads/jobs/
-cache/artwork/
-cache/lyrics/
-cache/streams/
-config/
-thumbnails/downloads/
-logs/
-```
-
-The small state file at `.aura/storage-state.json` points to the active root. Docker uses the `aura-data` and `aura-state` named volumes under the Compose project prefix.
-
-For the library database alone, **Download Database Backup** in Settings saves a consistent snapshot without stopping ANM Player. It does not include music files or caches.
-
-For a complete backup, stop ANM Player first. Copy or archive both the complete data root and the state file together. For Docker, stop the stack and back up both named volumes with the volume-backup method used by your Docker installation. Verify that the archive contains `aura.db`, then retain an older known-good backup before testing a restore.
-
-Storage moves started from Settings are gated while active. Same-device moves are renamed and verified; cross-device moves are copied with a full SHA-256 manifest and SQLite `PRAGMA quick_check` before ANM Player switches roots. The old root is not removed before verification. If cleanup fails, ANM Player keeps recovery state and leaves both copies in place.
-
-Settings also has **Sync library now** for reconciling database download state with files in the managed music directory. ANM Player runs a lightweight reconciliation in the background, but the button is useful after manually copying or removing files while ANM Player was stopped.
-
-The **Fresh start** action in Settings is intentionally destructive. It requires a new, empty, non-overlapping directory and the exact confirmation text `RESET ANM PLAYER`. ANM Player creates and verifies a clean database in that directory before deleting its old `aura.db`, music, downloads, artwork, lyrics, streams, thumbnails, configuration, and logs. Browser player/theme state is cleared after the switch. Unrelated files in an accidentally broad old root are never deleted, and a cleanup failure leaves a visible recovery warning.
-
-For an older split-volume installation, stop every ANM Player API, worker, launcher, and container process, prepare a new absent or empty target, and run:
-
-```bash
-python docker/consolidate-storage.py --confirm-app-stopped \
-  --target /new-data --database /legacy-db/aura.db \
-  --music /legacy-music --downloads /legacy-downloads --cache /legacy-cache \
-  --config /legacy-config --thumbnails /legacy-thumbnails --logs /legacy-logs
-```
-
-The helper rejects overlapping paths and symbolic links, uses SQLite's backup API, verifies every copied file, stages the result atomically, and never deletes a legacy source. Keep those sources until ANM Player has started successfully from the new root.
-
-## Development
-
-The repository is split into a React/Vite client and a FastAPI service. See [the codebase map](docs/architecture.md) for domain ownership and safe change boundaries:
-
-```text
-apps/web/       React, TypeScript, Vite, Vitest
-apps/api/       FastAPI, SQLAlchemy, Alembic, pytest
-docker/         production images, Nginx, migration helper
-scripts/        launcher and release checks
-.github/        CI and dependency update configuration
-```
-
-Install development dependencies:
-
-```powershell
-apps/api/.venv/Scripts/python.exe -m pip install -r apps/api/requirements-dev.txt
-npm ci
-```
-
-Useful checks from the repository root:
-
-```powershell
-Set-Location apps/api
-.venv/Scripts/python.exe -m ruff check app tests ../../scripts
-.venv/Scripts/python.exe -W error -m pytest --cov=app --cov-fail-under=70
-Set-Location ../..
-npm run lint
-npm run typecheck
-npm run test:coverage
-npm run build
-npm run check:bundle
-npm audit --omit=dev --audit-level=high
-npm audit --audit-level=critical
-docker compose config --quiet
-docker compose -f docker-compose.dev.yml config --quiet
-```
-
-Runtime Python dependencies are in `apps/api/requirements.txt`; test, lint, coverage, and audit tools are in `apps/api/requirements-dev.txt`.
-
-## Troubleshooting
-
-- **Port already in use:** stop the stale process or use `.\start-anm-player.cmd --api-port 8010 --web-port 5180`. Docker's web port is controlled by `WEB_PORT`.
-- **FFmpeg not found:** install FFmpeg and confirm `ffmpeg -version` works in a new terminal.
-- **Wrong Python or Node version:** use Python 3.13 and Node 24 LTS. The launcher also accepts the tested adjacent Python 3.14 and Node 25/26 runtimes, but the release reference and CI versions are 3.13 and 24.
-- **Migration failed:** stop ANM Player, preserve the complete data root and state file, then run `apps/api/.venv/Scripts/python.exe -m alembic current` from `apps/api`. Do not delete a source root or migration state to force progress.
-- **Stale native processes:** close old launcher terminals and stop remaining `uvicorn`, `node`, or `npm` processes before restarting.
-- **Docker will not start:** confirm Docker Desktop's Linux engine is running, then rerun `docker compose config` before rebuilding.
-- **Provider request failed:** retry later and check `data/logs`. YouTube Music and yt-dlp changes can temporarily break search, streaming, or downloads even when ANM Player itself is unchanged.
-
-## Security and remote access
-
-ANM Player's bearer token is intentionally kept out of browser code, URLs, storage, and built assets. Nginx or the Vite development proxy injects it into same-origin upstream requests. The production API port is not published.
-
-This does not make ANM Player safe to expose directly to a LAN or the internet. Every visitor who reaches the web UI effectively has operator access. Keep `WEB_BIND_HOST=127.0.0.1`; for remote use, add a separately authenticated reverse proxy or a private VPN and restrict it to trusted people. See [SECURITY.md](SECURITY.md) for vulnerability reporting.
-
-## Provider and legal note
-
-ANM Player depends on YouTube Music, yt-dlp, and third-party lyrics/metadata behavior. Use it only for media you are entitled to access, follow provider terms, and comply with copyright law in your jurisdiction. The maintainers do not grant rights to music or provider content and cannot determine whether a particular download is lawful for you.
-
-Authenticated API documentation is available at <http://127.0.0.1:5173/api/v1/docs> while ANM Player is running.
-
-ANM Player is released under the [MIT License](LICENSE).
+ANM Player is free and open source under the [MIT License](LICENSE).

@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { Album, Clock3, Mic2, Music2, Pin, PinOff, Search, Trash2, Video, X } from "lucide-react";
+import { Album, Clock3, Mic2, Music2, Pin, PinOff, Search, Video, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 
@@ -156,12 +156,9 @@ export function SearchPage() {
   }
 
   return (
-    <motion.div {...pageTransition} className="mx-auto max-w-6xl space-y-8 px-4 py-5 sm:px-6 lg:px-8 lg:py-10">
+    <motion.div {...pageTransition} className="mx-auto max-w-7xl space-y-8 px-3 py-4 sm:px-6 lg:px-8 lg:py-7">
       <section className="space-y-5">
-        <div>
-          <p className="mb-2 text-sm font-semibold text-primary">Search</p>
-          <h1 className="text-4xl font-black tracking-normal sm:text-5xl">Find it. Play it. Keep it.</h1>
-        </div>
+        <h1 className="text-4xl font-black tracking-tight sm:text-6xl">Search</h1>
         <div className="relative">
           <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -170,12 +167,12 @@ export function SearchPage() {
             aria-label="Search YouTube Music"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search songs, albums, artists, playlists, or moods"
-            className="h-14 pl-12 pr-12 text-base sm:h-16 sm:text-lg"
+            placeholder="Songs, albums, artists, playlists or a mood"
+            className="h-14 rounded-2xl pl-12 pr-12 text-base shadow-glass sm:h-16 sm:text-lg"
           />
           {query && <button type="button" aria-label="Clear search" onClick={() => { setQuery(""); searchInput.current?.focus(); }} className="absolute right-3 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-full hover:bg-white/10"><X className="h-4 w-4" /></button>}
         </div>
-        <div className="no-scrollbar flex gap-2 overflow-x-auto pb-1">
+        <div role="group" aria-label="Result type" className="no-scrollbar flex w-fit max-w-full gap-1 overflow-x-auto rounded-full border border-white/10 bg-white/[0.04] p-1">
           {filters.map((filter) => {
             const Icon = filter.icon;
             const active = activeFilter === filter.id;
@@ -186,8 +183,8 @@ export function SearchPage() {
                 aria-pressed={active}
                 onClick={() => setActiveFilter(filter.id)}
                 className={cn(
-                  "flex h-10 shrink-0 items-center gap-2 rounded-full px-4 text-sm font-semibold transition",
-                  active ? "bg-primary text-primary-foreground" : "glass-panel text-muted-foreground hover:text-foreground",
+                  "flex h-9 shrink-0 items-center gap-2 rounded-full px-3.5 text-sm font-semibold transition",
+                  active ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground",
                 )}
               >
                 <Icon className="h-4 w-4" />
@@ -202,31 +199,31 @@ export function SearchPage() {
         <>
           {searchEntries.length > 0 && (
             <section className="space-y-3">
-              <div className="flex items-center justify-between gap-3"><div className="flex items-center gap-2"><Clock3 className="h-5 w-5 text-primary" /><h2 className="text-xl font-bold tracking-normal">Recent searches</h2></div>{searchEntries.some((entry) => !entry.pinned) && <Button size="sm" variant="quiet" onClick={clearRecentSearches}><Trash2 className="h-4 w-4" />Clear recent</Button>}</div>
-              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="flex items-center justify-between gap-3"><h2 className="text-xl font-bold tracking-tight">Recent</h2>{searchEntries.some((entry) => !entry.pinned) && <Button size="sm" variant="quiet" onClick={clearRecentSearches}>Clear</Button>}</div>
+              <div className="flex flex-wrap gap-2">
                 {searchEntries.map((entry) => (
-                  <div key={entry.query} className="glass-panel flex items-center gap-2 rounded-2xl p-2">
-                    <button type="button" onClick={() => setQuery(entry.query)} className="min-w-0 flex flex-1 items-center gap-2 rounded-xl px-2 py-1.5 text-left hover:bg-white/5"><Search className="h-4 w-4 shrink-0 text-muted-foreground" /><span className="truncate text-sm font-semibold">{entry.query}</span>{entry.pinned && <Pin className="h-3.5 w-3.5 shrink-0 fill-primary text-primary" />}</button>
-                    <button type="button" aria-label={entry.pinned ? `Unpin ${entry.query}` : `Pin ${entry.query}`} onClick={() => togglePinnedSearch(entry.query)} className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-white/10 hover:text-foreground">{entry.pinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}</button>
-                    <button type="button" aria-label={`Remove ${entry.query} from recent searches`} onClick={() => removeSearch(entry.query)} className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-white/10 hover:text-red-400"><X className="h-4 w-4" /></button>
+                  <div key={entry.query} className={cn("group flex h-10 items-center gap-0.5 rounded-full border pl-1 pr-1 transition", entry.pinned ? "border-primary/30 bg-primary/10" : "border-white/10 bg-white/[0.04] hover:bg-white/[0.08]")}>
+                    <button type="button" onClick={() => setQuery(entry.query)} className="flex min-w-0 max-w-[16rem] items-center gap-2 rounded-full px-2.5 py-1.5 text-left text-sm font-semibold">{entry.pinned ? <Pin className="h-3.5 w-3.5 shrink-0 fill-primary text-primary" /> : <Clock3 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}<span className="truncate">{entry.query}</span></button>
+                    <button type="button" aria-label={entry.pinned ? `Unpin ${entry.query}` : `Pin ${entry.query}`} onClick={() => togglePinnedSearch(entry.query)} className="grid h-7 w-7 place-items-center rounded-full text-muted-foreground opacity-0 transition hover:bg-white/10 hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100">{entry.pinned ? <PinOff className="h-3.5 w-3.5" /> : <Pin className="h-3.5 w-3.5" />}</button>
+                    <button type="button" aria-label={`Remove ${entry.query} from recent searches`} onClick={() => removeSearch(entry.query)} className="grid h-7 w-7 place-items-center rounded-full text-muted-foreground opacity-0 transition hover:bg-white/10 hover:text-red-400 focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"><X className="h-3.5 w-3.5" /></button>
                   </div>
                 ))}
               </div>
             </section>
           )}
           <section className="space-y-3">
-            <h2 className="text-xl font-bold tracking-normal">Start with a vibe</h2>
+            <h2 className="text-xl font-bold tracking-tight">Try</h2>
             <div className="flex flex-wrap gap-2">
               {starterSearches.map((search) => (
-                <button key={search} type="button" onClick={() => setQuery(search)} className="glass-panel rounded-full px-4 py-2 text-sm font-semibold transition hover:bg-white/10">{search}</button>
+                <button key={search} type="button" onClick={() => setQuery(search)} className="h-10 rounded-full border border-white/10 bg-white/[0.04] px-4 text-sm font-semibold text-muted-foreground transition hover:bg-white/[0.08] hover:text-foreground">{search}</button>
               ))}
             </div>
           </section>
         </>
       )}
 
-      {error && <div className="glass-panel rounded-2xl p-4 text-sm text-primary">{error}</div>}
-      {albumStatusError && <div className="glass-panel rounded-2xl p-4 text-sm text-red-400">{albumStatusError}</div>}
+      {error && <div role="alert" className="rounded-2xl border border-red-400/20 bg-red-500/5 p-4 text-sm text-red-400">{error}</div>}
+      {albumStatusError && <div role="alert" className="rounded-2xl border border-red-400/20 bg-red-500/5 p-4 text-sm text-red-400">{albumStatusError}</div>}
 
       {normalizedQuery && (
         <section className="space-y-5">
@@ -261,12 +258,11 @@ function ResultGroup({ title, items, albumStatuses, downloadedTracks }: { title:
   const gridItems = items.filter((item) => !rowKinds.has(item.kind));
 
   return (
-    <div className="space-y-3">
-      <h2 className="text-xl font-bold tracking-normal">{title}</h2>
+    <div aria-label={title} role="region" className="space-y-3">
       {rowItems.length > 0 && (
-        <div className="space-y-2">
+        <div className="rounded-[1.6rem] border border-white/[0.06] bg-card/30 p-2 sm:p-3">
           {rowItems.map((item) => (
-            <OnlineMusicCard key={`${title}-${item.kind}-${item.id}`} item={item} context={rowItems} variant="row" albumStatus={albumStatuses[item.browse_id || item.id]} isDownloaded={downloadedTracks[item.id]} />
+            <OnlineMusicCard key={`${title}-${item.kind}-${item.id}`} item={item} context={rowItems} variant="row" flat albumStatus={albumStatuses[item.browse_id || item.id]} isDownloaded={downloadedTracks[item.id]} />
           ))}
         </div>
       )}

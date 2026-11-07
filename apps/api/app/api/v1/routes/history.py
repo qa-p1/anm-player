@@ -1,6 +1,6 @@
-from typing import Annotated
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy import delete
 
 from app.api.deps import (
@@ -31,8 +31,12 @@ def list_history(
     service: Annotated[CatalogService, Depends(get_catalog_service)],
     limit: LimitQuery = 50,
     offset: OffsetQuery = 0,
+    event_type: Annotated[
+        Literal["played", "skipped", "completed"] | None,
+        Query(description="Only return entries of this playback event type"),
+    ] = None,
 ) -> list[HistoryResponse]:
-    return service.list_history(limit=limit, offset=offset)
+    return service.list_history(limit=limit, offset=offset, event_type=event_type)
 
 
 @router.get("/recently-played", response_model=list[HistoryResponse], summary="List mixed recently played items")

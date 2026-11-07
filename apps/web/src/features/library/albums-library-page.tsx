@@ -1,47 +1,94 @@
-import { musicKeys } from "@/services/music-keys";
+import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { Disc } from "lucide-react";
-import { useState } from "react";
-import { useNavigate } from "react-router";
+import { Check, Disc, Disc3, Play, Shuffle } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Link } from "react-router";
+import { useShallow } from "zustand/react/shallow";
 
 import { pageTransition } from "@/animations/page-motion";
-import { EmptyState } from "@/components/empty-states/empty-state";
-import { BackButton } from "@/components/navigation/back-button";
 import { ArtworkImage } from "@/components/cards/artwork-image";
-import { cachedArtworkUrl } from "@/services/api-client";
-import { useQuery } from "@tanstack/react-query";
-
+import { EqualizerBars } from "@/components/collection/equalizer-bars";
+import { LibraryPageHeader, Shelf, TileSkeleton, ViewToggle } from "@/components/collection/collection-parts";
+import { MediaTile, TileBadge } from "@/components/collection/media-tile";
+import { EmptyState } from "@/components/empty-states/empty-state";
 import { CollectionBrowser } from "@/components/filters/collection-browser";
 import { Button } from "@/components/ui/button";
-import { listAllLibraryAlbums } from "@/services/music-api";
-import type { LibraryAlbum } from "@/types/api";
+import { playAlbumById, playingAlbumKey } from "@/features/library/collection-playback";
 import { cn } from "@/lib/utils";
+import { cachedArtworkUrl } from "@/services/api-client";
+import { listAllLibraryAlbums } from "@/services/music-api";
+import { musicKeys } from "@/services/music-keys";
+import { useLibraryPreferencesStore } from "@/stores/library-preferences-store";
+import { usePlayerStore } from "@/stores/player-store";
+import type { LibraryAlbum } from "@/types/api";
+import { formatListeningTime, formatRelativeDate, pluralize } from "@/utils/format";
+import { shuffleTracks } from "@/utils/track-collection";
+
+const collator = new Intl.Collator(undefined, { sensitivity: "base", numeric: true });
 
 export function AlbumsLibraryPage() {
   const { data: albums = [], isLoading, error, refetch } = useQuery({ queryKey: musicKeys.libraryAlbums("all"), queryFn: ({ signal }) => listAllLibraryAlbums(undefined, signal) });
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState("name");
   const [offlineOnly, setOfflineOnly] = useState(false);
+  const view = useLibraryPreferencesStore((state) => state.viewModes.albums ?? "grid");
+  const setViewMode = useLibraryPreferencesStore((state) => state.setViewMode);
+  const playingAlbumId = usePlayerStore(useShallow((state) => playingAlbumKey(state.currentSong)));
   const term = query.trim().toLocaleLowerCase();
-  const visible = albums.filter((album) => (!offlineOnly || album.download_state === "downloaded") && `${album.title} ${album.artist_name || ""}`.toLocaleLowerCase().includes(term))
-    .sort((a, b) => sort === "year" ? (b.year ?? 0) - (a.year ?? 0) : (sort === "artist" ? a.artist_name || "" : a.title).localeCompare(sort === "artist" ? b.artist_name || "" : b.title, undefined, { sensitivity: "base", numeric: true }));
+
+  const visible = useMemo(() => albums
+    .filter((album) => (!offlineOnly || album.download_state === "downloaded") && `${album.title} ${album.artist_name || ""} ${album.year ?? ""}`.toLocaleLowerCase().includes(term))
+    .sort((a, b) => {
+      if (sort === "year") return (b.year ?? 0) - (a.year ?? 0) || collator.compare(a.title, b.title);
+      if (sort === "recent") return dateValue(b.added_at || b.created_at) - dateValue(a.added_at || a.created_at);
+      if (sort === "artist") return collator.compare(a.artist_name || "", b.artist_name || "") || (a.year ?? 0) - (b.year ?? 0);
+      return collator.compare(a.title, b.title);
+    }), [albums, offlineOnly, sort, term]);
+
+  const stats = useMemo(() => {
+    const artists = new Set(albums.map((album) => album.artist_name?.toLocaleLowerCase()).filter(Boolean));
+    const seconds = albums.reduce((total, album) => total + Math.max(0, album.duration_seconds ?? 0), 0);
+    return [
+      { label: albums.length === 1 ? "album" : "albums", value: albums.length.toLocaleString() },
+      { label: artists.size === 1 ? "artist" : "artists", value: artists.size.toLocaleString() },
+      { label: "offline", value: albums.filter((album) => album.download_state === "downloaded").length.toLocaleString() },
+      ...(seconds > 0 ? [{ label: "of music", value: formatListeningTime(seconds) }] : []),
+    ];
+  }, [albums]);
+
+  const recent = useMemo(() => [...albums].sort((a, b) => dateValue(b.added_at || b.created_at) - dateValue(a.added_at || a.created_at)).slice(0, 12), [albums]);
+  const showShelf = !term && !offlineOnly && albums.length >= 8;
 
   return (
     <motion.div {...pageTransition} className="mx-auto max-w-7xl space-y-8 px-3 py-4 sm:px-6 lg:px-8 lg:py-7">
-      <section>
-        <BackButton fallback="/library" />
-        <p className="mb-2 text-sm font-semibold text-primary">Albums</p>
-        <h1 className="text-4xl font-black tracking-normal sm:text-5xl">Your album collection</h1>
-        <p className="mt-4 text-base text-muted-foreground">{albums.length} {albums.length === 1 ? "album" : "albums"} in your library</p>
-      </section>
-      <CollectionBrowser label="albums" query={query} onQueryChange={setQuery} sort={sort} onSortChange={setSort} options={[{ value: "name", label: "Title" }, { value: "artist", label: "Artist" }, { value: "year", label: "Newest year" }]}><Button size="sm" variant={offlineOnly ? "default" : "glass"} aria-pressed={offlineOnly} onClick={() => setOfflineOnly(!offlineOnly)}>Downloaded only</Button></CollectionBrowser>
-      {error && <div role="alert" className="text-sm text-red-400">{error.message}<Button variant="ghost" onClick={() => void refetch()}>Retry</Button></div>}
-      <section>
-        {isLoading ? <p className="text-center text-muted-foreground">Loading...</p> : albums.length === 0 ? (
+      <LibraryPageHeader
+        title="Albums"
+        stats={albums.length ? stats : []}
+        actions={albums.length > 0 && <Button variant="glass" onClick={() => void playRandomAlbum(albums)}><Shuffle className="h-4 w-4" />Play a random album</Button>}
+      />
+
+      {showShelf && (
+        <Shelf title="Recently added">
+          {recent.map((album) => <div key={album.public_id} className="w-40 shrink-0 snap-start sm:w-44"><AlbumTile album={album} isActive={playingAlbumId === album.public_id} meta={formatRelativeDate(album.added_at || album.created_at)} /></div>)}
+        </Shelf>
+      )}
+
+      <section className="space-y-4">
+        <CollectionBrowser label="albums" query={query} onQueryChange={setQuery} sort={sort} onSortChange={setSort} options={[{ value: "name", label: "Title" }, { value: "artist", label: "Artist" }, { value: "year", label: "Newest year" }, { value: "recent", label: "Recently added" }]}>
+          <Button size="sm" variant={offlineOnly ? "default" : "glass"} aria-pressed={offlineOnly} onClick={() => setOfflineOnly(!offlineOnly)}>Downloaded only</Button>
+          <ViewToggle label="Albums" value={view} onChange={(mode) => setViewMode("albums", mode)} />
+        </CollectionBrowser>
+        {error && <div role="alert" className="flex items-center gap-2 text-sm text-red-400">{error.message}<Button variant="ghost" onClick={() => void refetch()}>Retry</Button></div>}
+
+        {isLoading ? <TileSkeleton /> : albums.length === 0 ? (
           <EmptyState icon={Disc} title="No albums in library" description="Add an online album or scan local music to see it here." />
+        ) : view === "grid" ? (
+          <div className="-mx-2 grid grid-cols-2 gap-1 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6">
+            {visible.map((album) => <AlbumTile key={album.public_id} album={album} isActive={playingAlbumId === album.public_id} />)}
+          </div>
         ) : (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6">
-            {visible.map((album) => <AlbumCard key={album.public_id} album={album} />)}
+          <div className="rounded-[1.6rem] border border-white/[0.06] bg-card/30 p-2">
+            {visible.map((album) => <AlbumListRow key={album.public_id} album={album} isActive={playingAlbumId === album.public_id} />)}
           </div>
         )}
         {!isLoading && albums.length > 0 && visible.length === 0 && <EmptyState icon={Disc} title="No matching albums" description="Try a different search or turn off the download filter." />}
@@ -50,18 +97,50 @@ export function AlbumsLibraryPage() {
   );
 }
 
-function AlbumCard({ album }: { album: LibraryAlbum }) {
-  const navigate = useNavigate();
+async function playRandomAlbum(albums: LibraryAlbum[]) {
+  const [pick] = shuffleTracks(albums);
+  if (pick) await playAlbumById(pick.public_id);
+}
+
+function AlbumTile({ album, isActive, meta }: { album: LibraryAlbum; isActive: boolean; meta?: string }) {
   const artworkUrl = cachedArtworkUrl(album.artwork_path || album.artwork_url);
-  const stateLabel = album.download_state === "downloaded" ? "Downloaded" : album.download_state === "partial" ? "Partially downloaded" : "In library";
   return (
-    <button type="button" className="group min-w-0 text-left" onClick={() => navigate(album.canonical_url)}>
-      <div className="relative mb-3 aspect-square overflow-hidden rounded-xl bg-white/10 shadow-glass sm:rounded-2xl">
-        {artworkUrl ? <ArtworkImage src={artworkUrl} fallbackSrc={cachedArtworkUrl(album.artwork_url)} alt={album.title} className="h-full w-full object-cover transition group-hover:scale-105" /> : <div className="grid h-full place-items-center"><Disc className="h-12 w-12 text-muted-foreground" /></div>}
-      </div>
-      <h3 className="truncate text-sm font-bold">{album.title}</h3>
-      <p className="mt-1 truncate text-sm text-muted-foreground">{album.artist_name || "Unknown Artist"}</p>
-      <p className={cn("mt-1 truncate text-xs", album.download_state === "downloaded" ? "font-semibold text-emerald-400" : "text-muted-foreground")}>{album.year || "Unknown"} · {album.track_count} songs · {stateLabel}</p>
-    </button>
+    <MediaTile
+      href={album.canonical_url}
+      title={album.title}
+      subtitle={album.artist_name || "Unknown Artist"}
+      meta={meta ?? [album.year, pluralize(album.track_count, "song")].filter(Boolean).join(" · ")}
+      artworkUrl={artworkUrl}
+      fallbackArtworkUrl={cachedArtworkUrl(album.artwork_url)}
+      placeholderIcon={Disc3}
+      isActive={isActive}
+      badge={isActive ? <TileBadge tone="primary"><EqualizerBars className="h-2.5" />Playing</TileBadge> : album.download_state === "downloaded" ? <TileBadge tone="success"><Check className="h-3 w-3" />Offline</TileBadge> : album.download_state === "partial" ? <TileBadge>{album.downloaded_track_count}/{album.track_count}</TileBadge> : null}
+      playLabel={`Play ${album.title}`}
+      onPlay={() => playAlbumById(album.public_id)}
+    />
   );
+}
+
+function AlbumListRow({ album, isActive }: { album: LibraryAlbum; isActive: boolean }) {
+  const artworkUrl = cachedArtworkUrl(album.artwork_path || album.artwork_url);
+  return (
+    <article className={cn("group relative flex min-w-0 items-center gap-3 rounded-xl p-2 transition hover:bg-white/[0.06] focus-within:bg-white/[0.06]", isActive && "bg-primary/[0.08]")}>
+      <span className="h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-white/10"><ArtworkImage src={artworkUrl} fallbackSrc={cachedArtworkUrl(album.artwork_url)} alt="" className="h-full w-full object-cover" /></span>
+      <Link to={album.canonical_url} className="min-w-0 flex-1 outline-none after:absolute after:inset-0 after:rounded-xl focus-visible:after:ring-2 focus-visible:after:ring-ring">
+        <p className={cn("truncate text-sm font-semibold", isActive && "text-primary")}>{album.title}</p>
+        <p className="truncate text-xs text-muted-foreground">{album.artist_name || "Unknown Artist"}</p>
+      </Link>
+      <span className="hidden w-14 shrink-0 text-sm tabular-nums text-muted-foreground sm:block">{album.year || ""}</span>
+      <span className="hidden w-20 shrink-0 text-sm text-muted-foreground md:block">{pluralize(album.track_count, "song")}</span>
+      <span className={cn("hidden w-24 shrink-0 text-xs font-semibold lg:block", album.download_state === "downloaded" ? "text-emerald-400" : "text-muted-foreground")}>{album.download_state === "downloaded" ? "Offline" : album.download_state === "partial" ? `${album.downloaded_track_count}/${album.track_count} offline` : "Streaming"}</span>
+      <button type="button" aria-label={`Play ${album.title}`} title={`Play ${album.title}`} onClick={() => void playAlbumById(album.public_id)} className="relative z-10 grid h-9 w-9 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground opacity-100 shadow-glow transition hover:scale-105 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 [@media(hover:none)]:opacity-100">
+        {isActive ? <EqualizerBars className="h-3" /> : <Play className="h-4 w-4 translate-x-[1px] fill-current" />}
+      </button>
+    </article>
+  );
+}
+
+function dateValue(value: string | null | undefined) {
+  const time = value ? new Date(value).getTime() : 0;
+  return Number.isFinite(time) ? time : 0;
 }

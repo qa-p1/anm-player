@@ -25,15 +25,13 @@ import { TrackMetadata } from "@/components/cards/track-metadata";
 import { LyricsPanel } from "@/components/player/lyrics-panel";
 import { PlayerToolsPanel } from "@/components/player/player-tools-panel";
 import { QueuePanel } from "@/components/player/queue-panel";
-import { toast } from "@/components/ui/toast";
 import { playbackStatusLabel, useDelayedPlaybackStatus } from "@/hooks/use-delayed-playback-status";
 import { cn } from "@/lib/utils";
 import { useDominantArtworkPalette } from "@/hooks/use-artwork-palette";
 import { togglePlayback, seekPlayback, previousTrack, nextTrack } from "@/features/player/playback-controls";
-import { useFavorites, useToggleFavorite } from "@/hooks/use-music-queries";
+import { usePlayerFavorite } from "@/features/player/use-player-favorite";
 import { usePlayerStore } from "@/stores/player-store";
 import { useUiStore } from "@/stores/ui-store";
-import type { PlayerTrack } from "@/types/player";
 import { formatTime } from "@/utils/format";
 
 type PlayerView = "player" | "lyrics" | "queue" | "tools";
@@ -42,14 +40,8 @@ interface FullScreenPlayerProps {
   onClose: () => void;
 }
 
-function playerTrackFavoriteState(track: PlayerTrack | null | undefined): boolean {
-  if (!track || track.source !== "local") return false;
-  return track.localKind === "song" ? Boolean(track.rawSong?.is_favorited) : Boolean(track.rawLibraryTrack?.is_favorited);
-}
-
 export function FullScreenPlayer({ onClose }: FullScreenPlayerProps) {
   const navigate = useNavigate();
-  const favoriteMutation = useToggleFavorite();
   const {
     currentSong,
     isPlaying,
@@ -86,10 +78,7 @@ export function FullScreenPlayer({ onClose }: FullScreenPlayerProps) {
   const [view, setView] = useState<PlayerView>("player");
   const requestedPlayerView = useUiStore((state) => state.requestedPlayerView);
   const consumePlayerViewRequest = useUiStore((state) => state.consumePlayerViewRequest);
-  const { data: favorites } = useFavorites({ enabled: currentSong?.source === "local" });
-  const isFavorited = !favorites || currentSong?.source !== "local" ? playerTrackFavoriteState(currentSong)
-    : currentSong.localKind === "song" ? favorites.songs.some((song) => song.id === currentSong.songId)
-      : favorites.library_tracks.some((track) => track.id === currentSong.libraryTrackId);
+  const { isFavorited, toggleFavorite: handleToggleFavorite } = usePlayerFavorite(currentSong);
   const palette = useDominantArtworkPalette(currentSong?.artworkUrl ?? null);
   const displayedPlaybackStatus = useDelayedPlaybackStatus(playbackStatus);
 
@@ -120,20 +109,6 @@ export function FullScreenPlayer({ onClose }: FullScreenPlayerProps) {
   const bufferedProgress = duration > 0 ? Math.max(progress, Math.min(100, (bufferedUntil / duration) * 100)) : progress;
   const volumeProgress = isMuted ? 0 : volume * 100;
   const PlayIcon = isPlaying ? Pause : Play;
-
-  async function handleToggleFavorite() {
-    if (!currentSong || currentSong.source !== "local" || favoriteMutation.isPending) return;
-    try {
-      const result = await favoriteMutation.mutateAsync(
-        currentSong.localKind === "song"
-          ? { entity_type: "song", entity_id: currentSong.songId }
-          : { entity_type: "library_track", entity_id: currentSong.libraryTrackId },
-      );
-      toast(result.is_favorited ? "Added to favorites" : "Removed from favorites", "success");
-    } catch (error) {
-      toast(error instanceof Error ? error.message : "Failed to update favorite", "error");
-    }
-  }
 
   function goToArtist() {
     if (!currentSong || currentSong.source !== "local") return;
@@ -326,7 +301,7 @@ export function FullScreenPlayer({ onClose }: FullScreenPlayerProps) {
                 />
                 <div className="mt-1 flex justify-between text-[0.68rem] font-medium tabular-nums text-white/45">
                   <span>{formatTime(currentTime)}</span>
-                  <span>-{formatTime(Math.max(0, duration - currentTime))}</span>
+                  <span>{Number.isFinite(duration) && duration > 0 ? `-${formatTime(Math.max(0, duration - currentTime))}` : ""}</span>
                 </div>
               </div>
 
@@ -356,7 +331,7 @@ export function FullScreenPlayer({ onClose }: FullScreenPlayerProps) {
                 <Volume2 className="h-[1.1rem] w-[1.1rem]" />
               </div>
 
-              <div className="mt-4 grid grid-cols-5 items-center sm:mt-6">
+              <div className="mt-4 grid grid-cols-4 items-center sm:mt-6">
                 <PlayerFooterButton label="Open lyrics full screen" active={false} onClick={() => setView("lyrics")}><MessageSquareText className="h-[1.35rem] w-[1.35rem]" /></PlayerFooterButton>
                 <PlayerFooterButton label={shuffle ? "Disable shuffle" : "Enable shuffle"} active={shuffle} onClick={toggleShuffle}><Shuffle className="h-[1.35rem] w-[1.35rem]" /></PlayerFooterButton>
                 <PlayerFooterButton label="Show queue" active={false} onClick={() => setView("queue")}><ListMusic className="h-[1.35rem] w-[1.35rem]" /></PlayerFooterButton>

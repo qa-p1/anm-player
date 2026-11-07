@@ -251,8 +251,8 @@ function MarkerTools({ trackId, currentTime, duration }: { trackId: string; curr
     <div className="space-y-4">
       <ToolCard title="A–B repeat" description="Loop a precise section for practice or close listening." icon={ListRestart}>
         <div className="grid grid-cols-2 gap-2">
-          <Button variant="glass" onClick={() => preferences.setAbRepeatStart(trackId, currentTime)}>Set A · {loop?.startSeconds !== null && loop?.startSeconds !== undefined ? formatTime(loop.startSeconds) : "—"}</Button>
-          <Button variant="glass" disabled={loop?.startSeconds === null || loop?.startSeconds === undefined || currentTime <= loop.startSeconds} onClick={() => preferences.setAbRepeatEnd(trackId, currentTime)}>Set B · {loop?.endSeconds !== null && loop?.endSeconds !== undefined ? formatTime(loop.endSeconds) : "—"}</Button>
+          <Button variant="glass" onClick={() => preferences.setAbRepeatStart(trackId, currentTime)}>Set A{loop?.startSeconds !== null && loop?.startSeconds !== undefined ? ` · ${formatTime(loop.startSeconds)}` : ""}</Button>
+          <Button variant="glass" disabled={loop?.startSeconds === null || loop?.startSeconds === undefined || currentTime <= loop.startSeconds} onClick={() => preferences.setAbRepeatEnd(trackId, currentTime)}>Set B{loop?.endSeconds !== null && loop?.endSeconds !== undefined ? ` · ${formatTime(loop.endSeconds)}` : ""}</Button>
         </div>
         {loop?.startSeconds !== null && loop?.endSeconds !== null && loop?.startSeconds !== undefined && loop?.endSeconds !== undefined && (
           <div className="mt-3 flex gap-2">

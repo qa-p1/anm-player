@@ -551,3 +551,80 @@ def test_playlist_content_changes_update_modification_time(
         playlist_api.session.get(Playlist, playlist_api.playlist_id).updated_at.year
         > old_time.year
     )
+
+
+def _png(width: int = 40, height: int = 20) -> bytes:
+    from io import BytesIO
+
+    from PIL import Image
+
+    buffer = BytesIO()
+    Image.new("RGB", (width, height), (200, 30, 90)).save(buffer, "PNG")
+    return buffer.getvalue()
+
+
+def test_playlist_cover_upload_crops_serves_and_cleans_up(
+    playlist_api: PlaylistApi, tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from PIL import Image
+
+    from app.services import playlist_artwork
+
+    monkeypatch.setattr(playlist_artwork, "covers_directory", lambda: tmp_path)
+    response = playlist_api.client.put(
+        f"/api/v1/playlists/{playlist_api.playlist_id}/artwork",
+        content=_png(),
+        headers={"Content-Type": "image/png"},
+    )
+    assert response.status_code == 200, response.text
+    artwork_path = response.json()["artwork_path"]
+    assert "/media/artwork/playlists/" in artwork_path
+    filename = artwork_path.rsplit("/", 1)[-1]
+    stored = tmp_path / filename
+    with Image.open(stored) as image:
+        assert image.format == "JPEG"
+        assert image.width == image.height == 20
+
+    served = playlist_api.client.get(f"/api/v1/media/artwork/playlists/{filename}")
+    assert served.status_code == 200
+    assert served.headers["content-type"] == "image/jpeg"
+
+    removed = playlist_api.client.delete(f"/api/v1/playlists/{playlist_api.playlist_id}/artwork")
+    assert removed.status_code == 200
+    assert removed.json()["artwork_path"] is None
+    assert not stored.exists()
+
+
+def test_playlist_cover_rejects_non_images_and_bad_names(
+    playlist_api: PlaylistApi, tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.services import playlist_artwork
+
+    monkeypatch.setattr(playlist_artwork, "covers_directory", lambda: tmp_path)
+    url = f"/api/v1/playlists/{playlist_api.playlist_id}/artwork"
+    wrong_type = playlist_api.client.put(url, content=b"hello", headers={"Content-Type": "text/plain"})
+    corrupt = playlist_api.client.put(url, content=b"not really a png", headers={"Content-Type": "image/png"})
+    assert wrong_type.status_code == 422
+    assert corrupt.status_code == 422
+    assert list(tmp_path.iterdir()) == []
+    assert playlist_api.client.get("/api/v1/media/artwork/playlists/..%2Fsecret.jpg").status_code in {400, 404}
+
+
+def test_duplicated_cover_survives_until_the_last_playlist_releases_it(
+    playlist_api: PlaylistApi, tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.services import playlist_artwork
+
+    monkeypatch.setattr(playlist_artwork, "covers_directory", lambda: tmp_path)
+    upload = playlist_api.client.put(
+        f"/api/v1/playlists/{playlist_api.playlist_id}/artwork",
+        content=_png(),
+        headers={"Content-Type": "image/png"},
+    )
+    filename = upload.json()["artwork_path"].rsplit("/", 1)[-1]
+    copy = playlist_api.client.post(f"/api/v1/playlists/{playlist_api.playlist_id}/duplicate")
+    assert copy.status_code == 201
+    playlist_api.client.delete(f"/api/v1/playlists/{playlist_api.playlist_id}")
+    assert (tmp_path / filename).exists()
+    playlist_api.client.delete(f"/api/v1/playlists/{copy.json()['id']}")
+    assert not (tmp_path / filename).exists()

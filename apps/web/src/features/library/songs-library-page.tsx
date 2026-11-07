@@ -1,22 +1,25 @@
-import { musicKeys } from "@/services/music-keys";
-import { CollectionActions } from "@/components/cards/collection-actions";
-import { Button } from "@/components/ui/button";
-import { useDebouncedValue } from "@/hooks/use-debounced-value";
-import { songToPlayerTrack } from "@/types/player";
+import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { Music, Search, X, CheckSquare2 } from "lucide-react";
+import { CheckSquare2, Music2, Search, X } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { pageTransition } from "@/animations/page-motion";
+import { CollectionActions } from "@/components/cards/collection-actions";
 import { SongCard } from "@/components/cards/song-card";
+import { CollectionHero } from "@/components/collection/collection-hero";
+import { MosaicArtwork } from "@/components/collection/collection-parts";
 import { EmptyState } from "@/components/empty-states/empty-state";
+import { FilterPanel, type FilterState } from "@/components/filters/filter-panel";
 import { BackButton } from "@/components/navigation/back-button";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { FilterPanel, FilterState } from "@/components/filters/filter-panel";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { useAllSongs, useSearchAllSongs } from "@/hooks/use-music-queries";
-import { useQuery } from "@tanstack/react-query";
+import { cn } from "@/lib/utils";
 import { advancedSearchAllSongs } from "@/services/music-api";
+import { musicKeys } from "@/services/music-keys";
 import type { Song } from "@/types/api";
+import { songToPlayerTrack } from "@/types/player";
 
 const EMPTY_SONGS: Song[] = [];
 
@@ -46,68 +49,59 @@ export function SongsLibraryPage() {
   const error = (hasFilters ? filtered.error : debouncedSearch ? searchError : allSongsError)?.message;
   const actionSongs = selectionMode ? displaySongs.filter((song) => selected.has(song.id)) : displaySongs;
   const actionTracks = useMemo(() => actionSongs.map(songToPlayerTrack), [actionSongs]);
+  const displayTracks = useMemo(() => displaySongs.map(songToPlayerTrack), [displaySongs]);
   const allVisibleSelected = displaySongs.length > 0 && displaySongs.every((song) => selected.has(song.id));
+  const covers = useMemo(() => (allSongsData ?? EMPTY_SONGS).slice(0, 24).map((song) => songToPlayerTrack(song).artworkUrl), [allSongsData]);
 
+  function toggle(songId: number) {
+    setSelected((current) => {
+      const next = new Set(current);
+      if (next.has(songId)) next.delete(songId);
+      else next.add(songId);
+      return next;
+    });
+  }
 
   return (
-    <motion.div {...pageTransition} className="mx-auto max-w-7xl space-y-8 px-4 py-5 sm:px-6 lg:px-8 lg:py-8">
-      <section>
-        <BackButton fallback="/library" />
-        <p className="mb-2 text-sm font-semibold text-primary">Songs</p>
-        <h1 className="text-4xl font-black tracking-normal sm:text-5xl">
-          Your music collection
-        </h1>
-        <p className="mt-4 max-w-2xl text-base leading-7 text-muted-foreground">
-          {displaySongs.length} {displaySongs.length === 1 ? "song" : "songs"} {hasFilters ? "matching filters" : "downloaded"}
-        </p>
-      </section>
-
-      <section className="glass-panel rounded-3xl p-4">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            aria-label="Search songs in your library"
-            placeholder="Search songs in your library..."
-            className="pl-10 pr-12"
-          />
-          {searchQuery && <button type="button" aria-label="Clear library search" onClick={() => setSearchQuery("")} className="absolute right-2 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-full hover:bg-white/10"><X className="h-4 w-4" /></button>}
-        </div>
-      </section>
-
-      <FilterPanel
-        filters={filters}
-        onFiltersChange={setFilters}
-        onClear={() => setFilters({})}
-      />
-
-      {error && <div role="alert" className="glass-panel rounded-2xl p-4 text-sm text-red-400">{error}<Button variant="ghost" size="sm" onClick={() => { if (hasFilters) void filtered.refetch(); else if (debouncedSearch) void refetchSearch(); else void refetchAll(); }}>Retry</Button></div>}
-      <section className="space-y-3" aria-label="Collection controls">
+    <motion.div {...pageTransition} className="mx-auto max-w-7xl space-y-6 px-3 py-4 sm:px-6 lg:px-8 lg:py-7">
+      <BackButton fallback="/library" />
+      <CollectionHero kind="Songs" title="Songs" artworkUrl={covers.find(Boolean) ?? null} artwork={<MosaicArtwork urls={covers} icon={Music2} />}>
         <CollectionActions tracks={actionTracks} name={selectionMode ? "Selected songs" : "Library songs"} disabled={loading} />
-        <div className="flex flex-wrap items-center gap-2">
-          <Button variant="glass" size="sm" aria-pressed={selectionMode} onClick={() => { setSelectionMode(!selectionMode); setSelected(new Set()); }}><CheckSquare2 className="h-4 w-4" />{selectionMode ? "Done selecting" : "Select songs"}</Button>
-          {selectionMode && <><Button variant="ghost" size="sm" onClick={() => setSelected(allVisibleSelected ? new Set() : new Set(displaySongs.map((song) => song.id)))}>{allVisibleSelected ? "Deselect all" : "Select visible"}</Button><span className="text-xs text-muted-foreground">{actionSongs.length} selected</span></>}
-          {(searchQuery || hasFilters) && <Button variant="ghost" size="sm" onClick={() => { setSearchQuery(""); setFilters({}); setSelected(new Set()); }}>Reset search & filters</Button>}
+      </CollectionHero>
+
+      <section aria-label="Collection controls" className="space-y-3">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") setSearchQuery(""); }} aria-label="Search songs in your library" placeholder="Search songs" className="h-10 pl-9 pr-10 text-sm" />
+            {searchQuery && <button type="button" aria-label="Clear library search" onClick={() => setSearchQuery("")} className="absolute right-1 top-1 grid h-8 w-8 place-items-center rounded-full hover:bg-white/10"><X className="h-4 w-4" /></button>}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant={selectionMode ? "default" : "glass"} size="sm" className="h-10" aria-pressed={selectionMode} onClick={() => { setSelectionMode(!selectionMode); setSelected(new Set()); }}><CheckSquare2 className="h-4 w-4" />{selectionMode ? "Done selecting" : "Select songs"}</Button>
+            {selectionMode && <Button variant="ghost" size="sm" className="h-10" onClick={() => setSelected(allVisibleSelected ? new Set() : new Set(displaySongs.map((song) => song.id)))}>{allVisibleSelected ? "Deselect all" : "Select visible"}</Button>}
+            {(searchQuery || hasFilters) && <Button variant="ghost" size="sm" className="h-10" onClick={() => { setSearchQuery(""); setFilters({}); setSelected(new Set()); }}>Reset</Button>}
+          </div>
         </div>
+        <FilterPanel filters={filters} onFiltersChange={setFilters} onClear={() => setFilters({})} />
+        {selectionMode && <p className="text-xs text-muted-foreground">{actionSongs.length} selected</p>}
       </section>
 
-      <section className="space-y-2">
-        {loading ? (
-          <p className="text-center text-muted-foreground">Loading...</p>
-        ) : displaySongs.length === 0 ? (
-          <EmptyState
-            icon={Music}
-            title={searchQuery || hasFilters ? "No songs found" : "No songs in library"}
-            description={searchQuery || hasFilters ? "Try adjusting your search or filters." : "Download some music from the Search page to see it here."}
-          />
-        ) : (
-          displaySongs.map((song) => <div key={song.id} className="flex items-center gap-2">
-            {selectionMode && <input type="checkbox" aria-label={`Select ${song.title}`} checked={selected.has(song.id)} onChange={() => setSelected((current) => { const next = new Set(current); if (next.has(song.id)) next.delete(song.id); else next.add(song.id); return next; })} className="h-5 w-5 shrink-0 accent-primary" />}
-            <SongCard song={song} context={displaySongs} showArtist showAlbum className="min-w-0 flex-1" />
-          </div>)
-        )}
-      </section>
+      {error && <div role="alert" className="flex items-center gap-2 rounded-2xl border border-red-400/20 bg-red-500/5 p-3 text-sm text-red-400">{error}<Button variant="ghost" size="sm" onClick={() => { if (hasFilters) void filtered.refetch(); else if (debouncedSearch) void refetchSearch(); else void refetchAll(); }}>Retry</Button></div>}
+
+      {loading ? (
+        <div role="status" aria-label="Loading songs" className="space-y-1">{Array.from({ length: 10 }).map((_, index) => <div key={index} className="h-14 animate-pulse rounded-xl bg-white/[0.04]" />)}</div>
+      ) : displaySongs.length === 0 ? (
+        <EmptyState icon={Music2} title={searchQuery || hasFilters ? "No songs found" : "No songs yet"} description={searchQuery || hasFilters ? "Try another search or loosen the filters." : "Downloaded songs show up here."} />
+      ) : (
+        <section aria-label="Songs" className="rounded-[1.6rem] border border-white/[0.06] bg-card/30 p-2 sm:p-3">
+          {displaySongs.map((song, index) => (
+            <div key={song.id} className={cn("flex items-center gap-1 rounded-xl", selected.has(song.id) && "bg-primary/[0.08]")}>
+              {selectionMode && <label className="grid h-9 w-8 shrink-0 cursor-pointer place-items-center"><input type="checkbox" aria-label={`Select ${song.title}`} checked={selected.has(song.id)} onChange={() => toggle(song.id)} className="h-4 w-4 accent-primary" /></label>}
+              <SongCard song={song} playerContext={displayTracks} showArtist showAlbum variant="list" number={index + 1} className="min-w-0 flex-1" />
+            </div>
+          ))}
+        </section>
+      )}
     </motion.div>
   );
 }

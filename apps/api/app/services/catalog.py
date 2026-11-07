@@ -363,9 +363,11 @@ class CatalogService:
         return self.responses.history_to_response(history_entry)
 
     def list_history(
-        self, *, limit: int = 50, offset: int = 0
+        self, *, limit: int = 50, offset: int = 0, event_type: str | None = None
     ) -> list[HistoryResponse]:
-        entries = self.history.list_with_songs(limit=limit, offset=offset)
+        entries = self.history.list_with_songs(
+            limit=limit, offset=offset, event_type=event_type
+        )
         return self.responses.history_entries_to_response(entries)
 
     def get_recent_history(self, *, limit: int = 50) -> list[HistoryResponse]:

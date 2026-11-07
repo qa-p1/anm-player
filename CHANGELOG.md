@@ -1,6 +1,29 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 - 2026-11-08
+
+### Highlights
+
+- **A redesigned app.** Albums, playlists, artists, songs, favorites, smart collections, search, the library home and insights all share one cleaner look: big artwork-tinted headers, a large play button, flat track lists, and covers you can play straight from with a hover.
+- **A new mini player.** Slim and tinted by the song's artwork, with a thin seek line on its top edge that shows the time under your pointer, shuffle and repeat, a loading ring, a queue count, and swipe gestures on phones.
+- **Song suggestions for playlists.** Every playlist recommends songs that fit what's already in it (or what you play most, for an empty one). Add them with one tap and refresh for more.
+- **Custom playlist covers.** Click a playlist's cover to upload your own picture.
+- **A cleaner sidebar.** Main pages, a compact library grid, a scrollable playlist list with search, pins, generated covers and a "now playing" marker, and small icons for settings, shortcuts and closing the app.
+- **Better insights.** History is grouped by day, filters work across your whole history, and "Load more" keeps going back as far as you like.
+- **"More by this artist"** on album pages, a "Latest release" card and sortable discography on artist pages, and a "Jump back in" list on the library page.
+- **Artist and album names always open the right page,** even for songs that only came with a name.
+- **Song lengths everywhere.** Missing lengths are now looked up, and remembered once a song has played, so lists no longer show dashes.
+- **Styled tooltips** replace the browser's default boxes, and obvious labels were removed throughout.
+- Remembered grid or list view for albums and playlists, a Favorites tab bar, artist play buttons, disc grouping on albums, explicit badges, and proper confirm dialogs instead of browser pop-ups.
+
+### Fixes
+
+- Playlist cover mosaics no longer leave gaps or repeat the same album art.
+- Deleting a playlist also removes it from your pins.
+- The full player's bottom buttons are evenly spaced, and unknown song lengths no longer show `0:00` or `-0:00`.
+- Docker's web proxy accepts playlist covers up to the app's 10 MB limit. Release checks now upload a cover and verify the playlist and image survive container replacement.
+- Local legacy music folders are excluded from Docker images, and the self-hosting guide covers setup, updates, persistent storage and private server access.
+
 
 ### Final codebase polish
 
@@ -18,7 +41,7 @@
 - Quick find (`Ctrl/Cmd K`, or the mobile search button) searches pages, playlists, local songs, and player commands. `/` opens online search; `F` opens the player.
 - Shared play-all, shuffle, queue-all, save-as-playlist, and M3U controls on songs, favorites, playlists, and smart collections; song multiselect supports working with just the selection.
 - Playlist search and sorting by name, latest update, or track count; album/artist search and sorting, and an album downloaded-only filter.
-- Mini-player queue access, lyrics, elapsed/total time, mute, and volume controls; long dialogs scroll within the viewport and page loading preserves navigation/player controls.
+- Mini-player queue access, lyrics and track seeking; long dialogs scroll within the viewport and page loading preserves navigation/player controls.
 - Shared keyboard command definitions drive help and quick find. Shortcuts respect native controls, dialogs, browser modifiers, and IME composition.
 - Favorites and playlist edits refresh related views; API query ownership replaces duplicated private collection state. Clearing filters cannot leave the library stuck loading.
 - Search query/filter state follows URLs and navigation; cancelled pagination cannot append stale results to a new search. Search fields have clear actions.

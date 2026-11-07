@@ -148,6 +148,14 @@ export function getPlaylist(playlistId: number, signal?: AbortSignal) {
   return apiGet<PlaylistDetail>(`/playlists/${playlistId}`, { signal });
 }
 
+export function setPlaylistArtwork(playlistId: number, image: Blob) {
+  return apiPut<PlaylistDetail, Blob>(`/playlists/${playlistId}/artwork`, image, { timeoutMs: 60_000 });
+}
+
+export function removePlaylistArtwork(playlistId: number) {
+  return apiDelete<PlaylistDetail>(`/playlists/${playlistId}/artwork`);
+}
+
 export function createPlaylist(request: PlaylistCreateRequest) {
   return apiPost<Playlist, PlaylistCreateRequest>("/playlists", request);
 }
@@ -208,8 +216,12 @@ export function getMostPlayedHistory(limit = 50, signal?: AbortSignal) {
   return apiGet<HistoryEntry[]>(`/history/most-played?limit=${limit}`, { signal });
 }
 
-export function listHistory(limit = 100, offset = 0, signal?: AbortSignal) {
-  return apiGet<HistoryEntry[]>(`/history?limit=${limit}&offset=${offset}`, { signal });
+export type HistoryEventFilter = "played" | "completed" | "skipped";
+
+export function listHistory(limit = 100, offset = 0, signal?: AbortSignal, eventType?: HistoryEventFilter) {
+  const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+  if (eventType) params.set("event_type", eventType);
+  return apiGet<HistoryEntry[]>(`/history?${params.toString()}`, { signal });
 }
 
 export function deleteHistoryEntry(historyId: number) {

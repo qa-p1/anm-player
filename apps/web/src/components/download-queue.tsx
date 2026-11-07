@@ -22,6 +22,7 @@ import {
 } from "@/services/music-api";
 import type { DownloadJob } from "@/types/api";
 import { isActiveDownload } from "@/utils/downloads";
+import { usePlayerStore } from "@/stores/player-store";
 
 function isVisibleJob(job: DownloadJob) {
   // Keep finished jobs visible until they are explicitly cleared.
@@ -38,6 +39,7 @@ function finishedSummary(jobs: DownloadJob[]) {
 export function DownloadQueueTrigger({ mobile = false }: { mobile?: boolean }) {
   const { data: jobs = [] } = useDownloads();
   const setOpen = useDownloadQueueUi((state) => state.setOpen);
+  const hasCurrentSong = usePlayerStore((state) => Boolean(state.currentSong));
   const visibleJobs = jobs.filter(isVisibleJob);
   const activeJobs = visibleJobs.filter(isActiveDownload);
 
@@ -53,7 +55,7 @@ export function DownloadQueueTrigger({ mobile = false }: { mobile?: boolean }) {
         size="icon"
         onClick={() => setOpen(true)}
         aria-label="Open download queue"
-        className="fixed bottom-36 right-3 z-[180] h-12 w-12 rounded-2xl border border-white/15 shadow-2xl lg:hidden"
+        className={cn("fixed right-3 z-[180] h-12 w-12 rounded-2xl border border-white/15 shadow-2xl lg:hidden", hasCurrentSong ? "bottom-48" : "bottom-24")}
       >
         <Icon className={cn("h-5 w-5", !completed && "animate-spin")} />
         <span className="absolute -right-1 -top-1 grid h-5 min-w-5 place-items-center rounded-full bg-foreground px-1 text-[10px] font-black text-background">

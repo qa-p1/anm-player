@@ -31,6 +31,7 @@ from app.schemas.music import (
     PlaylistResponse,
     PlaylistUpdateRequest,
 )
+from app.services import playlist_artwork
 from app.services.catalog_presenter import CatalogPresenter
 
 
@@ -335,8 +336,47 @@ class PlaylistService:
             raise ResourceNotFoundError(
                 "Playlist not found", details={"playlist_id": playlist_id}
             )
+        previous_cover = playlist_artwork.cover_filename(playlist.artwork_path)
         self.playlists.delete(playlist)
         self.playlists.session.commit()
+        self._discard_unused_cover(previous_cover)
+
+    def set_playlist_artwork(
+        self, playlist_id: int, content: bytes, content_type: str | None
+    ) -> PlaylistDetailResponse:
+        playlist = self.playlists.get(playlist_id)
+        if not playlist:
+            raise ResourceNotFoundError(
+                "Playlist not found", details={"playlist_id": playlist_id}
+            )
+        previous_cover = playlist_artwork.cover_filename(playlist.artwork_path)
+        playlist.artwork_path = playlist_artwork.save_cover(content, content_type)
+        self.playlists.session.commit()
+        if previous_cover != playlist_artwork.cover_filename(playlist.artwork_path):
+            self._discard_unused_cover(previous_cover)
+        return self.get_playlist(playlist_id)
+
+    def remove_playlist_artwork(self, playlist_id: int) -> PlaylistDetailResponse:
+        playlist = self.playlists.get(playlist_id)
+        if not playlist:
+            raise ResourceNotFoundError(
+                "Playlist not found", details={"playlist_id": playlist_id}
+            )
+        previous_cover = playlist_artwork.cover_filename(playlist.artwork_path)
+        playlist.artwork_path = None
+        self.playlists.session.commit()
+        self._discard_unused_cover(previous_cover)
+        return self.get_playlist(playlist_id)
+
+    def _discard_unused_cover(self, filename: str | None) -> None:
+        """Delete an uploaded cover once no playlist (e.g. a duplicate) uses it."""
+        if filename is None:
+            return
+        still_used = self.playlists.session.scalar(
+            select(Playlist.id).where(Playlist.artwork_path.like(f"%{filename}")).limit(1)
+        )
+        if still_used is None:
+            playlist_artwork.delete_cover_file(filename)
 
     def _ordered_playlist_links(
         self,

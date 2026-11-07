@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 import logging
 import threading
 import time
@@ -72,6 +73,7 @@ class YouTubeMusicService:
         self.album_cache_max_entries = 128
         self._home_cache: tuple[float, OnlineHomeResponse] | None = None
         self._related_cache: dict[str, tuple[float, OnlineRelatedResponse]] = {}
+        self._duration_cache: dict[str, int] = {}
         self._home_refresh_lock = asyncio.Lock()
         self.search_cache_ttl_seconds = 120.0
         self.home_cache_ttl_seconds = 600.0
@@ -343,7 +345,7 @@ class YouTubeMusicService:
         quick_shelf = find_provider_quick_picks(home.sections)
         if quick_shelf:
             self._hydrate_missing_durations(
-                self.home_client, quick_shelf.items, limit=8
+                self.home_client, quick_shelf.items, limit=len(quick_shelf.items)
             )
         logger.info(
             "Parsed YouTube Music provider home",
@@ -450,31 +452,57 @@ class YouTubeMusicService:
             client=client.session.web_remix_client(), browse_id=browse_id
         )
         items = select_related_song_items(raw_related, seed_video_id=video_id)[:20]
-        self._hydrate_missing_durations(client, items, limit=8)
+        self._hydrate_missing_durations(client, items, limit=len(items))
         return items
 
     def _hydrate_missing_durations(
         self, client: YouTubeMusicClient, items: list[YTItem], *, limit: int
     ) -> None:
-        hydrated = 0
+        """Fill shelf items that YouTube Music returned without a length.
+
+        Lookups run in parallel and are remembered, so later shelves that share
+        tracks (home, related, search) never show unknown durations again.
+        """
+        cache = self._duration_cache
+        pending: list[YTItem] = []
         for item in items[:limit]:
             if item.duration_seconds is not None or item.kind != "song" or not item.id:
                 continue
+            known = cache.get(item.id)
+            if known:
+                item.duration_seconds = known
+            else:
+                pending.append(item)
+        if not pending:
+            return
+
+        def lookup(item: YTItem) -> int | None:
             try:
                 raw_player = client.session.player(
                     item.id, client=client.session.web_remix_client()
                 )
                 length = (raw_player.get("videoDetails") or {}).get("lengthSeconds")
                 duration = int(length) if length is not None else 0
-                if duration > 0:
-                    item.duration_seconds = duration
-                    hydrated += 1
+                return duration if duration > 0 else None
             except Exception:
                 logger.debug(
                     "YouTube Music duration hydration failed",
                     extra={"source": "duration"},
                     exc_info=True,
                 )
+                return None
+
+        with ThreadPoolExecutor(max_workers=min(6, len(pending))) as pool:
+            durations = list(pool.map(lookup, pending))
+        hydrated = 0
+        for item, duration in zip(pending, durations, strict=True):
+            if duration is None:
+                continue
+            item.duration_seconds = duration
+            if len(cache) >= 4096:
+                cache.pop(next(iter(cache)))
+            cache[item.id] = duration
+            hydrated += 1
         if hydrated:
             logger.info(
                 "Hydrated YouTube Music shelf durations",

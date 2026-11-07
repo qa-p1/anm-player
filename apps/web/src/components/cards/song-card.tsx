@@ -20,6 +20,9 @@ interface SongCardProps {
   className?: string;
   playlistId?: number;
   onRemoved?: () => void;
+  variant?: "card" | "list";
+  number?: number | string;
+  showArtwork?: boolean;
 }
 
 export function SongCard({
@@ -31,6 +34,9 @@ export function SongCard({
   className,
   playlistId,
   onRemoved,
+  variant,
+  number,
+  showArtwork,
 }: SongCardProps) {
   const navigate = useNavigate();
   const [isFavorited, setIsFavorited] = useState(song.is_favorited);
@@ -85,6 +91,9 @@ export function SongCard({
       onRemoveFromPlaylist={playlistId ? handleRemoveFromPlaylist : undefined}
       onEnrich={handleEnrich}
       isDownloaded={song.is_downloaded}
+      variant={variant}
+      number={number}
+      showArtwork={showArtwork}
     />
   );
 }

@@ -388,3 +388,29 @@ def test_cold_start_partial_failure_returns_successful_sections() -> None:
         "global-trending",
         "trending-albums",
     ]
+
+
+def test_duration_hydration_covers_every_item_and_reuses_known_lengths() -> None:
+    service = YouTubeMusicService()
+    lookups: list[str] = []
+
+    class FakeSession:
+        def web_remix_client(self):
+            return WEB
+
+        def player(self, video_id, *, client):
+            lookups.append(video_id)
+            return {"videoDetails": {"lengthSeconds": "200"}}
+
+    class FakeClient:
+        session = FakeSession()
+
+    first = [song(f"track-{index}") for index in range(12)]
+    service._hydrate_missing_durations(FakeClient(), first, limit=len(first))
+    assert all(item.duration_seconds == 200 for item in first)
+    assert len(lookups) == 12
+
+    again = [song("track-3"), song("track-11")]
+    service._hydrate_missing_durations(FakeClient(), again, limit=len(again))
+    assert [item.duration_seconds for item in again] == [200, 200]
+    assert len(lookups) == 12

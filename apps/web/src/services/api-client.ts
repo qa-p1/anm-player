@@ -64,14 +64,16 @@ async function apiRequest<TResponse, TBody = never>(
 
   try {
     const hasBody = body !== undefined;
+    // Files (e.g. playlist covers) go up as raw bytes with their own type.
+    const isBlob = typeof Blob !== "undefined" && body instanceof Blob;
     const response = await fetch(`${API_BASE_PATH}${path}`, {
       method,
       signal: controller.signal,
       headers: {
         Accept: "application/json",
-        ...(hasBody ? { "Content-Type": "application/json" } : {}),
+        ...(isBlob ? { "Content-Type": (body as Blob).type || "application/octet-stream" } : hasBody ? { "Content-Type": "application/json" } : {}),
       },
-      body: hasBody ? JSON.stringify(body) : undefined,
+      body: isBlob ? (body as Blob) : hasBody ? JSON.stringify(body) : undefined,
     });
 
     if (!response.ok) throw await responseError(response);

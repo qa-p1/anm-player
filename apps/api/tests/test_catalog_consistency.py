@@ -341,3 +341,26 @@ def test_mixed_playlist_detail_batches_track_favorites() -> None:
         assert len(detail[0].items) == 30
         assert all(item.track.is_favorited for item in detail[0].items)
         assert all(not item.track.is_in_library for item in detail[0].items)
+
+
+def test_history_log_filters_by_event_type_with_stable_paging() -> None:
+    with make_session() as session:
+        for index in range(6):
+            session.add(
+                History(
+                    title=f"Track {index}",
+                    source="youtube",
+                    external_id=f"v{index}",
+                    event_type="skipped" if index % 2 else "completed",
+                )
+            )
+        session.commit()
+        service = make_service(session)
+
+        skipped = service.list_history(limit=2, offset=0, event_type="skipped")
+        more_skipped = service.list_history(limit=2, offset=2, event_type="skipped")
+        everything = service.list_history(limit=50)
+
+        assert [entry.event_type for entry in skipped + more_skipped] == ["skipped"] * 3
+        assert {entry.id for entry in skipped}.isdisjoint({entry.id for entry in more_skipped})
+        assert len(everything) == 6

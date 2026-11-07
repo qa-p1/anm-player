@@ -9,7 +9,7 @@ export const musicKeys = {
   songsSearchAll: (query: string) => [...musicKeys.songs(), "search-all", { query }] as const,
   history: () => [...musicKeys.all, "history"] as const,
   insights: (days: number) => [...musicKeys.history(), "insights", days] as const,
-  historyLog: () => [...musicKeys.history(), "log"] as const,
+  historyLog: (eventType: string = "all") => [...musicKeys.history(), "log", eventType] as const,
   library: () => [...musicKeys.all, "library"] as const,
   counts: () => [...musicKeys.library(), "counts"] as const,
   libraryAlbums: (limit: number | "all") => [...musicKeys.albums(), "library", limit] as const,

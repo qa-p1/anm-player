@@ -1,4 +1,4 @@
-import { BarChart3, Home, Library, Search, Settings, Heart, Music2, Disc3, ListMusic, Clock3, TrendingUp } from "lucide-react";
+import { BarChart3, Home, Library, Search, Settings, Heart, Music2, Disc3, ListMusic, Clock3, TrendingUp, Mic2, Sparkles } from "lucide-react";
 
 export const navItems = [
   { label: "Home", path: "/", icon: Home },
@@ -8,11 +8,18 @@ export const navItems = [
   { label: "Settings", path: "/settings", icon: Settings },
 ] as const;
 
+/** Collections shown in the sidebar under the main navigation. */
 export const libraryNavItems = [
-  { label: "Playlists", path: "/library/playlists", icon: ListMusic },
   { label: "Favorites", path: "/library/favorites", icon: Heart },
   { label: "Songs", path: "/library/songs", icon: Music2 },
   { label: "Albums", path: "/library/albums", icon: Disc3 },
+  { label: "Artists", path: "/library/artists", icon: Mic2 },
+] as const;
+
+/** Extra destinations reachable from quick find and the Library page. */
+export const smartNavItems = [
+  { label: "Playlists", path: "/library/playlists", icon: ListMusic },
+  { label: "Recently added", path: "/library/smart/recently-added", icon: Sparkles },
   { label: "Recently played", path: "/library/smart/recently-played", icon: Clock3 },
   { label: "Most played", path: "/library/smart/most-played", icon: TrendingUp },
 ] as const;

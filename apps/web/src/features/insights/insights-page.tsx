@@ -1,24 +1,17 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { musicKeys } from "@/services/music-keys";
 import { invalidateHistory } from "@/services/music-invalidation";
 import { motion } from "framer-motion";
-import {
-  BarChart3,
-  CheckCircle2,
-  Clock3,
-  Flame,
-  History,
-  Music2,
-  Play,
-  SkipForward,
-  Trash2,
-  Users,
-} from "lucide-react";
+import { CheckCircle2, ChevronDown, History, LoaderCircle, Play, SkipForward, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
+import { useNavigate } from "react-router";
 
 import { pageTransition } from "@/animations/page-motion";
 import { ArtworkImage } from "@/components/cards/artwork-image";
+import { TrackMetadata } from "@/components/cards/track-metadata";
+import { resolveArtistPage } from "@/features/navigation/resolve-music-page";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import { cachedArtworkUrl } from "@/services/api-client";
@@ -39,7 +32,7 @@ const periods = [
   { label: "All time", value: 0 },
 ] as const;
 
-const EMPTY_HISTORY: HistoryEntry[] = [];
+const HISTORY_PAGE = 25;
 
 type HistoryFilter = "all" | "played" | "completed" | "skipped";
 
@@ -47,19 +40,28 @@ export function InsightsPage() {
   const [period, setPeriod] = useState(30);
   const client = useQueryClient();
   const insightsQuery = useQuery({ queryKey: musicKeys.insights(period), queryFn: ({ signal }) => getListeningInsights(period, signal) });
-  const historyQuery = useQuery({ queryKey: musicKeys.historyLog(), queryFn: ({ signal }) => listHistory(100, 0, signal) });
+  // Older entries are appended to the same list each time "Load more" is used.
+  const [historyFilter, setHistoryFilter] = useState<HistoryFilter>("all");
+  const historyQuery = useInfiniteQuery({
+    queryKey: musicKeys.historyLog(historyFilter),
+    queryFn: ({ pageParam, signal }) => listHistory(HISTORY_PAGE, pageParam, signal, historyFilter === "all" ? undefined : historyFilter),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage, pages) => (lastPage.length < HISTORY_PAGE ? undefined : pages.reduce((total, page) => total + page.length, 0)),
+  });
   const insights = insightsQuery.data;
-  const history = historyQuery.data ?? EMPTY_HISTORY;
+  const history = useMemo(() => {
+    const seen = new Set<number>();
+    return (historyQuery.data?.pages ?? []).flat().filter((entry) => !seen.has(entry.id) && Boolean(seen.add(entry.id)));
+  }, [historyQuery.data]);
   const isLoading = insightsQuery.isLoading || historyQuery.isLoading;
   const error = insightsQuery.error || historyQuery.error;
-  const [historyFilter, setHistoryFilter] = useState<HistoryFilter>("all");
   const [isClearing, setIsClearing] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
   const playSong = usePlayerStore((state) => state.playSong);
 
-  const filteredHistory = useMemo(
-    () => history.filter((entry) => historyFilter === "all" || entry.event_type === historyFilter),
-    [history, historyFilter],
-  );
+  // The server filters by event type, so every "Load more" stays on-filter.
+  const filteredHistory = history;
+  const historyGroups = useMemo(() => groupByDay(filteredHistory), [filteredHistory]);
 
   async function removeHistoryEntry(entryId: number) {
     try {
@@ -72,7 +74,7 @@ export function InsightsPage() {
   }
 
   async function removeAllHistory() {
-    if (!window.confirm("Clear every listening-history entry? This cannot be undone.")) return;
+    setConfirmClear(false);
     setIsClearing(true);
     try {
       const result = await clearHistory();
@@ -97,48 +99,37 @@ export function InsightsPage() {
 
   return (
     <motion.div {...pageTransition} className="mx-auto max-w-7xl space-y-8 px-3 py-4 sm:px-6 lg:px-8 lg:py-7">
-      <header className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <p className="mb-2 text-sm font-semibold text-primary">Your listening</p>
-          <h1 className="text-4xl font-black tracking-normal sm:text-5xl">Insights</h1>
-          <p className="mt-3 max-w-2xl text-muted-foreground">
-            See the rhythms, artists, and records shaping your library.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2" aria-label="Insights period">
+      <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <h1 className="text-4xl font-black tracking-tight sm:text-6xl">Insights</h1>
+        <div role="group" aria-label="Insights period" className="flex w-fit rounded-full border border-white/10 bg-white/[0.04] p-1">
           {periods.map((option) => (
-            <Button
-              key={option.value}
-              size="sm"
-              variant={period === option.value ? "default" : "glass"}
-              aria-pressed={period === option.value}
-              onClick={() => setPeriod(option.value)}
-            >
+            <button key={option.value} type="button" aria-pressed={period === option.value} onClick={() => setPeriod(option.value)} className={cn("rounded-full px-3.5 py-1.5 text-xs font-semibold text-muted-foreground transition hover:text-foreground", period === option.value && "bg-foreground text-background hover:text-background")}>
               {option.label}
-            </Button>
+            </button>
           ))}
         </div>
       </header>
 
       {error && <div role="alert" className="flex flex-wrap items-center gap-2 text-sm text-red-400">{error.message}<Button size="sm" variant="ghost" onClick={() => { void insightsQuery.refetch(); void historyQuery.refetch(); }}>Retry</Button></div>}
       {isLoading && !insights ? (
-        <div className="grid min-h-72 place-items-center text-sm text-muted-foreground">Calculating your listening patterns…</div>
+        <div role="status" aria-label="Loading insights" className="grid grid-cols-2 gap-3 lg:grid-cols-4">{Array.from({ length: 4 }).map((_, index) => <div key={index} className="h-32 animate-pulse rounded-[1.4rem] bg-white/[0.05]" />)}</div>
       ) : insights ? (
         <>
           <SummaryGrid insights={insights} />
-          <section className="grid gap-5 xl:grid-cols-[1.45fr_0.8fr]">
+          <section className="grid gap-4 xl:grid-cols-[1.45fr_0.8fr]">
             <ActivityChart insights={insights} />
             <ListeningClock insights={insights} />
           </section>
-          <section className="grid gap-5 lg:grid-cols-2">
+          <section className="grid gap-4 lg:grid-cols-2">
             <TopTracks insights={insights} />
-            <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
-              <RankingCard title="Top artists" icon={Users} items={insights.top_artists.map((item) => ({
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+              <RankingCard title="Top artists" items={insights.top_artists.map((item) => ({
                 primary: item.name,
+                artist: true,
                 secondary: `${item.play_count} ${item.play_count === 1 ? "play" : "plays"}`,
                 value: compactDuration(item.listening_seconds),
               }))} />
-              <RankingCard title="Top albums" icon={Music2} items={insights.top_albums.map((item) => ({
+              <RankingCard title="Top albums" items={insights.top_albums.map((item) => ({
                 primary: item.title,
                 secondary: item.artist_name || "Unknown artist",
                 value: `${item.play_count}×`,
@@ -147,48 +138,64 @@ export function InsightsPage() {
           </section>
         </>
       ) : (
-        <div className="glass-panel rounded-3xl p-8 text-center text-muted-foreground">No listening data is available yet.</div>
+        <div className="rounded-[1.6rem] border border-dashed border-white/10 p-8 text-center text-muted-foreground">No listening data yet.</div>
       )}
 
-      <section className="space-y-4">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Playback log</p>
-            <h2 className="mt-1 text-2xl font-bold">Listening history</h2>
+      <section aria-label="History" className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-2xl font-bold tracking-tight">History</h2>
+          <div className="flex items-center gap-2">
+            <div role="group" aria-label="Filter history" className="no-scrollbar flex overflow-x-auto rounded-full border border-white/10 bg-white/[0.04] p-1">
+              {(["all", "played", "completed", "skipped"] as const).map((filter) => (
+                <button key={filter} type="button" aria-pressed={historyFilter === filter} onClick={() => setHistoryFilter(filter)} className={cn("shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold capitalize text-muted-foreground transition hover:text-foreground", historyFilter === filter && "bg-foreground text-background hover:text-background")}>{filter}</button>
+              ))}
+            </div>
+            {(history.length > 0 || historyFilter !== "all") && (
+              <Button variant="ghost" size="icon" className="h-9 w-9 text-muted-foreground hover:text-red-400" aria-label="Clear history" title="Clear history" disabled={isClearing} onClick={() => setConfirmClear(true)}>
+                {isClearing ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+              </Button>
+            )}
           </div>
-          {history.length > 0 && (
-            <Button variant="glass" size="sm" className="text-red-400" disabled={isClearing} onClick={removeAllHistory}>
-              <Trash2 className="h-4 w-4" />
-              {isClearing ? "Clearing…" : "Clear history"}
-            </Button>
-          )}
         </div>
-        <div className="flex gap-2 overflow-x-auto pb-1">
-          {(["all", "played", "completed", "skipped"] as const).map((filter) => (
-            <Button
-              key={filter}
-              size="sm"
-              variant={historyFilter === filter ? "default" : "glass"}
-              onClick={() => setHistoryFilter(filter)}
-            >
-              {filter === "all" ? "All events" : filter[0].toUpperCase() + filter.slice(1)}
-            </Button>
-          ))}
-        </div>
-        {filteredHistory.length > 0 ? (
-          <div className="space-y-2">
-            {filteredHistory.map((entry) => (
-              <HistoryRow key={entry.id} entry={entry} onReplay={() => replay(entry)} onRemove={() => removeHistoryEntry(entry.id)} />
+
+        {historyQuery.isLoading ? (
+          <div className="space-y-1">{Array.from({ length: 6 }).map((_, index) => <div key={index} className="h-14 animate-pulse rounded-xl bg-white/[0.04]" />)}</div>
+        ) : historyGroups.length > 0 ? (
+          <div className="space-y-5">
+            {historyGroups.map((group) => (
+              <div key={group.key}>
+                <h3 className="sticky top-0 z-10 mb-1 bg-background/80 px-2 py-1.5 text-xs font-bold uppercase tracking-wider text-muted-foreground backdrop-blur">{group.label}</h3>
+                <div className="rounded-[1.4rem] border border-white/[0.06] bg-card/30 p-1.5">
+                  {group.entries.map((entry) => (
+                    <HistoryRow key={entry.id} entry={entry} onReplay={() => replay(entry)} onRemove={() => removeHistoryEntry(entry.id)} />
+                  ))}
+                </div>
+              </div>
             ))}
           </div>
         ) : (
-          <div className="glass-panel rounded-3xl p-8 text-center">
+          <div className="rounded-[1.6rem] border border-dashed border-white/10 p-8 text-center">
             <History className="mx-auto mb-3 h-8 w-8 text-muted-foreground" />
-            <p className="font-semibold">No matching history</p>
-            <p className="mt-1 text-sm text-muted-foreground">Play some music and it will appear here.</p>
+            <p className="font-semibold">{historyFilter === "all" ? "Nothing played yet" : `No ${historyFilter} plays`}</p>
+          </div>
+        )}
+
+        {historyQuery.hasNextPage && (
+          <div className="flex justify-center">
+            <Button variant="glass" disabled={historyQuery.isFetchingNextPage} onClick={() => void historyQuery.fetchNextPage()}>
+              {historyQuery.isFetchingNextPage ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ChevronDown className="h-4 w-4" />}
+              {historyQuery.isFetchingNextPage ? "Loading…" : "Load more"}
+            </Button>
           </div>
         )}
       </section>
+
+      <Dialog open={confirmClear} onOpenChange={setConfirmClear}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Clear all listening history?</DialogTitle><DialogDescription>Insights will reset. This cannot be undone.</DialogDescription></DialogHeader>
+          <DialogFooter><Button variant="ghost" onClick={() => setConfirmClear(false)}>Cancel</Button><Button variant="glass" className="text-red-400" onClick={() => void removeAllHistory()}>Clear history</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
     </motion.div>
   );
 }
@@ -196,18 +203,17 @@ export function InsightsPage() {
 function SummaryGrid({ insights }: { insights: ListeningInsights }) {
   const { summary } = insights;
   const cards = [
-    { label: "Listening time", value: compactDuration(summary.listening_seconds), helper: `${summary.active_days} active days`, icon: Clock3 },
-    { label: "Tracks played", value: summary.total_plays.toLocaleString(), helper: `${summary.unique_tracks} unique tracks`, icon: Play },
-    { label: "Completion", value: `${summary.completion_rate.toFixed(1)}%`, helper: `${summary.completed_plays} finished`, icon: CheckCircle2 },
-    { label: "Current streak", value: `${summary.current_streak_days}d`, helper: `${summary.unique_artists} artists heard`, icon: Flame },
+    { label: "Listening time", value: compactDuration(summary.listening_seconds), helper: `${summary.active_days} active ${summary.active_days === 1 ? "day" : "days"}` },
+    { label: "Plays", value: summary.total_plays.toLocaleString(), helper: `${summary.unique_tracks.toLocaleString()} unique tracks` },
+    { label: "Finished", value: `${summary.completion_rate.toFixed(0)}%`, helper: `${summary.completed_plays.toLocaleString()} complete plays` },
+    { label: "Streak", value: `${summary.current_streak_days}d`, helper: `${summary.unique_artists.toLocaleString()} artists` },
   ];
   return (
-    <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-      {cards.map(({ label, value, helper, icon: Icon }) => (
-        <div key={label} className="glass-panel rounded-2xl p-4 sm:rounded-3xl sm:p-5">
-          <div className="mb-5 flex h-10 w-10 items-center justify-center rounded-xl bg-primary/12 text-primary"><Icon className="h-5 w-5" /></div>
-          <p className="text-2xl font-black tabular-nums sm:text-3xl">{value}</p>
-          <p className="mt-1 text-sm font-semibold">{label}</p>
+    <section aria-label="Summary" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      {cards.map(({ label, value, helper }, index) => (
+        <div key={label} className={cn("rounded-[1.4rem] border border-white/[0.06] p-4 sm:p-5", index === 0 ? "bg-gradient-to-br from-primary/25 to-primary/5" : "bg-card/40")}>
+          <p className="text-xs font-semibold text-muted-foreground">{label}</p>
+          <p className="mt-2 text-3xl font-black tabular-nums tracking-tight sm:text-4xl">{value}</p>
           <p className="mt-1 truncate text-xs text-muted-foreground">{helper}</p>
         </div>
       ))}
@@ -219,11 +225,8 @@ function ActivityChart({ insights }: { insights: ListeningInsights }) {
   const visible = insights.daily.slice(-30);
   const maximum = Math.max(1, ...visible.map((day) => Math.max(day.play_count, day.listening_seconds / 180)));
   return (
-    <section className="glass-panel rounded-3xl p-5 sm:p-6">
-      <div className="mb-6 flex items-center justify-between gap-3">
-        <div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Daily pulse</p><h2 className="mt-1 text-xl font-bold">Listening activity</h2></div>
-        <BarChart3 className="h-5 w-5 text-muted-foreground" />
-      </div>
+    <section className="rounded-[1.6rem] border border-white/[0.06] bg-card/40 p-5 pb-8 sm:p-6 sm:pb-9">
+      <h2 className="mb-6 text-lg font-bold">Activity</h2>
       <div className="flex h-48 items-end gap-1" aria-label="Daily listening activity chart">
         {visible.map((day, index) => {
           const magnitude = Math.max(day.play_count, day.listening_seconds / 180);
@@ -246,9 +249,8 @@ function ActivityChart({ insights }: { insights: ListeningInsights }) {
 function ListeningClock({ insights }: { insights: ListeningInsights }) {
   const maximum = Math.max(1, ...insights.hourly.map((bucket) => bucket.play_count));
   return (
-    <section className="glass-panel rounded-3xl p-5 sm:p-6">
-      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Listening clock</p>
-      <h2 className="mt-1 text-xl font-bold">When you press play</h2>
+    <section className="rounded-[1.6rem] border border-white/[0.06] bg-card/40 p-5 sm:p-6">
+      <h2 className="text-lg font-bold">By hour</h2>
       <div className="mt-6 grid grid-cols-6 gap-2 sm:grid-cols-8 xl:grid-cols-6">
         {insights.hourly.map((bucket) => (
           <div key={bucket.hour} className="text-center">
@@ -267,15 +269,15 @@ function ListeningClock({ insights }: { insights: ListeningInsights }) {
 
 function TopTracks({ insights }: { insights: ListeningInsights }) {
   return (
-    <section className="glass-panel rounded-3xl p-5 sm:p-6">
-      <div className="mb-4 flex items-center gap-3"><Music2 className="h-5 w-5 text-primary" /><h2 className="text-xl font-bold">Top tracks</h2></div>
+    <section className="rounded-[1.6rem] border border-white/[0.06] bg-card/40 p-5 sm:p-6">
+      <h2 className="mb-4 text-lg font-bold">Top tracks</h2>
       {insights.top_tracks.length > 0 ? (
         <ol className="space-y-1">
           {insights.top_tracks.slice(0, 8).map((track, index) => (
             <li key={track.key} className="flex items-center gap-3 rounded-2xl p-2 transition hover:bg-white/5">
               <span className="w-5 text-center text-xs tabular-nums text-muted-foreground">{index + 1}</span>
               <div className="h-10 w-10 shrink-0 overflow-hidden rounded-lg bg-white/10"><ArtworkImage src={cachedArtworkUrl(track.artwork_url)} alt="" className="h-full w-full object-cover" /></div>
-              <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{track.title}</p><p className="truncate text-xs text-muted-foreground">{track.artist_name || "Unknown artist"}</p></div>
+              <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{track.title}</p>{track.artist_name ? <ArtistName name={track.artist_name} className="block max-w-full truncate text-xs text-muted-foreground" /> : <p className="truncate text-xs text-muted-foreground">Unknown artist</p>}</div>
               <div className="text-right"><p className="text-sm font-bold tabular-nums">{track.play_count}×</p><p className="text-[0.65rem] text-muted-foreground">{compactDuration(track.listening_seconds)}</p></div>
             </li>
           ))}
@@ -285,12 +287,12 @@ function TopTracks({ insights }: { insights: ListeningInsights }) {
   );
 }
 
-function RankingCard({ title, icon: Icon, items }: { title: string; icon: typeof Users; items: Array<{ primary: string; secondary: string; value: string }> }) {
+function RankingCard({ title, items }: { title: string; items: Array<{ primary: string; secondary: string; value: string; artist?: boolean }> }) {
   return (
-    <section className="glass-panel rounded-3xl p-5">
-      <div className="mb-4 flex items-center gap-3"><Icon className="h-5 w-5 text-primary" /><h2 className="text-lg font-bold">{title}</h2></div>
+    <section className="rounded-[1.6rem] border border-white/[0.06] bg-card/40 p-5">
+      <h2 className="mb-4 text-lg font-bold">{title}</h2>
       {items.length > 0 ? <ol className="space-y-3">{items.slice(0, 6).map((item, index) => (
-        <li key={`${item.primary}-${index}`} className="flex items-center gap-3"><span className="text-xs text-muted-foreground">{index + 1}</span><div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{item.primary}</p><p className="truncate text-xs text-muted-foreground">{item.secondary}</p></div><span className="text-xs font-bold tabular-nums">{item.value}</span></li>
+        <li key={`${item.primary}-${index}`} className="flex items-center gap-3"><span className="text-xs text-muted-foreground">{index + 1}</span><div className="min-w-0 flex-1">{item.artist ? <ArtistName name={item.primary} className="block max-w-full truncate text-sm font-semibold" /> : <p className="truncate text-sm font-semibold">{item.primary}</p>}<p className="truncate text-xs text-muted-foreground">{item.secondary}</p></div><span className="text-xs font-bold tabular-nums">{item.value}</span></li>
       ))}</ol> : <p className="py-8 text-center text-sm text-muted-foreground">Not enough listening data yet.</p>}
     </section>
   );
@@ -298,23 +300,70 @@ function RankingCard({ title, icon: Icon, items }: { title: string; icon: typeof
 
 function HistoryRow({ entry, onReplay, onRemove }: { entry: HistoryEntry; onReplay: () => void; onRemove: () => void }) {
   const title = entry.song?.title || entry.title || "Unknown track";
-  const artist = entry.song?.artist_name || entry.artist_name || "Unknown artist";
   const artwork = cachedArtworkUrl(entry.song?.artwork_path || entry.song?.artwork_url || entry.artwork_url);
-  const playable = Boolean(historyEntryToPlayerTrack(entry));
+  const track = historyEntryToPlayerTrack(entry);
   const EventIcon = entry.event_type === "completed" ? CheckCircle2 : entry.event_type === "skipped" ? SkipForward : Play;
+  const playedAt = new Date(entry.played_at);
   return (
-    <article className="glass-panel relative flex items-center gap-3 rounded-2xl p-3">
-      <button type="button" onClick={onReplay} disabled={!playable} className="group flex min-w-0 flex-1 items-center gap-3 text-left after:absolute after:inset-0 after:rounded-2xl focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-ring disabled:opacity-50" aria-label={`Play ${title}`}>
-        <span className="relative h-12 w-12 shrink-0 overflow-hidden rounded-xl bg-white/10">
+    <article className="group relative flex items-center gap-3 rounded-xl p-2 transition hover:bg-white/[0.05]">
+      {/* Sibling overlay keeps artist/album links clickable without nesting them in a button. */}
+      <button type="button" onClick={onReplay} disabled={!track} className="absolute inset-0 z-0 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed" aria-label={`Play ${title}`} />
+      <div className={cn("pointer-events-none relative z-[1] flex min-w-0 flex-1 items-center gap-3", !track && "opacity-50")}>
+        <span className="relative h-11 w-11 shrink-0 overflow-hidden rounded-lg bg-white/10">
           <ArtworkImage src={artwork} alt="" className="h-full w-full object-cover" />
-          <span className="absolute inset-0 grid place-items-center bg-black/45 opacity-0 transition group-hover:opacity-100 group-focus-visible:opacity-100"><Play className="h-4 w-4 fill-white text-white" /></span>
+          <span className="absolute inset-0 grid place-items-center bg-black/45 opacity-0 transition group-hover:opacity-100"><Play className="h-4 w-4 fill-white text-white" /></span>
         </span>
-        <span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold">{title}</span><span className="block truncate text-xs text-muted-foreground">{artist} · {new Date(entry.played_at).toLocaleString()}</span></span>
-        <span className={cn("hidden items-center gap-1 rounded-full px-2 py-1 text-[0.65rem] font-semibold sm:flex", entry.event_type === "completed" ? "bg-emerald-500/12 text-emerald-400" : entry.event_type === "skipped" ? "bg-amber-500/12 text-amber-400" : "bg-primary/12 text-primary")}><EventIcon className="h-3 w-3" />{entry.event_type}</span>
-      </button>
-      <Button size="icon" variant="ghost" className="relative z-10 h-9 w-9 shrink-0 text-muted-foreground hover:text-red-400" aria-label={`Remove ${title} from history`} onClick={onRemove}><Trash2 className="h-4 w-4" /></Button>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-semibold">{title}</span>
+          {track
+            ? <TrackMetadata track={track} className="flex text-xs text-muted-foreground" linkClassName="pointer-events-auto" />
+            : <span className="block truncate text-xs text-muted-foreground">{entry.song?.artist_name || entry.artist_name || "Unknown artist"}</span>}
+        </span>
+        <span title={entry.event_type} className={cn("pointer-events-auto hidden shrink-0 sm:block", entry.event_type === "completed" ? "text-emerald-400" : entry.event_type === "skipped" ? "text-amber-400" : "text-muted-foreground")}><EventIcon aria-label={entry.event_type} className="h-3.5 w-3.5" /></span>
+        <time dateTime={entry.played_at} className="w-16 shrink-0 text-right text-xs tabular-nums text-muted-foreground">{Number.isFinite(playedAt.getTime()) ? playedAt.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) : ""}</time>
+      </div>
+      <Button size="icon" variant="ghost" className="relative z-10 h-8 w-8 shrink-0 text-muted-foreground opacity-100 hover:text-red-400 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100" aria-label={`Remove ${title} from history`} onClick={onRemove}><Trash2 className="h-3.5 w-3.5" /></Button>
     </article>
   );
+}
+
+/** Artist name that opens the real artist page (resolved by name). */
+function ArtistName({ name, className }: { name: string; className?: string }) {
+  const navigate = useNavigate();
+  const [busy, setBusy] = useState(false);
+  async function open() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const href = await resolveArtistPage(name);
+      if (href) navigate(href);
+      else toast(`Couldn't find a page for “${name}”`, "error");
+    } catch {
+      toast(`Couldn't open “${name}” right now`, "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return <button type="button" onClick={() => void open()} aria-busy={busy} className={cn("text-left transition hover:text-primary hover:underline", busy && "animate-pulse", className)}>{name}</button>;
+}
+
+function groupByDay(entries: HistoryEntry[]) {
+  const today = new Date();
+  const dayKey = (date: Date) => `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+  const groups: Array<{ key: string; label: string; entries: HistoryEntry[] }> = [];
+  for (const entry of entries) {
+    const date = new Date(entry.played_at);
+    const valid = Number.isFinite(date.getTime());
+    const key = valid ? dayKey(date) : "unknown";
+    const label = !valid ? "Earlier" : key === dayKey(today) ? "Today" : key === dayKey(yesterday) ? "Yesterday"
+      : date.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric", year: date.getFullYear() === today.getFullYear() ? undefined : "numeric" });
+    const last = groups[groups.length - 1];
+    if (last?.key === key) last.entries.push(entry);
+    else groups.push({ key, label, entries: [entry] });
+  }
+  return groups;
 }
 
 function compactDuration(seconds: number) {

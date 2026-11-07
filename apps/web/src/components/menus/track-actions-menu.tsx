@@ -47,6 +47,7 @@ import { isRequestCancelled } from "@/services/api-client";
 import { getLibraryTrackStatuses, queueDownload } from "@/services/music-api";
 import { usePlayerStore } from "@/stores/player-store";
 import { usePlaybackPreferencesStore } from "@/stores/playback-preferences-store";
+import { knownTrackDuration } from "@/stores/track-duration-store";
 import type { PlayerTrack } from "@/types/player";
 import { formatDuration } from "@/utils/format";
 
@@ -339,7 +340,7 @@ export function TrackActionsMenu({
           </DialogHeader>
           <dl className="grid grid-cols-[7rem_1fr] gap-x-4 gap-y-3 rounded-2xl bg-muted/45 p-4 text-sm">
             <dt className="text-muted-foreground">Source</dt><dd className="font-medium">{track.source === "youtube" ? "YouTube Music" : track.localKind === "song" ? "Local library" : "Saved library track"}</dd>
-            <dt className="text-muted-foreground">Duration</dt><dd className="font-medium">{formatDuration(track.durationSeconds)}</dd>
+            {knownTrackDuration(track.id, track.durationSeconds) && <><dt className="text-muted-foreground">Duration</dt><dd className="font-medium">{formatDuration(knownTrackDuration(track.id, track.durationSeconds))}</dd></>}
             <dt className="text-muted-foreground">Playback ID</dt><dd className="truncate font-mono text-xs">{track.id}</dd>
             <dt className="text-muted-foreground">Availability</dt><dd className="font-medium">{track.source === "local" || resolvedDownloaded ? "Downloaded" : "Streaming"}</dd>
             {track.albumTitle && <><dt className="text-muted-foreground">Album</dt><dd className="font-medium">{track.albumTitle}</dd></>}

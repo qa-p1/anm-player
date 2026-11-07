@@ -1,57 +1,110 @@
-import { Disc3, Keyboard, ListMusic, Pin, Plus, Search } from "lucide-react";
+import { Disc3, Keyboard, Pin, Plus, Search, Settings, X } from "lucide-react";
 import { useState } from "react";
 import { NavLink } from "react-router";
-import { navItems, libraryNavItems } from "@/components/navigation/nav-items";
-import { CloseAppButton } from "@/components/navigation/close-app-button";
-import { DownloadQueueTrigger } from "@/components/download-queue";
+
 import { ArtworkImage } from "@/components/cards/artwork-image";
+import { GeneratedCover } from "@/components/collection/collection-parts";
+import { EqualizerBars } from "@/components/collection/equalizer-bars";
+import { DownloadQueueTrigger } from "@/components/download-queue";
+import { CloseAppButton } from "@/components/navigation/close-app-button";
+import { libraryNavItems, navItems } from "@/components/navigation/nav-items";
 import { CreatePlaylistDialog } from "@/features/playlists/create-playlist-dialog";
 import { useAllPlaylists } from "@/hooks/use-music-queries";
 import { cn } from "@/lib/utils";
 import { cachedArtworkUrl } from "@/services/api-client";
 import { useLibraryPreferencesStore } from "@/stores/library-preferences-store";
+import { usePlaybackSourceStore } from "@/stores/playback-source-store";
+import { usePlayerStore } from "@/stores/player-store";
 import { useUiStore } from "@/stores/ui-store";
 
-const linkClass = ({ isActive }: { isActive: boolean }) => cn("flex min-h-10 items-center gap-3 rounded-xl px-3 text-sm font-medium transition", isActive ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-white/8 hover:text-foreground");
+const mainItems = navItems.filter((item) => item.path !== "/settings");
+const linkClass = ({ isActive }: { isActive: boolean }) => cn(
+  "relative flex h-9 items-center gap-3 rounded-xl px-3 text-sm font-medium transition",
+  isActive ? "bg-white/[0.08] text-foreground before:absolute before:left-0 before:top-2 before:h-5 before:w-[3px] before:rounded-full before:bg-primary" : "text-muted-foreground hover:bg-white/[0.05] hover:text-foreground",
+);
 
 export function Sidebar() {
   const [createOpen, setCreateOpen] = useState(false);
+  const [filterOpen, setFilterOpen] = useState(false);
   const [filter, setFilter] = useState("");
   const { data: playlists = [], isLoading, isError, refetch } = useAllPlaylists();
   const pinned = useLibraryPreferencesStore((state) => state.pinnedPlaylistIds);
   const togglePin = useLibraryPreferencesStore((state) => state.togglePlaylistPin);
-  const visible = [...playlists].filter((playlist) => playlist.name.toLocaleLowerCase().includes(filter.trim().toLocaleLowerCase()))
+  const playingPlaylistId = usePlaybackSourceStore((state) => (state.source?.kind === "playlist" ? state.source.id : null));
+  const isPlaying = usePlayerStore((state) => state.isPlaying);
+  const term = filter.trim().toLocaleLowerCase();
+  const visible = playlists.filter((playlist) => playlist.name.toLocaleLowerCase().includes(term))
     .sort((a, b) => Number(pinned.includes(b.id)) - Number(pinned.includes(a.id)) || a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
+  const showFilter = filterOpen || Boolean(filter);
+
+  function closeFilter() {
+    setFilter("");
+    setFilterOpen(false);
+  }
 
   return <>
-    <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 flex-col border-r border-white/10 bg-background/55 px-4 py-5 backdrop-blur-2xl lg:flex">
-      <NavLink to="/" className="mb-5 flex items-center gap-3 px-3">
-        <div className="grid h-11 w-11 place-items-center rounded-2xl bg-primary text-primary-foreground shadow-glow"><Disc3 className="h-5 w-5" /></div>
-        <div><p className="text-lg font-bold">ANM Player</p><p className="text-xs text-muted-foreground">Your music, within reach</p></div>
-      </NavLink>
-      <button type="button" onClick={() => useUiStore.getState().setCommandPaletteOpen(true)} className="mb-3 flex h-10 shrink-0 items-center gap-2 rounded-xl border border-white/10 px-3 text-sm text-muted-foreground hover:bg-white/8"><Search className="h-4 w-4" />Quick find<kbd className="ml-auto text-[0.65rem]">Ctrl K</kbd></button>
-      <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto">
-        <nav aria-label="Main navigation" className="space-y-1">{navItems.map((item) => <NavLink key={item.path} to={item.path} end={item.path === "/"} className={linkClass}><item.icon className="h-4 w-4" />{item.label}</NavLink>)}</nav>
-        <nav aria-label="Your library" className="mt-5 space-y-1 border-t border-white/10 pt-4"><p className="px-3 pb-2 text-[0.65rem] font-bold uppercase tracking-widest text-muted-foreground">Your library</p>{libraryNavItems.map((item) => <NavLink key={item.path} to={item.path} className={linkClass}><item.icon className="h-4 w-4" />{item.label}</NavLink>)}</nav>
-        <section className="mt-4 border-t border-white/10 pt-3" aria-label="Your playlists">
-          <div className="mb-2 flex items-center justify-between px-3"><NavLink to="/library/playlists" className="text-xs font-bold text-muted-foreground hover:text-foreground">Playlists · {playlists.length}</NavLink><button type="button" title="Create playlist" aria-label="Create playlist" onClick={() => setCreateOpen(true)} className="grid h-8 w-8 place-items-center rounded-lg hover:bg-white/10"><Plus className="h-4 w-4" /></button></div>
-          {(playlists.length > 5 || filter) && <input aria-label="Filter sidebar playlists" value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Find a playlist…" className="mb-2 h-9 w-full rounded-xl border border-white/10 bg-transparent px-3 text-xs outline-none focus:border-primary" />}
-          {isLoading && <p className="px-3 text-xs text-muted-foreground">Loading playlists…</p>}
-          {isError && <button type="button" onClick={() => void refetch()} className="px-3 text-xs text-primary">Could not load. Retry</button>}
-          {!isLoading && !isError && playlists.length === 0 && <button type="button" onClick={() => setCreateOpen(true)} className="px-3 py-2 text-left text-xs text-muted-foreground hover:text-primary">Create your first playlist</button>}
-          {visible.map((playlist) => <div key={playlist.id} className="group flex items-center gap-1">
-            <NavLink to={`/library/playlists/${playlist.id}`} title={playlist.name} className={({ isActive }) => cn("flex min-w-0 flex-1 items-center gap-2 rounded-xl p-2 text-xs transition hover:bg-white/8", isActive && "bg-primary/10 text-primary")}>
-              <span className="grid h-8 w-8 shrink-0 place-items-center overflow-hidden rounded-lg bg-white/10">{playlist.artwork_path ? <ArtworkImage src={cachedArtworkUrl(playlist.artwork_path)} alt="" className="h-full w-full object-cover" /> : <ListMusic className="h-4 w-4" />}</span>
-              <span className="min-w-0"><span className="block truncate font-semibold">{playlist.name}</span><span className="text-[0.62rem] text-muted-foreground">{playlist.song_count} tracks</span></span>
-            </NavLink>
-            <button type="button" aria-label={`${pinned.includes(playlist.id) ? "Unpin" : "Pin"} ${playlist.name}`} aria-pressed={pinned.includes(playlist.id)} onClick={() => togglePin(playlist.id)} className={cn("grid h-8 w-8 shrink-0 place-items-center rounded-lg hover:bg-white/10", pinned.includes(playlist.id) ? "text-primary" : "text-muted-foreground opacity-0 focus:opacity-100 group-hover:opacity-100")}><Pin className="h-3 w-3" /></button>
-          </div>)}
-          {filter && visible.length === 0 && <p className="px-3 py-2 text-xs text-muted-foreground">No playlists match.</p>}
-        </section>
+    <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 flex-col border-r border-white/[0.06] bg-background/55 px-3 pb-3 pt-4 backdrop-blur-2xl lg:flex">
+      <div className="mb-4 flex items-center gap-2 px-2">
+        <NavLink to="/" className="flex min-w-0 flex-1 items-center gap-2.5 rounded-xl">
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground shadow-glow"><Disc3 className="h-[1.1rem] w-[1.1rem]" /></span>
+          <span className="truncate text-base font-black tracking-tight">ANM Player</span>
+        </NavLink>
+        <button type="button" onClick={() => useUiStore.getState().setCommandPaletteOpen(true)} aria-label="Quick find" title="Quick find (Ctrl K)" className="grid h-9 w-9 shrink-0 place-items-center rounded-xl text-muted-foreground transition hover:bg-white/[0.06] hover:text-foreground"><Search className="h-4 w-4" /></button>
       </div>
-      <div className="mt-3 shrink-0 border-t border-white/10 pt-3">
-        <button type="button" onClick={() => useUiStore.getState().setShortcutHelpOpen(true)} className="mb-2 flex h-9 w-full items-center gap-3 rounded-xl px-3 text-xs text-muted-foreground hover:bg-white/8"><Keyboard className="h-4 w-4" />Keyboard shortcuts<kbd className="ml-auto">?</kbd></button>
-        <DownloadQueueTrigger /><CloseAppButton />
+
+      <nav aria-label="Main navigation" className="space-y-0.5">
+        {mainItems.map((item) => <NavLink key={item.path} to={item.path} end={item.path === "/"} className={linkClass}><item.icon className="h-4 w-4" />{item.label}</NavLink>)}
+      </nav>
+
+      <nav aria-label="Your library" className="mt-3 grid grid-cols-2 gap-1.5 border-t border-white/[0.06] pt-3">
+        {libraryNavItems.map((item) => (
+          <NavLink key={item.path} to={item.path} className={({ isActive }) => cn("flex h-9 items-center gap-2 rounded-xl border px-2.5 text-xs font-semibold transition", isActive ? "border-primary/30 bg-primary/10 text-primary" : "border-white/[0.06] bg-white/[0.03] text-muted-foreground hover:bg-white/[0.07] hover:text-foreground")}>
+            <item.icon className="h-3.5 w-3.5 shrink-0" /><span className="truncate">{item.label}</span>
+          </NavLink>
+        ))}
+      </nav>
+
+      <section aria-label="Your playlists" className="mt-3 flex min-h-0 flex-1 flex-col border-t border-white/[0.06] pt-2">
+        <div className="mb-1 flex items-center gap-1 pl-3">
+          <NavLink to="/library/playlists" end className={({ isActive }) => cn("mr-auto text-xs font-bold uppercase tracking-wider transition", isActive ? "text-primary" : "text-muted-foreground hover:text-foreground")}>Playlists</NavLink>
+          {playlists.length > 0 && <button type="button" aria-label={showFilter ? "Close playlist filter" : "Filter playlists"} aria-pressed={showFilter} onClick={() => (showFilter ? closeFilter() : setFilterOpen(true))} className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-white/[0.06] hover:text-foreground">{showFilter ? <X className="h-3.5 w-3.5" /> : <Search className="h-3.5 w-3.5" />}</button>}
+          <button type="button" title="Create playlist" aria-label="Create playlist" onClick={() => setCreateOpen(true)} className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-white/[0.06] hover:text-foreground"><Plus className="h-4 w-4" /></button>
+        </div>
+        {showFilter && <input aria-label="Filter sidebar playlists" value={filter} onChange={(event) => setFilter(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") closeFilter(); }} placeholder="Find a playlist…" className="mx-1 mb-1 h-8 shrink-0 rounded-lg border border-white/10 bg-transparent px-3 text-xs outline-none focus:border-primary" />}
+        <div className="no-scrollbar min-h-0 flex-1 space-y-0.5 overflow-y-auto">
+          {isLoading && Array.from({ length: 4 }).map((_, index) => <div key={index} className="flex items-center gap-2.5 p-1.5"><span className="h-9 w-9 animate-pulse rounded-lg bg-white/[0.06]" /><span className="h-3 flex-1 animate-pulse rounded bg-white/[0.05]" /></div>)}
+          {isError && <button type="button" onClick={() => void refetch()} className="px-3 py-2 text-xs text-primary">Could not load. Retry</button>}
+          {!isLoading && !isError && playlists.length === 0 && <button type="button" onClick={() => setCreateOpen(true)} className="w-full px-3 py-2 text-left text-xs text-muted-foreground hover:text-primary">Create your first playlist</button>}
+          {visible.map((playlist) => {
+            const isPinned = pinned.includes(playlist.id);
+            const isSource = playingPlaylistId === String(playlist.id);
+            return (
+              <div key={playlist.id} className="group relative flex items-center">
+                <NavLink to={`/library/playlists/${playlist.id}`} title={playlist.name} className={({ isActive }) => cn("flex min-w-0 flex-1 items-center gap-2.5 rounded-xl p-1.5 pr-9 transition", isActive ? "bg-white/[0.08] text-foreground" : "text-muted-foreground hover:bg-white/[0.05] hover:text-foreground")}>
+                  <span className="h-9 w-9 shrink-0 overflow-hidden rounded-lg bg-white/10">{playlist.artwork_path ? <ArtworkImage src={cachedArtworkUrl(playlist.artwork_path)} alt="" className="h-full w-full object-cover" /> : <GeneratedCover name={playlist.name} />}</span>
+                  <span className="min-w-0">
+                    <span className={cn("block truncate text-[0.8rem] font-semibold", isSource && "text-primary")}>{playlist.name}</span>
+                    {isSource
+                      ? <span className="flex items-center gap-1.5 text-[0.68rem] font-semibold text-primary"><EqualizerBars playing={isPlaying} className="h-2.5" />{isPlaying ? "Playing" : "Paused"}</span>
+                      : <span className="block text-[0.68rem] text-muted-foreground">{playlist.song_count} {playlist.song_count === 1 ? "track" : "tracks"}</span>}
+                  </span>
+                </NavLink>
+                <button type="button" aria-label={`${isPinned ? "Unpin" : "Pin"} ${playlist.name}`} aria-pressed={isPinned} onClick={() => togglePin(playlist.id)} className={cn("absolute right-1 grid h-7 w-7 place-items-center rounded-lg transition hover:bg-white/10", isPinned ? "text-primary" : "text-muted-foreground opacity-0 focus:opacity-100 group-hover:opacity-100")}><Pin className={cn("h-3 w-3", isPinned && "fill-current")} /></button>
+              </div>
+            );
+          })}
+          {term && visible.length === 0 && <p className="px-3 py-2 text-xs text-muted-foreground">No playlists match.</p>}
+        </div>
+      </section>
+
+      <div className="mt-2 shrink-0 space-y-2 border-t border-white/[0.06] pt-2">
+        <DownloadQueueTrigger />
+        <div className="flex items-center gap-1 px-1">
+          <NavLink to="/settings" aria-label="Settings" title="Settings" className={({ isActive }) => cn("grid h-9 w-9 place-items-center rounded-xl transition", isActive ? "bg-white/[0.08] text-primary" : "text-muted-foreground hover:bg-white/[0.06] hover:text-foreground")}><Settings className="h-4 w-4" /></NavLink>
+          <button type="button" onClick={() => useUiStore.getState().setShortcutHelpOpen(true)} aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)" className="grid h-9 w-9 place-items-center rounded-xl text-muted-foreground transition hover:bg-white/[0.06] hover:text-foreground"><Keyboard className="h-4 w-4" /></button>
+          <span className="flex-1" />
+          <CloseAppButton compact />
+        </div>
       </div>
     </aside>
     <CreatePlaylistDialog open={createOpen} onOpenChange={setCreateOpen} />

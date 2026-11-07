@@ -1,5 +1,8 @@
-import { Link } from "react-router";
-import type { MouseEvent } from "react";
+import { useState, type MouseEvent } from "react";
+import { Link, useInRouterContext, useNavigate } from "react-router";
+
+import { toast } from "@/components/ui/toast";
+import { resolveAlbumPage, resolveArtistPage } from "@/features/navigation/resolve-music-page";
 
 import { cn } from "@/lib/utils";
 import type { PlayerTrack } from "@/types/player";
@@ -29,15 +32,49 @@ export function TrackMetadata({ track, fallbackArtist, className, linkClassName,
 
   return (
     <span className={cn("inline-flex min-w-0 max-w-full items-center gap-1.5", className)}>
-      {artistHref ? <Link to={artistHref} className={linkClasses} onClick={handleLinkClick}>{artist}</Link> : <span className="min-w-0 truncate">{artist}</span>}
+      {artistHref ? <Link to={artistHref} className={linkClasses} onClick={handleLinkClick}>{artist}</Link>
+        : track.artistName ? <ResolvingLink label={artist} className={linkClasses} resolve={() => resolveArtistPage(track.artistName!)} onNavigate={onNavigate} />
+          : <span className="min-w-0 truncate">{artist}</span>}
       {album && (
         <>
           <span aria-hidden="true" className="shrink-0">•</span>
-          {albumHref ? <Link to={albumHref} className={linkClasses} onClick={handleLinkClick}>{album}</Link> : <span className="min-w-0 truncate">{album}</span>}
+          {albumHref ? <Link to={albumHref} className={linkClasses} onClick={handleLinkClick}>{album}</Link>
+            : <ResolvingLink label={album} className={linkClasses} resolve={() => resolveAlbumPage(album, track.artistName)} onNavigate={onNavigate} />}
         </>
       )}
     </span>
   );
+}
+
+/**
+ * Name-only credit: looks up the matching artist/album page on click and
+ * opens it directly. Never falls back to the search page.
+ */
+function ResolvingLink(props: { label: string; className: string; resolve: () => Promise<string | null>; onNavigate?: () => void }) {
+  // Rows can render outside a router (e.g. isolated previews); show plain text there.
+  return useInRouterContext() ? <RoutedResolvingLink {...props} /> : <span className="min-w-0 truncate">{props.label}</span>;
+}
+
+function RoutedResolvingLink({ label, className, resolve, onNavigate }: { label: string; className: string; resolve: () => Promise<string | null>; onNavigate?: () => void }) {
+  const navigate = useNavigate();
+  const [busy, setBusy] = useState(false);
+  async function open(event: MouseEvent<HTMLButtonElement>) {
+    event.stopPropagation();
+    if (busy) return;
+    setBusy(true);
+    try {
+      const href = await resolve();
+      if (href) {
+        onNavigate?.();
+        navigate(href);
+      } else toast(`Couldn't find a page for “${label}”`, "error");
+    } catch {
+      toast(`Couldn't open “${label}” right now`, "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return <button type="button" onClick={(event) => void open(event)} aria-busy={busy} className={cn("text-left", className, busy && "animate-pulse cursor-progress")}>{label}</button>;
 }
 
 function trackArtistHref(track: PlayerTrack): string | null {

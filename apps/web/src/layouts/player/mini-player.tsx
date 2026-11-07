@@ -1,119 +1,168 @@
-import { useUiStore } from "@/stores/ui-store";
-import { formatTime } from "@/utils/format";
-import { motion } from "framer-motion";
-import { LoaderCircle, Pause, Play, SkipBack, SkipForward, WifiOff, ListMusic, Mic2, Volume2, VolumeX } from "lucide-react";
-import type { CSSProperties } from "react";
+import { motion, useReducedMotion } from "framer-motion";
+import { ChevronUp, Heart, ListMusic, Mic2, Pause, Play, Repeat, Repeat1, RotateCcw, Shuffle, SkipBack, SkipForward } from "lucide-react";
+import { useRef, type ReactNode } from "react";
+import type { PanInfo } from "framer-motion";
 import { useShallow } from "zustand/react/shallow";
 
 import { ArtworkImage } from "@/components/cards/artwork-image";
 import { TrackMetadata } from "@/components/cards/track-metadata";
-import { Button } from "@/components/ui/button";
-import { playbackStatusLabel, useDelayedPlaybackStatus } from "@/hooks/use-delayed-playback-status";
-import { togglePlayback, seekPlayback, previousTrack, nextTrack } from "@/features/player/playback-controls";
+import { EqualizerBars } from "@/components/collection/equalizer-bars";
+import { PlayerSeek } from "@/components/player/player-seek";
+import { nextTrack, previousTrack, togglePlayback } from "@/features/player/playback-controls";
+import { usePlayerFavorite } from "@/features/player/use-player-favorite";
+import { useDominantArtworkPalette } from "@/hooks/use-artwork-palette";
+import { useDelayedPlaybackStatus } from "@/hooks/use-delayed-playback-status";
+import { cn } from "@/lib/utils";
 import { usePlayerStore } from "@/stores/player-store";
+import { useUiStore } from "@/stores/ui-store";
+import { withAlpha } from "@/utils/color";
+import { formatTime } from "@/utils/format";
 
 interface MiniPlayerProps {
   onOpen: () => void;
 }
 
 export function MiniPlayer({ onOpen }: MiniPlayerProps) {
-  const {
-    volume,
-    isMuted,
-    toggleMute,
-    setVolume,
-    queue,
-    currentSong,
-    isPlaying,
-    currentTime,
-    duration,
-    playbackStatus,
-    playbackError,
-    bufferedUntil,
-    retryAttempt,
-  } = usePlayerStore(useShallow((state) => ({
-    volume: state.volume,
-    isMuted: state.isMuted,
-    toggleMute: state.toggleMute,
-    setVolume: state.setVolume,
-    queue: state.queue,
+  const { queueCount, currentSong, isPlaying, currentTime, duration, playbackStatus, bufferedUntil, shuffle, repeat } = usePlayerStore(useShallow((state) => ({
+    queueCount: state.queue.length,
     currentSong: state.currentSong,
     isPlaying: state.isPlaying,
     currentTime: state.currentTime,
     duration: state.duration,
     playbackStatus: state.playbackStatus,
-    playbackError: state.playbackError,
     bufferedUntil: state.bufferedUntil,
-    retryAttempt: state.retryAttempt,
+    shuffle: state.shuffle,
+    repeat: state.repeat,
   })));
-  const displayedPlaybackStatus = useDelayedPlaybackStatus(playbackStatus);
+  const { canFavorite, isFavorited, isUpdating, toggleFavorite } = usePlayerFavorite(currentSong);
+  const palette = useDominantArtworkPalette(currentSong?.artworkUrl ?? null);
+  const visibleStatus = useDelayedPlaybackStatus(playbackStatus);
+  const reduceMotion = useReducedMotion();
+  const swipedAt = useRef(0);
 
   if (!currentSong) return null;
 
-  const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
-  const bufferedProgress = duration > 0 ? Math.max(progress, Math.min(100, (bufferedUntil / duration) * 100)) : progress;
-  const PlayPauseIcon = isPlaying ? Pause : Play;
-  const artworkUrl = currentSong.artworkUrl;
+  // Touch gestures: swipe left/right to skip, swipe up to expand.
+  function handlePanEnd(event: PointerEvent | MouseEvent | TouchEvent, info: PanInfo) {
+    if ("pointerType" in event && event.pointerType === "mouse") return;
+    const { x, y } = info.offset;
+    if (Math.abs(x) > 64 && Math.abs(x) > Math.abs(y) * 1.4) {
+      swipedAt.current = Date.now();
+      if (x < 0) nextTrack();
+      else previousTrack();
+    } else if (y < -48 && Math.abs(y) > Math.abs(x)) {
+      swipedAt.current = Date.now();
+      onOpen();
+    }
+  }
+
+  function openFromTap() {
+    // The click that ends a swipe must not also expand the player.
+    if (Date.now() - swipedAt.current < 400) return;
+    onOpen();
+  }
+
+  const isError = playbackStatus === "error";
+  const isWaiting = visibleStatus !== null && visibleStatus !== "error";
+  const PlayPauseIcon = isError ? RotateCcw : isPlaying ? Pause : Play;
+  const RepeatIcon = repeat === "one" ? Repeat1 : Repeat;
+  const validDuration = Number.isFinite(duration) && duration > 0 ? duration : 0;
+  const elapsed = Number.isFinite(currentTime) ? Math.max(0, Math.min(currentTime, validDuration || currentTime)) : 0;
+  const tint = palette.base;
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 18, scale: 0.98 }}
+    <motion.section
+      aria-label="Mini-player"
+      initial={{ opacity: 0, y: reduceMotion ? 0 : 24, scale: reduceMotion ? 1 : 0.98 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, y: 18, scale: 0.98 }}
-      transition={{ duration: 0.2, ease: "easeOut" }}
-      className="glass-panel fixed bottom-24 left-4 right-4 z-40 overflow-hidden rounded-[1.4rem] transition hover:bg-card/80 lg:bottom-5 lg:left-auto lg:right-6 lg:w-[min(40rem,calc(100vw-18rem))]"
+      exit={{ opacity: 0, y: reduceMotion ? 0 : 24, scale: reduceMotion ? 1 : 0.98 }}
+      transition={{ duration: reduceMotion ? 0 : 0.24, ease: [0.22, 1, 0.36, 1] }}
+      onPanEnd={handlePanEnd}
+      className="group/mini glass-panel fixed bottom-24 touch-none lg:touch-auto left-3 right-3 z-40 isolate rounded-2xl sm:left-6 sm:right-6 lg:bottom-5 lg:left-72 lg:right-8"
+      style={{ boxShadow: `0 24px 60px -28px ${withAlpha(tint, 0.85)}, 0 20px 70px -36px rgb(0 0 0 / 0.65)` }}
     >
-      <input
-        type="range"
-        min={0}
-        max={Math.max(duration, 1)}
-        step={0.1}
-        value={Math.min(currentTime, Math.max(duration, 1))}
-        onChange={(event) => seekPlayback(Number(event.target.value))}
-        className="apple-player-range absolute inset-x-0 top-[-0.44rem] z-10 w-full"
-        style={{ "--range-progress": `${progress}%`, "--range-buffered": `${bufferedProgress}%` } as CSSProperties}
-        aria-label="Mini-player song progress"
-        disabled={duration <= 0}
-        aria-valuetext={`${formatTime(currentTime)} of ${formatTime(duration)}`}
-      />
+      {/* Artwork tint lives in its own clipped layer so the scrubber can sit on the border. */}
+      <div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10 overflow-hidden rounded-[inherit]">
+        <div className="absolute inset-0 transition-[background] duration-700" style={{ backgroundImage: `radial-gradient(70% 160% at 0% 50%, ${withAlpha(tint, 0.42)}, transparent 70%), radial-gradient(40% 120% at 100% 50%, ${withAlpha(tint, 0.14)}, transparent 70%)` }} />
+      </div>
 
-      <div className="flex items-center justify-between gap-2 p-3">
-        <div className="flex min-w-0 flex-1 items-center gap-3">
-          <button type="button" onClick={onOpen} aria-label="Open full-screen player" className="h-12 w-12 shrink-0 overflow-hidden rounded-xl bg-[linear-gradient(135deg,#f43f5e,#14b8a6_52%,#f59e0b)] shadow-glow outline-none focus-visible:ring-2 focus-visible:ring-ring">
-            <ArtworkImage
-              src={artworkUrl}
-              alt={currentSong.title}
-              className="h-full w-full object-cover"
-            />
-          </button>
-          <div className="min-w-0 flex-1">
-            <button type="button" onClick={onOpen} className="block max-w-full truncate text-left text-sm font-semibold outline-none focus-visible:text-primary" aria-label={`Open full-screen player for ${currentSong.title}`}>
-              {currentSong.title}
-            </button>
-            <div className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
-              <TrackMetadata track={currentSong} className="min-w-0" linkClassName="pointer-events-auto" />
-              {displayedPlaybackStatus && <span className={displayedPlaybackStatus === "error" ? "inline-flex shrink-0 items-center gap-1 text-red-400" : "inline-flex shrink-0 items-center gap-1 text-primary"} role="status" aria-live={displayedPlaybackStatus === "error" ? "assertive" : "polite"}>{displayedPlaybackStatus === "error" ? <WifiOff className="h-3 w-3" /> : <LoaderCircle className="h-3 w-3 animate-spin" />}{playbackStatusLabel(displayedPlaybackStatus, playbackError, retryAttempt)}</span>}
-            </div>
+      {/* A sibling button covers empty space without nesting links or controls. */}
+      <button type="button" onClick={openFromTap} aria-label={`Open full-screen player for ${currentSong.title}`} className="absolute inset-0 z-0 rounded-[inherit] outline-none transition hover:bg-foreground/[0.025] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring" />
+
+      <PlayerSeek currentTime={currentTime} duration={duration} bufferedUntil={bufferedUntil} />
+
+      <div className="pointer-events-none relative z-10 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-2.5 py-2 sm:px-3 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="relative h-11 w-11 shrink-0 overflow-hidden rounded-xl bg-muted shadow-lg ring-1 ring-white/10 sm:h-12 sm:w-12">
+            <ArtworkImage src={currentSong.artworkUrl} alt="" className={cn("h-full w-full object-cover transition duration-300 group-hover/mini:scale-105", isWaiting && "opacity-60")} />
+            <span aria-hidden="true" className="absolute inset-0 grid place-items-center bg-black/45 text-white opacity-0 transition group-hover/mini:opacity-100">
+              <ChevronUp className="h-5 w-5" />
+            </span>
+          </div>
+          <div className="min-w-0">
+            <p className="flex min-w-0 items-center gap-2 text-sm font-semibold leading-tight tracking-tight sm:text-[0.95rem]">
+              {isPlaying && !isWaiting && !isError && <EqualizerBars className="hidden h-3 shrink-0 text-primary sm:inline-flex" />}
+              <span className="truncate" title={currentSong.title}>{currentSong.title}</span>
+            </p>
+            <TrackMetadata track={currentSong} className={cn("mt-0.5 flex text-xs text-muted-foreground", isError && "hidden")} linkClassName="pointer-events-auto" />
+            {isError && <p role="status" className="mt-0.5 truncate text-xs font-medium text-red-400">Playback stopped · tap retry</p>}
           </div>
         </div>
-        <Button size="icon" variant="ghost" className="hidden h-9 w-9 sm:inline-flex" aria-label="Previous track" onClick={previousTrack}><SkipBack className="h-4 w-4 fill-current" /></Button>
-        <Button
-          size="icon"
-          variant="glass"
-          aria-label={playbackStatus === "error" ? "Retry playback" : isPlaying ? "Pause" : "Play"}
-          onClick={togglePlayback}
-        >
-          <PlayPauseIcon className="h-4 w-4 fill-current" />
-        </Button>
-        <Button size="icon" variant="ghost" className="h-9 w-9" aria-label="Next track" onClick={nextTrack}><SkipForward className="h-4 w-4 fill-current" /></Button>
-        <Button size="icon" variant="ghost" className="h-9 w-9" aria-label={`Open queue, ${queue.length} upcoming tracks`} title="Open queue" onClick={() => useUiStore.getState().requestPlayerView("queue")}><ListMusic className="h-4 w-4" /></Button>
+
+        <div className="flex shrink-0 items-center gap-0.5 [&_button]:pointer-events-auto sm:gap-1">
+          <MiniButton label={shuffle ? "Shuffle on" : "Shuffle off"} pressed={shuffle} onClick={() => usePlayerStore.getState().toggleShuffle()} className="hidden md:grid"><Shuffle className="h-4 w-4" /></MiniButton>
+          <MiniButton label="Previous track" onClick={previousTrack} className="hidden min-[400px]:grid"><SkipBack className="h-4 w-4 fill-current" /></MiniButton>
+          <button
+            type="button"
+            aria-label={isError ? "Retry playback" : isPlaying ? "Pause" : "Play"}
+            title={isError ? "Retry playback" : isPlaying ? "Pause" : "Play"}
+            onClick={togglePlayback}
+            className={cn(
+              "relative mx-0.5 grid h-10 w-10 place-items-center rounded-full shadow-md transition hover:scale-105 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+              isError ? "bg-red-500 text-white" : "bg-foreground text-background",
+            )}
+          >
+            {isWaiting && <span aria-hidden="true" className="absolute -inset-1 animate-spin rounded-full border-2 border-primary/20 border-t-primary" />}
+            <PlayPauseIcon className={cn("h-[1.1rem] w-[1.1rem]", !isError && "fill-current", !isPlaying && !isError && "translate-x-[1px]")} />
+          </button>
+          <MiniButton label="Next track" onClick={nextTrack}><SkipForward className="h-4 w-4 fill-current" /></MiniButton>
+          <MiniButton label={repeat === "one" ? "Repeat one" : repeat === "all" ? "Repeat all" : "Repeat off"} pressed={repeat !== "off"} onClick={() => usePlayerStore.getState().cycleRepeat()} className="hidden md:grid"><RepeatIcon className="h-4 w-4" /></MiniButton>
+        </div>
+
+        <div className="hidden min-w-0 items-center justify-end gap-1 md:flex">
+          <span className="mr-2 hidden shrink-0 text-xs tabular-nums text-muted-foreground lg:inline">
+            <span className="text-foreground/85">{formatTime(elapsed)}</span>{validDuration > 0 && <><span className="mx-1 opacity-50">/</span>{formatTime(validDuration)}</>}
+          </span>
+          <div className="flex shrink-0 items-center [&_button]:pointer-events-auto">
+            {canFavorite && <MiniButton label={isFavorited ? "Remove from favorites" : "Add to favorites"} pressed={isFavorited} disabled={isUpdating} onClick={toggleFavorite} activeClassName="text-primary hover:text-primary"><Heart className={cn("h-4 w-4", isFavorited && "fill-current")} /></MiniButton>}
+            <MiniButton label="Lyrics" onClick={() => useUiStore.getState().requestPlayerView("lyrics")}><Mic2 className="h-4 w-4" /></MiniButton>
+            <MiniButton label={`Open queue, ${queueCount} upcoming ${queueCount === 1 ? "track" : "tracks"}`} title="Queue" onClick={() => useUiStore.getState().requestPlayerView("queue")}>
+              <ListMusic className="h-4 w-4" />
+              {queueCount > 0 && <span aria-hidden="true" className="absolute -right-0.5 -top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-primary px-1 text-[0.6rem] font-bold leading-none text-primary-foreground">{queueCount > 99 ? "99+" : queueCount}</span>}
+            </MiniButton>
+          </div>
+        </div>
       </div>
-      <div className="hidden items-center gap-3 border-t border-white/5 px-4 py-2 text-xs text-muted-foreground sm:flex">
-        <span className="tabular-nums">{formatTime(currentTime)} / {formatTime(duration)}</span>
-        <button type="button" onClick={() => useUiStore.getState().requestPlayerView("lyrics")} className="ml-auto flex items-center gap-1.5 hover:text-foreground"><Mic2 className="h-3.5 w-3.5" />Lyrics</button>
-        <button type="button" onClick={toggleMute} aria-label={isMuted ? "Unmute" : "Mute"} className="grid h-7 w-7 place-items-center rounded-full hover:bg-white/10">{isMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}</button>
-        <input type="range" min={0} max={1} step={0.01} value={isMuted ? 0 : volume} onChange={(event) => setVolume(Number(event.target.value))} aria-label="Mini-player volume" aria-valuetext={`${Math.round((isMuted ? 0 : volume) * 100)} percent`} className="w-20 accent-primary" />
-      </div>
-    </motion.div>
+    </motion.section>
+  );
+}
+
+function MiniButton({ label, title, onClick, pressed, disabled, className, activeClassName = "text-primary hover:text-primary", children }: { label: string; title?: string; onClick: () => void; pressed?: boolean; disabled?: boolean; className?: string; activeClassName?: string; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={title ?? label}
+      aria-pressed={pressed}
+      disabled={disabled}
+      onClick={onClick}
+      className={cn(
+        "relative grid h-9 w-9 place-items-center rounded-full text-muted-foreground transition hover:bg-foreground/[0.08] hover:text-foreground active:scale-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40",
+        pressed && activeClassName,
+        className,
+      )}
+    >
+      {children}
+    </button>
   );
 }
