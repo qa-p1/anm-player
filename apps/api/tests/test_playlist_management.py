@@ -628,3 +628,25 @@ def test_duplicated_cover_survives_until_the_last_playlist_releases_it(
     assert (tmp_path / filename).exists()
     playlist_api.client.delete(f"/api/v1/playlists/{copy.json()['id']}")
     assert not (tmp_path / filename).exists()
+
+
+def test_playlist_download_queues_only_missing_online_songs(playlist_api: PlaylistApi) -> None:
+    from app.api.deps import get_download_service
+    from app.repositories.music import DownloadJobRepository, QueueItemRepository
+    from app.services.downloads import DownloadService
+
+    app.dependency_overrides[get_download_service] = lambda: DownloadService(
+        DownloadJobRepository(playlist_api.session), QueueItemRepository(playlist_api.session)
+    )
+    try:
+        first = playlist_api.client.post(f"/api/v1/playlists/{playlist_api.playlist_id}/download")
+        again = playlist_api.client.post(f"/api/v1/playlists/{playlist_api.playlist_id}/download")
+    finally:
+        app.dependency_overrides.pop(get_download_service, None)
+    assert first.status_code == 202, first.text
+    body = first.json()
+    # Two local songs without a YouTube source can't be downloaded; the online track can.
+    assert [job["video_id"] for job in body["queued"]] == ["video-id"]
+    assert body["queued"][0]["group"]["type"] == "playlist"
+    assert body["unavailable"] == 2
+    assert again.json()["queued"] == [] and again.json()["already_queued"] == 1

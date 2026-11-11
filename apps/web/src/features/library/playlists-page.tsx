@@ -5,11 +5,13 @@ import { Link, useNavigate } from "react-router";
 
 import { pageTransition } from "@/animations/page-motion";
 import { ArtworkImage } from "@/components/cards/artwork-image";
-import { GeneratedCover, LibraryPageHeader, TileSkeleton, ViewToggle } from "@/components/collection/collection-parts";
+import { CollectionHero, MetaDots } from "@/components/collection/collection-hero";
+import { GeneratedCover, MosaicArtwork, TileSkeleton, ViewToggle } from "@/components/collection/collection-parts";
 import { EqualizerBars } from "@/components/collection/equalizer-bars";
 import { MediaTile, TileBadge } from "@/components/collection/media-tile";
 import { EmptyState } from "@/components/empty-states/empty-state";
 import { CollectionBrowser } from "@/components/filters/collection-browser";
+import { BackButton } from "@/components/navigation/back-button";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -62,6 +64,7 @@ export function PlaylistsPage() {
     seconds: playlists.reduce((total, playlist) => total + Math.max(0, playlist.duration_seconds ?? 0), 0),
   }), [playlists]);
   const pinnedCount = playlists.filter((playlist) => pinned.includes(playlist.id)).length;
+  const covers = useMemo(() => playlists.map((playlist) => cachedArtworkUrl(playlist.artwork_path)).filter(Boolean).slice(0, 8), [playlists]);
 
   async function handleCreatePlaylist(event: React.FormEvent) {
     event.preventDefault();
@@ -97,22 +100,25 @@ export function PlaylistsPage() {
   }
 
   return (
-    <motion.div {...pageTransition} className="mx-auto max-w-7xl space-y-8 px-3 py-4 sm:px-6 lg:px-8 lg:py-7">
-      <LibraryPageHeader
+    <motion.div {...pageTransition} className="mx-auto max-w-7xl space-y-6 px-3 py-4 sm:px-6 lg:px-8 lg:py-7">
+      <BackButton fallback="/library" />
+      <CollectionHero
+        kind="Playlists"
         title="Playlists"
-        stats={playlists.length ? [
-          { label: playlists.length === 1 ? "playlist" : "playlists", value: playlists.length.toLocaleString() },
-          { label: totals.songs === 1 ? "song" : "songs", value: totals.songs.toLocaleString() },
-          ...(totals.seconds > 0 ? [{ label: "of music", value: formatListeningTime(totals.seconds) }] : []),
-          ...(pinnedCount ? [{ label: "pinned", value: String(pinnedCount) }] : []),
-        ] : []}
-        actions={<>
-          <Button onClick={() => setCreateOpen(true)}><Plus className="h-4 w-4" />New playlist</Button>
-          <Button variant="glass" onClick={() => setImportOpen(true)}><Link2 className="h-4 w-4" />Import URL</Button>
-        </>}
-      />
+        artworkUrl={covers.find(Boolean) ?? null}
+        artwork={<MosaicArtwork urls={covers} icon={ListMusic} />}
+        meta={playlists.length > 0 && <MetaDots items={[
+          pluralize(playlists.length, "playlist"),
+          pluralize(totals.songs, "song"),
+          totals.seconds > 0 ? formatListeningTime(totals.seconds) : null,
+          pinnedCount ? `${pinnedCount} pinned` : null,
+        ]} />}
+      >
+        <Button onClick={() => setCreateOpen(true)}><Plus className="h-4 w-4" />New playlist</Button>
+        <Button variant="glass" onClick={() => setImportOpen(true)}><Link2 className="h-4 w-4" />Import URL</Button>
+      </CollectionHero>
 
-      <section className="space-y-4">
+      <section aria-label="All playlists" className="space-y-4">
         <CollectionBrowser label="playlists" query={query} onQueryChange={setQuery} sort={sort} onSortChange={setSort} options={[{ value: "recent", label: "Recently updated" }, { value: "created", label: "Recently created" }, { value: "name", label: "Name" }, { value: "tracks", label: "Track count" }, { value: "length", label: "Length" }]}>
           <ViewToggle label="Playlists" value={view} onChange={(mode) => setViewMode("playlists", mode)} />
         </CollectionBrowser>

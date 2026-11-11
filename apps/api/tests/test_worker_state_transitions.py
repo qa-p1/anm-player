@@ -534,3 +534,42 @@ def test_paused_download_yields_to_storage_migration(monkeypatch) -> None:
         job = session.get(DownloadJob, job_id)
         assert job.status == DownloadStatus.QUEUED
         assert job.queue_item.status == DownloadStatus.QUEUED
+
+
+def test_standalone_download_marks_saved_playlist_tracks_offline(music_directory, monkeypatch) -> None:
+    Session = worker_session_factory()
+    with Session() as session:
+        saved = LibraryTrack(source="youtube", external_id="vid12345678", title="Saved", position=0)
+        other = LibraryTrack(source="youtube", external_id="other123456", title="Other", position=1)
+        job = DownloadJob(
+            status=DownloadStatus.PROCESSING,
+            source_url="https://music.youtube.com/watch?v=vid12345678",
+            video_id="vid12345678",
+            title="Saved",
+            artist="Artist",
+            search_query="playlist:7",
+            audio_format="mp3",
+        )
+        session.add_all([saved, other, job])
+        session.commit()
+        job_id, saved_id, other_id = job.id, saved.id, other.id
+    output = music_directory.parent / "standalone.mp3"
+    output.write_bytes(b"audio")
+    worker = DownloadWorker()
+    monkeypatch.setattr(worker_module, "SessionLocal", Session)
+    monkeypatch.setattr(worker, "_publish", lambda _job_id: None)
+    monkeypatch.setattr(worker.tagging, "write_tags", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(worker, "_cache_artwork", lambda _url: None)
+    monkeypatch.setattr(worker, "_fetch_lyrics", lambda *_args: None)
+    monkeypatch.setattr(worker, "_enrich_song", lambda *_args: None)
+
+    worker._save_download(job_id, {"duration": 180}, output)
+
+    with Session() as session:
+        saved = session.get(LibraryTrack, saved_id)
+        assert session.get(DownloadJob, job_id).status == DownloadStatus.COMPLETED
+        assert saved.is_downloaded is True
+        assert saved.song is not None and saved.song.is_downloaded is True
+        assert saved.relative_path == saved.song.relative_path
+        assert saved.duration_seconds == 180
+        assert session.get(LibraryTrack, other_id).is_downloaded is False

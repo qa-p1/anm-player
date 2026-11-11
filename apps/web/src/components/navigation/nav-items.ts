@@ -1,4 +1,4 @@
-import { BarChart3, Home, Library, Search, Settings, Heart, Music2, Disc3, ListMusic, Clock3, TrendingUp, Mic2, Sparkles } from "lucide-react";
+import { BarChart3, Home, Library, Search, Settings, Heart, Music2, Disc3, ListMusic, Clock3, TrendingUp, Mic2, Sparkles, Download } from "lucide-react";
 
 export const navItems = [
   { label: "Home", path: "/", icon: Home },
@@ -22,6 +22,7 @@ export const smartNavItems = [
   { label: "Recently added", path: "/library/smart/recently-added", icon: Sparkles },
   { label: "Recently played", path: "/library/smart/recently-played", icon: Clock3 },
   { label: "Most played", path: "/library/smart/most-played", icon: TrendingUp },
+  { label: "Downloads", path: "/downloads", icon: Download },
 ] as const;
 
 export function isNavigationActive(pathname: string, path: string): boolean {

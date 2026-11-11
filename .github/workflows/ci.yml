@@ -152,6 +152,8 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    # Package mirrors occasionally stall on hosted runners; fail fast instead of hanging for hours.
+    timeout-minutes: 30
     env:
       ANM_INSTALL_ROOT: ${{ github.workspace }}/.aura/ANM Player setup smoke
       ANM_SETUP_ONLY: "1"

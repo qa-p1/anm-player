@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/toast";
 import { totalDuration } from "@/features/library/collection-playback";
 import { useCollectionPlayState } from "@/features/library/use-collection-play-state";
+import { PlaylistDownloadButton } from "@/features/downloads/playlist-download-button";
 import { CreatePlaylistDialog } from "@/features/playlists/create-playlist-dialog";
 import { itemKey, itemReference, itemToPlayerTrack, playlistItems, withOrderedItems, type PlaylistItem } from "@/features/playlists/playlist-model";
 import { PlaylistSuggestions } from "@/features/playlists/playlist-suggestions";
@@ -89,6 +90,7 @@ export function PlaylistDetailPage() {
   const allVisibleSelected = visibleItems.length > 0 && visibleItems.every((item) => selected.has(itemKey(item)));
   const heroCover = useMemo(() => <PlaylistMosaic items={items} fallback={<GeneratedCover name={playlist?.name ?? ""} />} />, [items, playlist?.name]);
   const knownLength = totalDuration(context);
+  const offlineCount = items.filter((item) => item.song?.is_downloaded || item.track?.is_downloaded).length;
 
   async function handleDelete() {
     if (isMutating || !playlist) return;
@@ -321,6 +323,7 @@ export function PlaylistDetailPage() {
         <BigPlayButton label={playLabel} isPlaying={playState.isPlaying} onClick={playState.playOrToggle} disabled={isMutating || actionTracks.length === 0} />
         <HeroIconButton label="Shuffle" onClick={playState.shuffle} disabled={isMutating || actionTracks.length === 0}><Shuffle className="h-5 w-5" /></HeroIconButton>
         <HeroIconButton label="Queue all" onClick={playState.queueAll} disabled={isMutating || actionTracks.length === 0}><ListPlus className="h-5 w-5" /></HeroIconButton>
+        <PlaylistDownloadButton playlistId={playlist.id} name={playlist.name} total={items.length} offline={offlineCount} />
         <HeroIconButton label={pinned ? "Unpin playlist" : "Pin playlist"} active={pinned} onClick={() => togglePin(playlist.id)}><Pin className={cn("h-5 w-5", pinned && "fill-current")} /></HeroIconButton>
         <HeroIconButton label="Edit details" onClick={openEditor} disabled={isMutating}><Pencil className="h-5 w-5" /></HeroIconButton>
         <DropdownMenu>

@@ -27,7 +27,8 @@ export interface DownloadJob {
   cancelled_at: string | null;
   created_at: string;
   updated_at: string;
-  group: { type: "album"; album_id: string; title: string; canonical_url: string } | null;
+  /** Album or playlist the job belongs to; `album_id` holds the group's id for both. */
+  group: { type: "album" | "playlist"; album_id: string; title: string; canonical_url: string } | null;
 }
 
 export interface Song {

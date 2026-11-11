@@ -5,10 +5,10 @@ import { NavLink } from "react-router";
 import { ArtworkImage } from "@/components/cards/artwork-image";
 import { GeneratedCover } from "@/components/collection/collection-parts";
 import { EqualizerBars } from "@/components/collection/equalizer-bars";
-import { DownloadQueueTrigger } from "@/components/download-queue";
 import { CloseAppButton } from "@/components/navigation/close-app-button";
 import { AppUpdateControls } from "@/features/updates/app-update-controls";
 import { libraryNavItems, navItems } from "@/components/navigation/nav-items";
+import { DownloadsNavLink } from "@/features/downloads/downloads-nav";
 import { CreatePlaylistDialog } from "@/features/playlists/create-playlist-dialog";
 import { useAllPlaylists } from "@/hooks/use-music-queries";
 import { cn } from "@/lib/utils";
@@ -55,6 +55,7 @@ export function Sidebar() {
 
       <nav aria-label="Main navigation" className="space-y-0.5">
         {mainItems.map((item) => <NavLink key={item.path} to={item.path} end={item.path === "/"} className={linkClass}><item.icon className="h-4 w-4" />{item.label}</NavLink>)}
+        <DownloadsNavLink className={linkClass} />
       </nav>
 
       <nav aria-label="Your library" className="mt-3 grid grid-cols-2 gap-1.5 border-t border-white/[0.06] pt-3">
@@ -99,7 +100,6 @@ export function Sidebar() {
       </section>
 
       <div className="mt-2 shrink-0 space-y-2 border-t border-white/[0.06] pt-2">
-        <DownloadQueueTrigger />
         <div className="flex items-center gap-1 px-1">
           <NavLink to="/settings" aria-label="Settings" title="Settings" className={({ isActive }) => cn("grid h-9 w-9 place-items-center rounded-xl transition", isActive ? "bg-white/[0.08] text-primary" : "text-muted-foreground hover:bg-white/[0.06] hover:text-foreground")}><Settings className="h-4 w-4" /></NavLink>
           <button type="button" onClick={() => useUiStore.getState().setShortcutHelpOpen(true)} aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)" className="grid h-9 w-9 place-items-center rounded-xl text-muted-foreground transition hover:bg-white/[0.06] hover:text-foreground"><Keyboard className="h-4 w-4" /></button>

@@ -2,7 +2,6 @@ import { LayoutGrid, List, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { ArtworkImage } from "@/components/cards/artwork-image";
-import { BackButton } from "@/components/navigation/back-button";
 import { cn } from "@/lib/utils";
 import type { CollectionViewMode } from "@/stores/library-preferences-store";
 
@@ -35,31 +34,6 @@ export function ViewToggle({ value, onChange, label }: { value: CollectionViewMo
         );
       })}
     </div>
-  );
-}
-
-/** Top of the library collection pages: title, live stats and page actions. */
-export function LibraryPageHeader({ title, stats, actions, fallback = "/library" }: { title: string; stats: Array<{ label: string; value: ReactNode }>; actions?: ReactNode; fallback?: string }) {
-  return (
-    <section className="space-y-5">
-      <BackButton fallback={fallback} />
-      <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
-        <div className="min-w-0">
-          <h1 className="text-4xl font-black tracking-tight sm:text-6xl">{title}</h1>
-        </div>
-        {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
-      </div>
-      {stats.length > 0 && (
-        <dl className="flex flex-wrap gap-2">
-          {stats.map((stat) => (
-            <div key={stat.label} className="flex items-baseline gap-2 rounded-full border border-white/10 bg-white/[0.04] px-4 py-2">
-              <dt className="order-2 text-xs font-medium text-muted-foreground">{stat.label}</dt>
-              <dd className="order-1 text-base font-black tabular-nums">{stat.value}</dd>
-            </div>
-          ))}
-        </dl>
-      )}
-    </section>
   );
 }
 

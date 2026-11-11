@@ -70,8 +70,32 @@ export function getDatabaseBackupUrl() {
   return "/api/v1/settings/backup";
 }
 
-export function removeCompletedDownloads() {
-  return apiDelete<{ removed: number }>("/downloads/completed");
+export function pauseAllDownloads() {
+  return apiPost<DownloadJob[], undefined>("/downloads/pause-all");
+}
+
+export function resumeAllDownloads() {
+  return apiPost<DownloadJob[], undefined>("/downloads/resume-all");
+}
+
+export function cancelAllDownloads() {
+  return apiPost<DownloadJob[], undefined>("/downloads/cancel-all");
+}
+
+export function clearFinishedDownloads(statuses: Array<"completed" | "failed" | "cancelled">) {
+  const params = new URLSearchParams(statuses.map((status) => ["status", status]));
+  return apiDelete<{ removed: number }>(`/downloads/finished?${params.toString()}`);
+}
+
+export interface PlaylistDownloadResult {
+  queued: DownloadJob[];
+  already_queued: number;
+  already_offline: number;
+  unavailable: number;
+}
+
+export function downloadPlaylist(playlistId: number) {
+  return apiPost<PlaylistDownloadResult, undefined>(`/playlists/${playlistId}/download`);
 }
 
 function listSongs(limit = 50, offset = 0, signal?: AbortSignal) {

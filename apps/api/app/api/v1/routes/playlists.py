@@ -2,7 +2,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request, Response, status
 
-from app.api.deps import LimitQuery, OffsetQuery, ResourceId, get_playlist_service, require_operator
+from app.api.deps import LimitQuery, OffsetQuery, ResourceId, get_download_service, get_playlist_service, require_operator
 from app.schemas.music import (
     PlaylistAddOnlineTrackRequest,
     PlaylistAddSongsRequest,
@@ -16,7 +16,11 @@ from app.schemas.music import (
 )
 from app.core.exceptions import InvalidInputError
 from app.services.playlist_artwork import MAX_UPLOAD_BYTES
+from app.core.youtube import youtube_video_id
+from app.schemas.music import DownloadCreateRequest, DownloadJobResponse
+from app.services.downloads import DownloadService
 from app.services.playlists import PlaylistService
+from pydantic import BaseModel
 
 router = APIRouter()
 
@@ -246,3 +250,55 @@ def remove_playlist_artwork(
     playlist_id: ResourceId,
 ) -> PlaylistDetailResponse:
     return service.remove_playlist_artwork(playlist_id)
+
+
+class PlaylistDownloadResponse(BaseModel):
+    queued: list[DownloadJobResponse]
+    already_queued: int
+    already_offline: int
+    unavailable: int
+
+
+@router.post(
+    "/{playlist_id}/download",
+    response_model=PlaylistDownloadResponse,
+    status_code=202,
+    summary="Download every playlist song that is not offline yet",
+    dependencies=[Depends(require_operator)],
+)
+def download_playlist(
+    playlists: Annotated[PlaylistService, Depends(get_playlist_service)],
+    downloads: Annotated[DownloadService, Depends(get_download_service)],
+    playlist_id: ResourceId,
+) -> PlaylistDownloadResponse:
+    detail = playlists.get_playlist(playlist_id)
+    requests: list[DownloadCreateRequest] = []
+    offline = unavailable = 0
+    for item in detail.items:
+        entry = item.track or item.song
+        if entry is None:
+            continue
+        if entry.is_downloaded:
+            offline += 1
+            continue
+        video_id = (
+            item.track.external_id
+            if item.track is not None and item.track.source == "youtube"
+            else youtube_video_id(entry.source_url or "")
+        )
+        if not video_id:
+            unavailable += 1
+            continue
+        artist = item.track.artist_name if item.track is not None else item.song.artist_name
+        album = item.track.album_title if item.track is not None else item.song.album_title
+        requests.append(DownloadCreateRequest(
+            source_url=f"https://music.youtube.com/watch?v={video_id}",
+            video_id=video_id,
+            title=(entry.title or "")[:255] or None,
+            artist=(artist or "")[:255] or None,
+            album=(album or "")[:255] or None,
+            thumbnail_url=entry.artwork_url,
+            search_query=f"playlist:{playlist_id}",
+        ))
+    queued, skipped = downloads.enqueue_missing(requests) if requests else ([], 0)
+    return PlaylistDownloadResponse(queued=queued, already_queued=skipped, already_offline=offline, unavailable=unavailable)

@@ -330,3 +330,33 @@ def test_retry_failed_requeues_only_failed_downloads() -> None:
         assert cancelled.status == DownloadStatus.CANCELLED
         assert queued.status == DownloadStatus.QUEUED
         assert service.retry_failed() == []
+
+
+def test_enqueue_missing_skips_duplicates_and_groups_playlist_jobs() -> None:
+    with make_session() as session:
+        service = make_service(session)
+        service.enqueue(DownloadCreateRequest(source_url="https://youtu.be/already-1"))
+        requests = [
+            DownloadCreateRequest(source_url=f"https://music.youtube.com/watch?v={video}", video_id=video, search_query="playlist:4")
+            for video in ("already-1", "fresh-1", "fresh-2", "fresh-1")
+        ]
+        queued, skipped = service.enqueue_missing(requests)
+        assert [job.video_id for job in queued] == ["fresh-1", "fresh-2"]
+        assert skipped == 1
+        assert all(job.group and job.group.type == "playlist" and job.group.album_id == "4" for job in queued)
+        assert queued[0].group.canonical_url == "/library/playlists/4"
+
+
+def test_bulk_pause_resume_cancel_and_clear_finished() -> None:
+    with make_session() as session:
+        service = make_service(session)
+        jobs = [service.enqueue(DownloadCreateRequest(source_url=f"https://youtu.be/bulk-{index}")) for index in range(3)]
+        assert {job.status for job in service.pause_all()} == {DownloadStatus.PAUSED}
+        assert {job.status for job in service.resume_all()} == {DownloadStatus.QUEUED}
+        cancelled = service.cancel_all()
+        assert len(cancelled) == 3 and {job.status for job in cancelled} == {DownloadStatus.CANCELLED}
+        failed = session.get(DownloadJob, jobs[0].id)
+        failed.status = DownloadStatus.FAILED
+        session.commit()
+        assert service.remove_finished(["cancelled", "queued"]) == 2
+        assert [job.id for job in service.list_jobs(limit=10)] == [jobs[0].id]

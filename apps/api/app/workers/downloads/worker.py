@@ -18,7 +18,7 @@ from app.core.config import settings
 from app.core.enums import DownloadStage, DownloadStatus
 from app.core.youtube import youtube_video_id
 from app.database.session import SessionLocal
-from app.models import AlbumDownloadItem, DownloadJob, LibraryAlbum, Song
+from app.models import AlbumDownloadItem, DownloadJob, LibraryAlbum, LibraryTrack, Song
 from app.repositories.music import (
     AlbumRepository,
     ArtistRepository,
@@ -740,6 +740,21 @@ class DownloadWorker:
                     album_item.album_job.album.artwork_url = artwork_url
                 if artwork_path:
                     album_item.album_job.album.artwork_path = artwork_path
+            # Saved online tracks (playlists, favorites) of this song are offline now too.
+            downloaded_video = _safe_video_id(fresh_job.video_id) or _safe_video_id(youtube_video_id(fresh_job.source_url))
+            if downloaded_video:
+                linked_tracks = session.query(LibraryTrack).filter(
+                    LibraryTrack.source == "youtube",
+                    LibraryTrack.external_id == downloaded_video,
+                    LibraryTrack.is_downloaded.is_(False),
+                )
+                for linked in linked_tracks:
+                    linked.song = song_for_enrichment
+                    linked.relative_path = file_path_to_save
+                    linked.is_downloaded = True
+                    linked.duration_seconds = linked.duration_seconds or info.get("duration")
+                    if artwork_path and not linked.artwork_path:
+                        linked.artwork_path = artwork_path
             fresh_job.status = DownloadStatus.COMPLETED
             fresh_job.stage = DownloadStage.COMPLETED
             fresh_job.progress = 100

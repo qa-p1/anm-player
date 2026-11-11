@@ -10,7 +10,6 @@ import { BigPlayButton, CollectionHero, HeroIconButton, MetaDots, StickyCollecti
 import { useScrolledPast } from "@/hooks/use-scrolled-past";
 import { DetailSkeleton, StatusChip } from "@/components/collection/collection-parts";
 import { PlaybackSourceContext } from "@/components/collection/playback-source-context";
-import { openDownloadQueue } from "@/components/download-queue-state";
 import { BackButton } from "@/components/navigation/back-button";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -89,7 +88,6 @@ export function AlbumDetailPage() {
   }
 
   function handleDownload() {
-    openDownloadQueue();
     void run("download", () => downloadUnifiedAlbum(albumId), "Album download queued");
   }
 
@@ -177,10 +175,10 @@ export function AlbumDetailPage() {
 
         {active ? (
           <div className="flex items-center gap-2">
-            <button type="button" onClick={openDownloadQueue} className="relative flex h-11 min-w-40 items-center gap-2 overflow-hidden rounded-full border border-white/10 bg-white/[0.06] px-4 text-sm font-semibold">
+            <Link to="/downloads" className="relative flex h-11 min-w-40 items-center gap-2 overflow-hidden rounded-full border border-white/10 bg-white/[0.06] px-4 text-sm font-semibold">
               <span aria-hidden="true" className="absolute inset-y-0 left-0 bg-primary/20 transition-[width] duration-500" style={{ width: `${progress}%` }} />
               <LoaderCircle className="relative h-4 w-4 animate-spin" /><span className="relative tabular-nums">Downloading {progress}%</span>
-            </button>
+            </Link>
             <Button variant="glass" className="text-red-400" disabled={mutation === "cancel"} onClick={handleCancelDownload}>{mutation === "cancel" ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />}Cancel</Button>
           </div>
         ) : !downloaded && album.capabilities.can_download ? (

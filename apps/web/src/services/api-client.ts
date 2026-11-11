@@ -97,12 +97,6 @@ async function apiRequest<TResponse, TBody = never>(
   }
 }
 
-export function getDownloadEventsUrl(jobId: number) {
-  const url = new URL(`${API_BASE_PATH}/downloads/${jobId}/events`, window.location.href);
-  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  return url.toString();
-}
-
 function upgradeArtworkUrl(url: string | null | undefined, size = 1080): string | null {
   if (!url) return null;
   if (!/^https?:\/\//i.test(url)) return url;

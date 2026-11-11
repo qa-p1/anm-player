@@ -8,8 +8,7 @@ import { BottomNav } from "@/components/navigation/bottom-nav";
 import { playlist } from "@/test/music-fixtures";
 import { useLibraryPreferencesStore } from "@/stores/library-preferences-store";
 import * as api from "@/services/music-api";
-vi.mock("@/services/music-api", () => ({ listAllPlaylists: vi.fn(), createPlaylist: vi.fn() }));
-vi.mock("@/components/download-queue", () => ({ DownloadQueueTrigger: () => <button>Downloads</button> }));
+vi.mock("@/services/music-api", () => ({ listAllPlaylists: vi.fn(), createPlaylist: vi.fn(), listAllDownloads: vi.fn(async () => []) }));
 vi.mock("@/components/navigation/close-app-button", () => ({ CloseAppButton: () => <button>Close app</button> }));
 const clients: QueryClient[] = [];
 function setup(path = "/library/playlists/2") {

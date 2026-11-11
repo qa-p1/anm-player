@@ -1,6 +1,6 @@
-from typing import Annotated
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from app.api.deps import (
     LimitQuery,
@@ -79,6 +79,29 @@ def resume_download(
     service: Annotated[DownloadService, Depends(get_download_service)],
 ) -> DownloadJobResponse:
     return service.resume(job_id)
+
+
+@router.post("/pause-all", response_model=list[DownloadJobResponse], summary="Pause every active download", dependencies=[Depends(require_operator)])
+def pause_all_downloads(service: Annotated[DownloadService, Depends(get_download_service)]) -> list[DownloadJobResponse]:
+    return service.pause_all()
+
+
+@router.post("/resume-all", response_model=list[DownloadJobResponse], summary="Resume every paused download", dependencies=[Depends(require_operator)])
+def resume_all_downloads(service: Annotated[DownloadService, Depends(get_download_service)]) -> list[DownloadJobResponse]:
+    return service.resume_all()
+
+
+@router.post("/cancel-all", response_model=list[DownloadJobResponse], summary="Cancel every unfinished download", dependencies=[Depends(require_operator)])
+def cancel_all_downloads(service: Annotated[DownloadService, Depends(get_download_service)]) -> list[DownloadJobResponse]:
+    return service.cancel_all()
+
+
+@router.delete("/finished", response_model=dict[str, int], summary="Forget finished downloads by status", dependencies=[Depends(require_operator)])
+def remove_finished_downloads(
+    service: Annotated[DownloadService, Depends(get_download_service)],
+    status: Annotated[list[Literal["completed", "failed", "cancelled"]], Query()],
+) -> dict[str, int]:
+    return {"removed": service.remove_finished(list(status))}
 
 
 @router.delete("/completed", response_model=dict[str, int], summary="Remove completed downloads", dependencies=[Depends(require_operator)])

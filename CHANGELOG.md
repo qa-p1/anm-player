@@ -8,6 +8,11 @@ These arrive through the in-app update button.
 - ANM Player appears in the app launcher (Linux app menu, macOS Applications, Windows Start menu) and on the desktop, with the app icon and no terminal window. Launch problems show a notification.
 - The app environment is rebuilt automatically if a system Python upgrade breaks it.
 - The production web preview no longer defaults to listening on every network interface.
+- **Downloads page** replaces the download popup: one overall progress bar, Queue / Downloaded / Failed tabs, albums and playlists grouped with their own progress, pause, resume, cancel and retry for every song (including songs inside albums), plus pause all, resume all, cancel all, retry all and clear. The sidebar entry shows a live progress ring; phones get a floating shortcut while something downloads.
+- **Download playlist**: one button downloads every song that isn't offline yet, shows a progress ring while it runs and a check when the whole playlist is offline.
+- Songs downloaded from a playlist, the song menu or search now show as offline everywhere they're saved, not only in the album they came from.
+- Download progress no longer jumps backwards as songs finish, and the queue uses one light poll instead of a live connection per song.
+- The Playlists page uses the same header as Albums and Artists.
 
 ## 1.0.0 - 2026-11-11
 
