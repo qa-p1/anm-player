@@ -190,7 +190,7 @@ def cleanup_updates(home: Path, active: Path, previous: Path | None = None, *, u
 
 
 class NativeUpdater:
-    def __init__(self, root: Path, home: Path, values: dict[str, str], restart: Callable[[Path, dict[str, str]], None]):
+    def __init__(self, root: Path, home: Path, values: dict[str, str], restart: Callable[[Path, dict[str, str]], None], *, check_on_start: bool = False):
         self.root = root
         self.home = home
         self.values = durable_environment(root, values)
@@ -207,6 +207,8 @@ class NativeUpdater:
             pointer = read_json(home / "current.json")
             prior = pointer.get("previous_root")
             cleanup_updates(home, root, Path(prior) if isinstance(prior, str) else None, user_paths=self.user_paths())
+            if check_on_start:
+                self.start(install=False)
 
     def user_paths(self) -> tuple[Path, ...]:
         state_file = Path(self.values["AURA_STATE_FILE"])
@@ -291,7 +293,8 @@ class NativeUpdater:
         except Exception as exc:
             if candidate is not None and candidate != self.root and read_json(self.home / "current.json").get("root") != str(candidate.resolve()) and not any(path.resolve().is_relative_to(candidate.resolve()) for path in self.user_paths()):
                 shutil.rmtree(candidate, ignore_errors=True)
-            self.set_state("error", str(exc) if isinstance(exc, UpdateError) else "The update could not finish. Your previous app has been kept. Check your connection and try again.")
+            fallback = "Couldn’t check for updates. Check your connection and try again." if commit is None else "The update could not finish. Your previous app has been kept. Check your connection and try again."
+            self.set_state("error", str(exc) if isinstance(exc, UpdateError) else fallback)
         finally:
             with self.lock:
                 self.running = False

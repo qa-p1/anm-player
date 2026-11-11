@@ -476,7 +476,7 @@ def serve(
         finally:
             ready.unlink(missing_ok=True)
 
-    updater = update_module.NativeUpdater(REPOSITORY_ROOT, installation_home(), values, restart_updated) if update_module else None
+    updater = update_module.NativeUpdater(REPOSITORY_ROOT, installation_home(), values, restart_updated, check_on_start=True) if update_module else None
 
     def handle_shutdown(_signum: int, _frame: object) -> None:
         raise KeyboardInterrupt

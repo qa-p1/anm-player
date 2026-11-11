@@ -28,6 +28,8 @@ Use the **ANM Player** desktop shortcut next time. If your desktop doesn't suppo
 
 The button beside the power button handles updates:
 
+ANM Player also checks in the background each time you open it. Updates are downloaded only when you choose to install them.
+
 1. Click **refresh** to check. It spins while checking GitHub.
 2. If an update is available, the same button becomes **download**. Click it to install.
 3. A small progress bar appears below it. The app restarts and this browser tab refreshes when it's ready.

@@ -201,6 +201,20 @@ def test_cleanup_protects_custom_storage_inside_an_older_app_copy(tmp_path):
     source(old)
     updates.write_json(old / '.aura/install.json', {'commit': OLD, 'managed': True})
     music = old / 'custom-music/song.mp3'
-    music.parent.mkdir(); music.write_bytes(b'my music')
+    music.parent.mkdir()
+    music.write_bytes(b'my music')
     updates.cleanup_updates(home, home / 'current', user_paths=(music.parent,))
     assert music.read_bytes() == b'my music'
+
+
+def test_native_start_checks_in_background_but_replacement_does_not_clobber_completion(tmp_path, monkeypatch):
+    events = []
+    root = tmp_path / 'app'
+    source(root)
+    monkeypatch.setattr(updates.NativeUpdater, 'start', lambda self, **kwargs: events.append(kwargs))
+    updates.NativeUpdater(root, tmp_path / 'home', {}, lambda *_: None, check_on_start=True)
+    assert events == [{'install': False}]
+    events.clear()
+    monkeypatch.setenv('ANM_UPDATE_RESTART', '1')
+    updates.NativeUpdater(root, tmp_path / 'home', {}, lambda *_: None, check_on_start=True)
+    assert events == []
