@@ -265,6 +265,17 @@ def test_pacman_installs_a_supported_node_release(monkeypatch, arch_node_major, 
     assert commands == [["sudo", "pacman", "-S", "--needed", "--noconfirm", expected, "npm"], ["sudo", "pacman", "-S", "--needed", "--noconfirm", "ffmpeg"]]
 
 
+def test_windows_falls_back_to_chocolatey_when_winget_fails(monkeypatch):
+    commands = []
+    monkeypatch.setattr(bootstrap.os, "name", "nt")
+    monkeypatch.setattr(bootstrap, "package_manager", lambda: "winget")
+    monkeypatch.setattr(bootstrap.shutil, "which", lambda name: "choco" if name == "choco" else None)
+    monkeypatch.setattr(bootstrap, "refresh_windows_path", lambda: None)
+    monkeypatch.setattr(bootstrap, "run_install", lambda command, label: commands.append(command[0]) or command[0] == "choco")
+    bootstrap.install_system_tool("ffmpeg")
+    assert commands == ["winget", "choco"]
+
+
 def test_debian_adds_the_nodesource_repository_only_for_old_node(monkeypatch):
     commands = []
     monkeypatch.setattr(bootstrap, "package_manager", lambda: "apt-get")

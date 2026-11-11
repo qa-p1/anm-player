@@ -265,14 +265,12 @@ def install_system_tool(tool: str) -> None:
     label = {"node": "Installing Node.js 24", "ffmpeg": "Installing FFmpeg"}[tool]
     if manager is None:
         raise SetupError(missing_tool_message(tool))
-    print(f"[setup] {label} for this computer. You may be asked for your password.", flush=True)
-    if manager == "winget":
-        package = {"node": "OpenJS.NodeJS.LTS", "ffmpeg": "Gyan.FFmpeg"}[tool]
-        run_install(["winget", "install", "--id", package, "--exact", "--silent", "--accept-package-agreements", "--accept-source-agreements"], label=label)
-        refresh_windows_path()
-        return
-    if manager == "choco":
-        run_install(["choco", "install", "-y", {"node": "nodejs-lts", "ffmpeg": "ffmpeg"}[tool]], label=label)
+    print(f"[setup] {label} for this computer. You may be asked for {'permission' if os.name == 'nt' else 'your password'}.", flush=True)
+    if os.name == "nt":
+        # winget can be present but unusable (broken or blocked sources); Chocolatey is the fallback.
+        installed = manager == "winget" and run_install(["winget", "install", "--id", {"node": "OpenJS.NodeJS.LTS", "ffmpeg": "Gyan.FFmpeg"}[tool], "--exact", "--silent", "--accept-package-agreements", "--accept-source-agreements"], label=label)
+        if not installed and shutil.which("choco"):
+            run_install(["choco", "install", "-y", {"node": "nodejs-lts", "ffmpeg": "ffmpeg"}[tool]], label=label)
         refresh_windows_path()
         return
     if manager == "brew":
