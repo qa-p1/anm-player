@@ -17,7 +17,7 @@ fetch() {
   fi
 }
 as_root() {
-  if [ "$(id -u)" -eq 0 ]; then "$@"; else sudo "$@"; fi
+  if [ "$(id -u)" -eq 0 ]; then env DEBIAN_FRONTEND=noninteractive "$@"; else sudo env DEBIAN_FRONTEND=noninteractive "$@"; fi
 }
 
 case "$(uname -s)" in

@@ -284,9 +284,10 @@ def install_system_tool(tool: str) -> None:
             node = "nodejs" if NODE_RANGE[0] <= pacman_version_major("nodejs") <= NODE_RANGE[1] else "nodejs-lts-krypton"
             run_install([*sudo, "pacman", "-S", "--needed", "--noconfirm", node, "npm"], label=label)
     elif manager == "apt-get":
-        run_install([*sudo, "apt-get", "update"], label="Refreshing package lists")
+        apt = [*sudo, "env", "DEBIAN_FRONTEND=noninteractive", "apt-get"]  # never stop on a package prompt
+        run_install([*apt, "update"], label="Refreshing package lists")
         if tool == "ffmpeg":
-            run_install([*sudo, "apt-get", "install", "-y", "ffmpeg"], label=label)
+            run_install([*apt, "install", "-y", "ffmpeg"], label=label)
         else:
             if apt_candidate_major("nodejs") < NODE_RANGE[0]:
                 # Debian/Ubuntu ship older Node.js; NodeSource is the official apt repository for 24.
@@ -294,7 +295,7 @@ def install_system_tool(tool: str) -> None:
                     script = Path(temporary) / "nodesource.sh"
                     download("https://deb.nodesource.com/setup_24.x", script, max_bytes=2 * 1024 * 1024)
                     run_install([*sudo, "bash", str(script)], label="Adding the Node.js 24 package source")
-            run_install([*sudo, "apt-get", "install", "-y", "nodejs"], label=label)
+            run_install([*apt, "install", "-y", "nodejs"], label=label)
     elif manager == "dnf":
         packages = (["ffmpeg"], ["ffmpeg-free"]) if tool == "ffmpeg" else (["nodejs24", "nodejs24-npm"], ["nodejs", "npm"])
         for names in packages:

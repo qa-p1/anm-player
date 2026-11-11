@@ -284,9 +284,10 @@ def test_debian_adds_the_nodesource_repository_only_for_old_node(monkeypatch):
     monkeypatch.setattr(bootstrap, "download", lambda url, target, **kwargs: target.write_text("echo repo"))
     monkeypatch.setattr(bootstrap, "run_install", lambda command, label: commands.append(command) or True)
     bootstrap.install_system_tool("node")
-    assert commands[0] == ["sudo", "apt-get", "update"]
+    apt = ["sudo", "env", "DEBIAN_FRONTEND=noninteractive", "apt-get"]
+    assert commands[0] == [*apt, "update"]
     assert commands[1][:2] == ["sudo", "bash"]
-    assert commands[2] == ["sudo", "apt-get", "install", "-y", "nodejs"]
+    assert commands[2] == [*apt, "install", "-y", "nodejs"]
 
 
 def test_retiring_private_tools_keeps_library_and_rebuilds_only_private_environments(tmp_path, monkeypatch):
