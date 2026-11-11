@@ -189,8 +189,8 @@ def cleanup_updates(home: Path, active: Path, previous: Path | None = None, *, u
                     path.unlink(missing_ok=True)
                 except OSError:
                     pass  # Retry a temporarily locked backup at the next start.
-    # Only disposable installer download caches, not installed Python/Node/FFmpeg.
-    for path in (home / "tools/cache", home / "download-cache") if clean_caches else ():
+    # Only the disposable download caches used while installing an update.
+    for path in (home / "download-cache",) if clean_caches else ():
         if path.is_dir() and not path.is_symlink() and not contains_user_data(path):
             shutil.rmtree(path, ignore_errors=True)
 
@@ -271,7 +271,7 @@ class NativeUpdater:
                 shutil.rmtree(candidate)
             download_source(commit, candidate)
             self.set_state("installing", "Installing the update’s dependencies…")
-            env = {**os.environ, **self.values, "ANM_INSTALL_ROOT": str(self.home), "PIP_CACHE_DIR": str(self.home / "tools/cache/pip"), "npm_config_cache": str(self.home / "tools/cache/npm")}
+            env = {**os.environ, **self.values, "ANM_INSTALL_ROOT": str(self.home), "PIP_CACHE_DIR": str(self.home / "download-cache/pip"), "npm_config_cache": str(self.home / "download-cache/npm")}
             (candidate / ".env").write_text("\n".join(f"{key}={json.dumps(value)}" for key, value in self.values.items()) + "\n", encoding="utf-8")
             if os.name != "nt":
                 (candidate / ".env").chmod(0o600)

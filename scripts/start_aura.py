@@ -146,8 +146,19 @@ def dependency_fingerprint() -> str:
     return digest.hexdigest()
 
 
+def venv_usable() -> bool:
+    """The app environment exists and its Python still runs (system upgrades can break it)."""
+    python = venv_python()
+    if not python.is_file():
+        return False
+    try:
+        return subprocess.run([str(python), "-c", "import sys"], capture_output=True, timeout=60, check=False).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 def dependencies_current(fingerprint: str) -> bool:
-    if not venv_python().is_file() or not (REPOSITORY_ROOT / "node_modules").is_dir():
+    if not venv_usable() or not (REPOSITORY_ROOT / "node_modules").is_dir():
         return False
     try:
         payload = json.loads(STAMP_FILE.read_text(encoding="utf-8"))
@@ -174,8 +185,9 @@ def install_dependencies(*, force: bool) -> None:
     if not force and dependencies_current(fingerprint):
         print("[setup] Dependencies are unchanged; skipping installation.", flush=True)
         return
-    if not venv_python().is_file():
-        run_checked([sys.executable, "-m", "venv", str(VENV_ROOT)], cwd=API_ROOT, label="Creating Python environment")
+    if not venv_usable():
+        command = [sys.executable, "-m", "venv", *(["--clear"] if VENV_ROOT.exists() else []), str(VENV_ROOT)]
+        run_checked(command, cwd=API_ROOT, label="Creating Python environment")
     run_checked(
         [str(venv_python()), "-m", "pip", "install", "--requirement", str(API_ROOT / "requirements.txt")],
         cwd=API_ROOT,

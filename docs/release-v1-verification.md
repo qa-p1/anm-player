@@ -14,3 +14,5 @@ Checked on 2026-11-11.
 Cleanup keeps the active app, one previous managed app copy and two database backups. Unmarked folders, Git working copies, custom library storage and the required runtimes are protected. Download caches and failed stages are disposable. Windows may hold an old file open briefly; a subsequent startup retries cleanup safely.
 
 GUI download/trust prompts belong to each operating system. CI verifies execution of the setup scripts rather than those desktop prompts.
+
+Note (after 1.0.0): setup no longer downloads private Python, Node.js or FFmpeg. It uses the system installations and installs missing ones with the platform package manager; CI now asserts that no private `tools/` folder is created.

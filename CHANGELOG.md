@@ -1,5 +1,14 @@
 # Changelog
 
+## Updates after 1.0.0
+
+These arrive through the in-app update button.
+
+- Setup and the launcher now use the computer's own Python, Node.js and FFmpeg. Anything missing is installed system-wide with the package manager (pacman, apt, dnf, zypper, Homebrew, winget or Chocolatey) instead of downloading private copies. Existing installs drop their private `tools/` folder automatically and keep the library.
+- ANM Player appears in the app launcher (Linux app menu, macOS Applications, Windows Start menu) and on the desktop, with the app icon and no terminal window. Launch problems show a notification.
+- The app environment is rebuilt automatically if a system Python upgrade breaks it.
+- The production web preview no longer defaults to listening on every network interface.
+
 ## 1.0.0 - 2026-11-11
 
 - Download-and-run setup scripts install private Python, Node, FFmpeg and the app automatically, with a launch shortcut and no global PATH changes.

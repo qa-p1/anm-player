@@ -179,12 +179,11 @@ def test_cleanup_keeps_active_previous_and_all_user_data(tmp_path):
         path = home / f'backups/before-{number}.db'
         path.parent.mkdir(exist_ok=True)
         path.write_bytes(b'backup')
-    cache = home / 'tools/cache/npm/download'
+    cache = home / 'download-cache/npm/download'
     cache.parent.mkdir(parents=True)
     cache.write_bytes(b'cache')
-    runtime = home / 'tools/node/node'
-    runtime.parent.mkdir(parents=True)
-    runtime.write_bytes(b'node')
+    settings_file = home / '.env'
+    settings_file.write_text('API_ACCESS_TOKEN=x')
     updates.cleanup_updates(home, active, previous)
     assert active.is_dir() and previous.is_dir()
     assert not obsolete.exists()
@@ -192,7 +191,7 @@ def test_cleanup_keeps_active_previous_and_all_user_data(tmp_path):
     assert (unknown / 'keep.txt').is_file()
     assert len(list((home / 'backups').iterdir())) == 2
     assert not cache.exists()
-    assert runtime.is_file()
+    assert settings_file.is_file()
 
 
 def test_cleanup_protects_custom_storage_inside_an_older_app_copy(tmp_path):

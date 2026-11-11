@@ -4,19 +4,21 @@ This page holds the technical details that used to live in the README: Docker, t
 
 ## Automatic desktop setup and updates
 
-Use the [setup downloads in the README](../README.md#getting-started) for normal desktop use. They install private runtimes and the app under:
+Use the [setup downloads in the README](../README.md) for normal desktop use. The app and your library live under:
 
 - Windows: `%LOCALAPPDATA%\ANMPlayer`
 - macOS: `~/Library/Application Support/ANM Player`
 - Linux: `~/.local/share/anm-player`
 
-No administrator installation or shell-profile PATH change is required. Initial setup needs internet access to GitHub, Node.js downloads and Python/npm package services. Linux needs a standard 64-bit glibc distribution and `curl` or `wget`; downloaded scripts may require your operating system's permission to execute. The Mac ZIP preserves the script's executable permission. Windows setup uses built-in PowerShell. If setup is interrupted, run it again.
+Setup uses the Python (3.13 or 3.14), Node.js (24–26) and FFmpeg already installed on the computer. Anything missing or too old is installed system-wide with the platform's package manager: pacman, apt (adding NodeSource for Node 24 and deadsnakes on Ubuntu when needed), dnf, zypper, Homebrew on macOS, or winget/Chocolatey on Windows. On Linux and macOS this asks for your password (`sudo`, or the desktop's password dialog when started from the launcher). Only the app's own libraries live in the install folder: a Python virtual environment built from the system Python, and `node_modules`.
 
-The install folder contains a stable `.env`, `storage-state.json`, private `tools/`, user `data/` and app source copies. `current.json` selects the active copy after an update. Keep the entire install folder for a full backup; a database-only backup remains available in Settings. Do not move the install folder by hand because runtime and storage paths are absolute.
+Setup adds **ANM Player** to the app launcher (`~/.local/share/applications` on Linux, `~/Applications` on macOS, the Start menu on Windows) and to the desktop where one is shown. It starts without a terminal window; if launching fails you get a notification, and details are in `launch.log` in the install folder. Installs made by earlier setups that downloaded their own Python, Node and FFmpeg into `tools/` are switched over automatically the next time setup or the launcher runs; the library is kept.
 
-The in-app button checks the `main` branch of `qa-p1/anm-player` by commit ID, so a fresh release/tag is not required for each improvement. Installing downloads that exact commit archive, stages isolated Python/npm dependencies, builds the web app and restarts the launcher. Source checkouts also stage updates separately; their Git working files are not overwritten. The original start script follows `current.json` after a successful update.
+The install folder contains a stable `.env`, `storage-state.json`, user `data/` and app source copies. `current.json` selects the active copy after an update. Keep the entire install folder for a full backup; a database-only backup remains available in Settings. Do not move the install folder by hand because storage paths are absolute.
 
-Before database migrations, the launcher stops its servers and makes a verified SQLite backup. If the replacement fails to start, the database is restored and the old app is restarted. Success keeps the active app, one preceding source/dependency copy and two database backups, and deletes older marked app copies plus installer caches. Music and configuration are outside those copies. Installer logs live under the install folder; update logs are rotated. If you close the machine during setup, rerun the launch shortcut and retry the update. Restore `current.json` to its `previous_root` only while the app is stopped if manual recovery is needed; database migrations can also require restoring the matching backup.
+The in-app button checks the `main` branch of `qa-p1/anm-player` by commit ID, so a fresh release/tag is not required for each improvement. Installing downloads that exact commit archive, installs that copy's Python and npm libraries, builds the web app and restarts the launcher. Source checkouts also stage updates separately; their Git working files are not overwritten. The original start script follows `current.json` after a successful update.
+
+Before database migrations, the launcher stops its servers and makes a verified SQLite backup. If the replacement fails to start, the database is restored and the old app is restarted. Success keeps the active app, one preceding source/dependency copy and two database backups, and deletes older marked app copies plus the update's download caches. Music and configuration are outside those copies. Installer logs live under the install folder; update logs are rotated. If you close the machine during setup, rerun the launch shortcut and retry the update. Restore `current.json` to its `previous_root` only while the app is stopped if manual recovery is needed; database migrations can also require restoring the matching backup.
 
 Docker users continue with Compose below. The app intentionally does not mount the Docker socket or attempt to rebuild its own containers.
 

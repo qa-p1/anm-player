@@ -161,6 +161,11 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
+      # Python and Node come from the runner; FFmpeg is installed by setup through
+      # the OS package manager (apt, Homebrew, winget/Chocolatey), like a user's machine.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
       - name: Prepare the standalone script against this exact commit
         shell: python
         run: |
@@ -168,7 +173,7 @@ jobs:
           from pathlib import Path
           suffix = '.cmd' if os.name == 'nt' else '.sh'
           source = Path('setup-anm-player' + suffix).read_bytes()
-          source = source.replace(b'/v1.0.0/scripts/bootstrap.py', ('/' + os.environ['GITHUB_SHA'] + '/scripts/bootstrap.py').encode())
+          source = source.replace(b'/main/scripts/bootstrap.py', ('/' + os.environ['GITHUB_SHA'] + '/scripts/bootstrap.py').encode())
           (Path(os.environ['RUNNER_TEMP']) / ('setup-anm-player' + suffix)).write_bytes(source)
       - name: Run Windows automatic setup
         if: runner.os == 'Windows'
@@ -178,3 +183,14 @@ jobs:
         if: runner.os != 'Windows'
         shell: bash
         run: sh "$RUNNER_TEMP/setup-anm-player.sh"
+      - name: Setup uses the computer's own runtimes
+        shell: python
+        run: |
+          import os
+          from pathlib import Path
+          root = Path(os.environ['ANM_INSTALL_ROOT'])
+          assert not (root / 'tools').exists(), 'setup must not download private runtimes'
+          assert (root / 'bootstrap.py').is_file()
+          venv = next((root / 'app/apps/api/.venv').glob('pyvenv.cfg'))
+          home = next(line.split('=', 1)[1].strip() for line in venv.read_text().splitlines() if line.startswith('home'))
+          assert not Path(home).resolve().is_relative_to(root.resolve()), home
