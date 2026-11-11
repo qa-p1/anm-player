@@ -159,7 +159,7 @@ def restore_database(backup: Path, database: Path) -> None:
         source.backup(target)
 
 
-def cleanup_updates(home: Path, active: Path, previous: Path | None = None, *, user_paths: tuple[Path, ...] = ()) -> None:
+def cleanup_updates(home: Path, active: Path, previous: Path | None = None, *, user_paths: tuple[Path, ...] = (), clean_caches: bool = True) -> None:
     """Only discard our marked source copies; user storage is never traversed."""
     protected = {active.resolve()}
     if previous is not None:
@@ -167,7 +167,10 @@ def cleanup_updates(home: Path, active: Path, previous: Path | None = None, *, u
     def contains_user_data(path: Path) -> bool:
         return any(user.resolve().is_relative_to(path.resolve()) for user in user_paths)
     releases = home / "releases"
-    candidates = list(releases.iterdir()) if releases.is_dir() else []
+    try:
+        candidates = list(releases.iterdir()) if releases.is_dir() else []
+    except OSError:
+        candidates = []
     candidates.append(home / "app")
     for path in candidates:
         if path.is_symlink() or not path.is_dir() or path.resolve() in protected or (path / ".git").exists() or contains_user_data(path):
@@ -182,9 +185,12 @@ def cleanup_updates(home: Path, active: Path, previous: Path | None = None, *, u
     if backups.is_dir():
         for path in sorted(backups.glob("before-*.db"), key=lambda item: item.name, reverse=True)[2:]:
             if not path.is_symlink():
-                path.unlink(missing_ok=True)
+                try:
+                    path.unlink(missing_ok=True)
+                except OSError:
+                    pass  # Retry a temporarily locked backup at the next start.
     # Only disposable installer download caches, not installed Python/Node/FFmpeg.
-    for path in (home / "tools/cache", home / "download-cache"):
+    for path in (home / "tools/cache", home / "download-cache") if clean_caches else ():
         if path.is_dir() and not path.is_symlink() and not contains_user_data(path):
             shutil.rmtree(path, ignore_errors=True)
 
@@ -206,7 +212,7 @@ class NativeUpdater:
         if not os.environ.get("ANM_UPDATE_RESTART"):
             pointer = read_json(home / "current.json")
             prior = pointer.get("previous_root")
-            cleanup_updates(home, root, Path(prior) if isinstance(prior, str) else None, user_paths=self.user_paths())
+            cleanup_updates(home, root, Path(prior) if isinstance(prior, str) else None, user_paths=self.user_paths(), clean_caches=False)
             if check_on_start:
                 self.start(install=False)
 
@@ -288,7 +294,10 @@ class NativeUpdater:
                     shutil.copyfile(candidate / "scripts/bootstrap.py", temporary)
                     os.replace(temporary, stable_bootstrap)
                 except OSError:
-                    temporary.unlink(missing_ok=True)
+                    try:
+                        temporary.unlink(missing_ok=True)
+                    except OSError:
+                        pass
             cleanup_updates(self.home, candidate, self.root, user_paths=self.user_paths())
         except Exception as exc:
             if candidate is not None and candidate != self.root and read_json(self.home / "current.json").get("root") != str(candidate.resolve()) and not any(path.resolve().is_relative_to(candidate.resolve()) for path in self.user_paths()):

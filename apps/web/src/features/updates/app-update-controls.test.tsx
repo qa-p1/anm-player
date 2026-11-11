@@ -20,7 +20,7 @@ beforeEach(() => {
   useAppUpdateUi.setState({ requesting: null, installing: false, error: null });
   usePlayerStore.setState({ isPlaying: true });
 });
-afterEach(() => { cleanup(); queryClient.clear(); });
+afterEach(() => { cleanup(); queryClient.clear(); vi.useRealTimers(); });
 
 it("uses one button that changes from checking to installing, without a popup", async () => {
   mocks.apiPost.mockResolvedValueOnce({ ...idle, state: "checking" }).mockResolvedValueOnce({ ...idle, state: "downloading" });
@@ -63,4 +63,15 @@ it("does not offer in-container replacement to Docker installations", async () =
   mount();
   expect(screen.getByRole("button", { name: "Docker updates use Docker Compose" })).toBeDisabled();
   expect(mocks.apiPost).not.toHaveBeenCalled();
+});
+
+it("returns the up-to-date tick to refresh after 6.5 seconds", () => {
+  vi.useFakeTimers();
+  queryClient.setQueryData(key, { ...idle, state: "current", updated_at: 1 });
+  mount();
+  expect(screen.getByRole("button", { name: "Up to date. Check again" })).toBeInTheDocument();
+  act(() => vi.advanceTimersByTime(6499));
+  expect(screen.getByRole("button", { name: "Up to date. Check again" })).toBeInTheDocument();
+  act(() => vi.advanceTimersByTime(2));
+  expect(screen.getByRole("button", { name: "Check for app updates" })).toBeInTheDocument();
 });

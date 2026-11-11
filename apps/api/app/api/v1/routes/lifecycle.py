@@ -1,5 +1,5 @@
 import os
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from urllib.request import ProxyHandler, Request, build_opener
 
 from fastapi import APIRouter, Depends, HTTPException, Request as ApiRequest
@@ -36,6 +36,12 @@ def shutdown() -> dict[str, str]:
         with build_opener(ProxyHandler({})).open(request, timeout=3) as response:
             if response.status != 200:
                 raise HTTPException(status_code=503, detail="The launcher could not shut down the app. Try again.")
+    except HTTPError as exc:
+        code = exc.code
+        exc.close()
+        if code == 409:
+            raise HTTPException(status_code=409, detail="Wait for the app update to finish before closing.") from exc
+        raise HTTPException(status_code=503, detail="The launcher could not shut down the app. Try again.") from exc
     except (OSError, URLError) as exc:
         raise HTTPException(status_code=503, detail="The launcher could not be reached. Use the launcher's --stop command.") from exc
     return {"status": "shutting_down"}
@@ -44,7 +50,6 @@ def shutdown() -> dict[str, str]:
 def update_request(action: str, *, post: bool = False) -> dict:
     """Only the authenticated loopback launcher can install native updates."""
     import json
-    from urllib.error import HTTPError
 
     from app.core.config import settings
 

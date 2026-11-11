@@ -12,6 +12,7 @@ if errorlevel 1 (
 exit /b 0
 # POWERSHELL_PAYLOAD
 $ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $uvVersion = '0.13.7'
 $bootstrapUrl = 'https://raw.githubusercontent.com/qa-p1/anm-player/v1.0.0/scripts/bootstrap.py'

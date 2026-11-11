@@ -361,6 +361,8 @@ def runtime_environment(root: Path, node_bin: Path, ffmpeg_bin: Path) -> dict[st
         "UV_PYTHON_INSTALL_BIN": "0",
         "UV_CACHE_DIR": str(root / "tools" / "cache"),
         "UV_NO_MODIFY_PATH": "1",
+        "PIP_CACHE_DIR": str(root / "tools" / "cache" / "pip"),
+        "npm_config_cache": str(root / "tools" / "cache" / "npm"),
         "PATH": os.pathsep.join((str(node_bin), str(ffmpeg_bin), str(root / "tools" / "uv"), environment.get("PATH", ""))),
     })
     return environment

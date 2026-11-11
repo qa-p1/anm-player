@@ -15,6 +15,7 @@ interface AppUpdateStatus {
   latest_commit?: string;
   installed_commit?: string;
   summary?: string;
+  updated_at?: number;
 }
 const key = ["app", "updates"];
 export const busyUpdateStates = new Set(["checking", "downloading", "installing", "building", "restarting"]);

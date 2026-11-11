@@ -607,7 +607,7 @@ def start_control_server(
             if self.path != ("/stop" if stop else "/status"):
                 self.send_error(404)
                 return
-            if stop and updater is not None and updater.running:
+            if stop and updater is not None and updater.running and updater.status().get("state") != "checking":
                 self.send_error(409, "Wait for the update to finish before closing the app.")
                 return
             self.send_response(200)
