@@ -12,8 +12,8 @@
 
 | 🪟 Windows | 🍎 Mac | 🐧 Linux |
 | :---: | :---: | :---: |
-| [**Download**](https://github.com/qa-p1/anm-player/releases/download/v1.0.0/Start%20ANM%20Player.cmd) | [**Download**](https://github.com/qa-p1/anm-player/releases/download/v1.0.0/ANM%20Player%20-%20Mac.zip) | [**Download**](https://github.com/qa-p1/anm-player/releases/download/v1.0.0/Start%20ANM%20Player.sh) |
-| Double-click the file. | Unzip, then open **Start ANM Player**. | Run `sh "Start ANM Player.sh"`. |
+| [**Download**](https://github.com/qa-p1/anm-player/releases/download/v1.0.0/ANM-Player-Windows.cmd) | [**Download**](https://github.com/qa-p1/anm-player/releases/download/v1.0.0/ANM-Player-Mac.zip) | [**Download**](https://github.com/qa-p1/anm-player/releases/download/v1.0.0/ANM-Player-Linux.sh) |
+| Double-click the file. | Unzip, then open **Start ANM Player**. | Run `sh ANM-Player-Linux.sh`. |
 
 Allow a few minutes for the first launch. The app opens in your browser. After that, use the **ANM Player** desktop shortcut.
 
