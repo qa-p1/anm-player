@@ -92,7 +92,7 @@ def test_storage_changes_wait_for_native_updates(tmp_path, monkeypatch):
     def reset_stub():
         return {"ok": True}
     with TestClient(app) as test:
-        for phase in ("downloading", "installing", "building", "restarting"):
+        for phase in ("downloading", "installing", "building", "restarting", "cleaning"):
             state.write_text(json.dumps({"state": phase}))
             response = test.post("/api/v1/settings/storage/reset")
             assert response.status_code == 409

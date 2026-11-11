@@ -463,8 +463,6 @@ def serve(
                     raise LauncherError("The updated app could not start.")
                 time.sleep(0.25)
             update_module.write_json(installation_home() / "current.json", {"root": str(candidate.resolve()), "commit": update_module.installed_commit(candidate), "previous_root": str(REPOSITORY_ROOT.resolve())})
-            # Allow the worker to commit its success state before exiting here.
-            threading.Timer(1, stop_requested.set).start()
         except Exception as exc:
             if replacement is not None:
                 stop_process_tree(replacement, timeout=20)
@@ -476,7 +474,7 @@ def serve(
         finally:
             ready.unlink(missing_ok=True)
 
-    updater = update_module.NativeUpdater(REPOSITORY_ROOT, installation_home(), values, restart_updated, check_on_start=True) if update_module else None
+    updater = update_module.NativeUpdater(REPOSITORY_ROOT, installation_home(), values, restart_updated, check_on_start=True, on_complete=stop_requested.set) if update_module else None
 
     def handle_shutdown(_signum: int, _frame: object) -> None:
         raise KeyboardInterrupt
@@ -507,7 +505,7 @@ def serve(
             webbrowser.open(browser_url)
 
         while not stop_requested.wait(0.25):
-            if updater and updater.status().get("state") == "restarting":
+            if updater and updater.status().get("state") in {"restarting", "cleaning"}:
                 continue
             for process in processes:
                 return_code = process.poll()

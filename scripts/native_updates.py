@@ -18,7 +18,7 @@ from typing import Callable
 
 REPOSITORY = "qa-p1/anm-player"
 COMMIT = re.compile(r"^[0-9a-f]{40}$")
-BUSY_STATES = {"checking", "downloading", "installing", "building", "restarting"}
+BUSY_STATES = {"checking", "downloading", "installing", "building", "restarting", "cleaning"}
 
 
 class UpdateError(RuntimeError):
@@ -196,11 +196,12 @@ def cleanup_updates(home: Path, active: Path, previous: Path | None = None, *, u
 
 
 class NativeUpdater:
-    def __init__(self, root: Path, home: Path, values: dict[str, str], restart: Callable[[Path, dict[str, str]], None], *, check_on_start: bool = False):
+    def __init__(self, root: Path, home: Path, values: dict[str, str], restart: Callable[[Path, dict[str, str]], None], *, check_on_start: bool = False, on_complete: Callable[[], None] | None = None):
         self.root = root
         self.home = home
         self.values = durable_environment(root, values)
         self.restart = restart
+        self.on_complete = on_complete
         self.commit = installed_commit(root)
         self.state_file = home / "update-state.json"
         self.lock = threading.Lock()
@@ -286,7 +287,7 @@ class NativeUpdater:
             self.restart(candidate, env)
             if read_json(self.home / "current.json").get("root") != str(candidate.resolve()):
                 write_json(self.home / "current.json", {"root": str(candidate.resolve()), "commit": commit, "previous_root": str(self.root.resolve())})
-            self.set_state("completed", "Update installed. Opening your refreshed app…", installed_commit=commit)
+            self.set_state("cleaning", "Cleaning up the previous update files…")
             stable_bootstrap = self.home / "bootstrap.py"
             if stable_bootstrap.is_file() and (candidate / "scripts/bootstrap.py").is_file():
                 try:
@@ -299,6 +300,9 @@ class NativeUpdater:
                     except OSError:
                         pass
             cleanup_updates(self.home, candidate, self.root, user_paths=self.user_paths())
+            self.set_state("completed", "Update installed. Opening your refreshed app…", installed_commit=commit)
+            if self.on_complete is not None:
+                self.on_complete()
         except Exception as exc:
             if candidate is not None and candidate != self.root and read_json(self.home / "current.json").get("root") != str(candidate.resolve()) and not any(path.resolve().is_relative_to(candidate.resolve()) for path in self.user_paths()):
                 shutil.rmtree(candidate, ignore_errors=True)

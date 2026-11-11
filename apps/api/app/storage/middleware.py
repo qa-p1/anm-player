@@ -23,7 +23,7 @@ class StorageGateMiddleware:
             update_file = os.environ.get("ANM_UPDATE_STATE_FILE")
             if update_file:
                 try:
-                    updating = json.loads(Path(update_file).read_text()).get("state") in {"downloading", "installing", "building", "restarting"}
+                    updating = json.loads(Path(update_file).read_text()).get("state") in {"downloading", "installing", "building", "restarting", "cleaning"}
                 except (OSError, ValueError, AttributeError):
                     updating = False
                 if updating:

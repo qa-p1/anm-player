@@ -218,3 +218,22 @@ def test_native_start_checks_in_background_but_replacement_does_not_clobber_comp
     monkeypatch.setenv('ANM_UPDATE_RESTART', '1')
     updates.NativeUpdater(root, tmp_path / 'home', {}, lambda *_: None, check_on_start=True)
     assert events == []
+
+
+def test_completion_is_published_only_after_cleanup_finishes(tmp_path, monkeypatch):
+    m = manager(tmp_path)
+    monkeypatch.setattr(updates, 'download_source', lambda commit, root: source(root))
+    monkeypatch.setattr(m, '_run', lambda *_, **__: None)
+    monkeypatch.setattr(updates.shutil, 'which', lambda _: '/tool/npm')
+    events = []
+    def clean(*_, **__):
+        assert m.status()['state'] == 'cleaning'
+        events.append('cleaned')
+    def complete():
+        assert m.status()['state'] == 'completed'
+        assert events == ['cleaned']
+        events.append('handover')
+    m.on_complete = complete
+    monkeypatch.setattr(updates, 'cleanup_updates', clean)
+    m._work(NEW)
+    assert events == ['cleaned', 'handover']

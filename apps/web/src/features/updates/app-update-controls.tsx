@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { busyUpdateStates, requestAppUpdate, useAppUpdates, useAppUpdateUi } from "@/features/updates/use-app-updates";
 import { cn } from "@/lib/utils";
 
-const stageProgress: Record<string, number> = { downloading: 15, installing: 40, building: 75, restarting: 95, completed: 100 };
+const stageProgress: Record<string, number> = { downloading: 15, installing: 40, building: 75, restarting: 90, cleaning: 97, completed: 100 };
 
 export function AppUpdateControls() {
   const { data, isError } = useAppUpdates();

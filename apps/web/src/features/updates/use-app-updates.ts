@@ -18,7 +18,7 @@ interface AppUpdateStatus {
   updated_at?: number;
 }
 const key = ["app", "updates"];
-export const busyUpdateStates = new Set(["checking", "downloading", "installing", "building", "restarting"]);
+export const busyUpdateStates = new Set(["checking", "downloading", "installing", "building", "restarting", "cleaning"]);
 export const useAppUpdateUi = create<{
   requesting: "check" | "install" | null;
   installing: boolean;
@@ -32,7 +32,7 @@ export function useAppUpdates() {
     refetchOnWindowFocus: false,
     staleTime: 30000,
     retry: false,
-    refetchInterval: (query) => busyUpdateStates.has(query.state.data?.state ?? "") ? 1000 : false,
+    refetchInterval: (query) => useAppUpdateUi.getState().installing || busyUpdateStates.has(query.state.data?.state ?? "") ? 1000 : false,
   });
 }
 
