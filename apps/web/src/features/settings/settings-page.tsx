@@ -7,6 +7,7 @@ import { useEffect, useId, useMemo, useState } from "react";
 
 import { pageTransition } from "@/animations/page-motion";
 import { CloseAppButton } from "@/components/navigation/close-app-button";
+import { AppUpdateControls } from "@/features/updates/app-update-controls";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -206,7 +207,7 @@ export function SettingsPage() {
   return (
     <motion.div {...pageTransition} className="mx-auto max-w-5xl space-y-8 px-4 py-5 sm:px-6 lg:px-8 lg:py-8">
       <section><p className="mb-2 text-sm font-semibold text-primary">Settings</p><h1 className="text-4xl font-black tracking-normal sm:text-5xl">ANM Player, your way</h1></section>
-      <div className="lg:hidden"><CloseAppButton /></div>
+      <div className="flex items-center gap-2 lg:hidden"><AppUpdateControls /><CloseAppButton compact /></div>
 
       {storage?.migration.cleanup_warning && <Notice tone="warning">{storage.migration.cleanup_warning}</Notice>}
       {storage?.migration.error && <Notice tone="error">{storage.migration.error}</Notice>}

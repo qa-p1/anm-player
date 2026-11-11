@@ -34,6 +34,17 @@ export default defineConfig(({ mode }) => {
         },
       },
     },
+    preview: {
+      host: "127.0.0.1",
+      proxy: {
+        "/api": {
+          target: apiTarget,
+          changeOrigin: true,
+          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+          ws: true,
+        },
+      },
+    },
     build: {
       rollupOptions: {
         output: {

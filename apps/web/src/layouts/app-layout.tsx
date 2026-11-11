@@ -12,6 +12,7 @@ import { FloatingPlayerPlaceholder } from "@/layouts/floating-player-placeholder
 import { StorageMigrationOverlay } from "@/features/settings/storage-migration-overlay";
 import { ShortcutHelpDialog } from "@/components/player/shortcut-help-dialog";
 import { ConnectionStatus } from "@/components/connection-status";
+import { AppUpdateMonitor } from "@/features/updates/app-update-controls";
 import { TooltipLayer } from "@/components/ui/tooltip-layer";
 
 export function AppLayout() {
@@ -39,6 +40,7 @@ export function AppLayout() {
       <ShortcutHelpDialog />
       <CommandPalette />
       <ConnectionStatus />
+      <AppUpdateMonitor />
       <TooltipLayer />
     </div>
   );

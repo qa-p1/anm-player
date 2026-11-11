@@ -27,7 +27,7 @@ jobs:
       - run: python -m pip install -r requirements-dev.txt
       - run: python -m pip check
       - run: python -m pip_audit -r requirements.txt
-      - run: python -m ruff check app tests ../../scripts/start_aura.py ../../scripts/check_critical_coverage.py ../../scripts/check_docker_smoke.py ../../docker/consolidate-storage.py
+      - run: python -m ruff check app tests ../../scripts ../../docker/consolidate-storage.py
       - run: python -W error -m pytest --cov=app --cov-report=term --cov-report=xml --cov-report=json --cov-fail-under=70
       - run: python ../../scripts/check_critical_coverage.py
       - uses: actions/upload-artifact@v7
@@ -144,3 +144,36 @@ jobs:
       - uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  desktop-setup:
+    name: Desktop setup (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      ANM_INSTALL_ROOT: ${{ runner.temp }}/ANM Player setup smoke
+      ANM_SETUP_ONLY: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - name: Prepare the standalone script against this exact commit
+        shell: python
+        run: |
+          import os
+          from pathlib import Path
+          suffix = '.cmd' if os.name == 'nt' else '.sh'
+          source = Path('setup-anm-player' + suffix).read_bytes()
+          source = source.replace(b'/v1.0.0/scripts/bootstrap.py', ('/' + os.environ['GITHUB_SHA'] + '/scripts/bootstrap.py').encode())
+          (Path(os.environ['RUNNER_TEMP']) / ('setup-anm-player' + suffix)).write_bytes(source)
+      - name: Run Windows automatic setup
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: call "%RUNNER_TEMP%\setup-anm-player.cmd"
+      - name: Run macOS or Linux automatic setup
+        if: runner.os != 'Windows'
+        shell: bash
+        run: sh "$RUNNER_TEMP/setup-anm-player.sh"

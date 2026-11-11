@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import json
+import os
+from pathlib import Path
+
 from app.api.error_handlers import api_error_response
 from app.storage.coordinator import StorageMigrationError, storage_coordinator
 
@@ -15,6 +19,17 @@ class StorageGateMiddleware:
             await self.app(scope, receive, send)
             return
         path = scope.get("path", "")
+        if scope.get("method") == "POST" and path.endswith(("/settings/storage/migrations", "/settings/storage/reset")):
+            update_file = os.environ.get("ANM_UPDATE_STATE_FILE")
+            if update_file:
+                try:
+                    updating = json.loads(Path(update_file).read_text()).get("state") in {"downloading", "installing", "building", "restarting"}
+                except (OSError, ValueError, AttributeError):
+                    updating = False
+                if updating:
+                    response = api_error_response(status_code=409, code="app_update_in_progress", message="Wait for the app update to finish before moving or resetting storage.")
+                    await response(scope, receive, send)
+                    return
         allowed = "/health" in path or path.endswith("/settings/storage/migrations/current")
         if storage_coordinator.gated.is_set() and not allowed:
             await self._locked(scope, receive, send)

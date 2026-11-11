@@ -7,6 +7,7 @@ import argparse
 import atexit
 import hashlib
 import http.server
+import importlib.util
 import json
 import os
 import re
@@ -63,9 +64,27 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--stop", action="store_true", help="Stop the background ANM Player instance for this checkout")
     parser.add_argument("--background-worker", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--ready-file", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument("--skip-migrations", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--api-port", type=valid_port, default=8000, help="Loopback API port (default: 8000)")
     parser.add_argument("--web-port", type=valid_port, default=5173, help="Loopback web port (default: 5173)")
     return parser.parse_args(argv)
+
+
+def installation_home() -> Path:
+    return Path(os.environ.get("ANM_INSTALL_ROOT", str(REPOSITORY_ROOT / ".aura" / "installation"))).resolve()
+
+
+def redirected_source() -> Path | None:
+    """Original launch shortcuts follow successful updates without modifying a checkout."""
+    try:
+        home = installation_home()
+        root = Path(json.loads((home / "current.json").read_text())["root"]).resolve()
+        root.relative_to(home)
+        if root != REPOSITORY_ROOT.resolve() and (root / "scripts" / "start_aura.py").is_file():
+            return root
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    return None
 
 
 def valid_port(value: str) -> int:
@@ -179,7 +198,15 @@ def read_env(path: Path) -> dict[str, str]:
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, value = line.split("=", 1)
-        values[key.strip()] = value.strip().strip('"').strip("'")
+        value = value.strip()
+        if value.startswith('"') and value.endswith('"'):
+            try:
+                value = json.loads(value)
+            except ValueError:
+                value = value[1:-1]
+        else:
+            value = value.strip("'")
+        values[key.strip()] = value
     return values
 
 
@@ -370,6 +397,7 @@ def serve(
     environment.update(values)
     environment["API_ENV"] = "development"
     environment["AURA_API_PORT"] = str(api_port)
+    environment["ANM_WEB_PORT"] = str(web_port)
     processes: list[subprocess.Popen[str]] = []
     stop_requested = threading.Event()
     control: http.server.ThreadingHTTPServer | None = None
@@ -382,6 +410,73 @@ def serve(
     atexit.register(cleanup)
     previous_sigbreak = None
     previous_sigterm = signal.getsignal(signal.SIGTERM)
+
+    def start_servers(root: Path, env: dict[str, str]) -> None:
+        python = root / "apps" / "api" / ".venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+        api = child_process([str(python), "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", str(api_port)], cwd=API_ROOT if root == REPOSITORY_ROOT else root / "apps" / "api", env=env)
+        processes.append(api)
+        production = bool(os.environ.get("ANM_INSTALL_ROOT")) and (root / "apps/web/dist/index.html").is_file()
+        command = [npm_command(), "run", "preview" if production else "dev", "--workspace", "apps/web", "--", "--host", "127.0.0.1", "--port", str(web_port), "--strictPort"]
+        web = child_process(command, cwd=root, env=env)
+        processes.append(web)
+        threading.Thread(target=stream_output, args=(api, "api"), daemon=True).start()
+        threading.Thread(target=stream_output, args=(web, "web"), daemon=True).start()
+        wait_until_ready(f"http://127.0.0.1:{api_port}/api/v1/health", processes, stop_requested=stop_requested)
+        wait_until_ready(f"http://127.0.0.1:{web_port}/", processes, stop_requested=stop_requested)
+
+    spec = importlib.util.spec_from_file_location("anm_native_updates", Path(__file__).with_name("native_updates.py"))
+    # Lifecycle harnesses can replace __file__; load the updater from the real source.
+    if spec is None or spec.loader is None or not Path(spec.origin or "").is_file():
+        spec = importlib.util.spec_from_file_location("anm_native_updates", REPOSITORY_ROOT / "scripts/native_updates.py")
+    update_module = None
+    if spec and spec.loader and Path(spec.origin or "").is_file():
+        update_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(update_module)
+
+    def restart_updated(candidate: Path, env: dict[str, str]) -> None:
+        assert update_module is not None
+        # Stop children before backing up/migrating the live database. The
+        # supervisor stays available and restores the old app on any failure.
+        old = list(processes)
+        processes.clear()
+        for process in reversed(old):
+            stop_process_tree(process, timeout=20)
+        backup = installation_home() / "backups" / f"before-{int(time.time())}.db"
+        database = None
+        replacement = None
+        ready = installation_home() / "updated-ready"
+        try:
+            wait_for_ports_free((api_port, web_port))
+            database = update_module.database_path(env)
+            update_module.snapshot_database(database, backup)
+            candidate_python = candidate / "apps/api/.venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+            run_checked([str(candidate_python), "-m", "alembic", "upgrade", "head"], cwd=candidate / "apps/api", label="Updating the library database", env=env)
+            ready.unlink(missing_ok=True)
+            env = {**env, "ANM_UPDATE_RESTART": "1"}
+            command = [sys.executable, "-u", str(candidate / "scripts/start_aura.py"), "--background-worker", "--ready-file", str(ready), "--api-port", str(api_port), "--web-port", str(web_port)]
+            options = {"start_new_session": True} if os.name != "nt" else {"creationflags": subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP}
+            with (installation_home() / "launcher.log").open("a", encoding="utf-8") as log:
+                replacement = subprocess.Popen(command, cwd=candidate, env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, **options)
+            deadline = time.monotonic() + 180
+            while not ready.exists():
+                if replacement.poll() is not None or time.monotonic() > deadline:
+                    raise LauncherError("The updated app could not start.")
+                time.sleep(0.25)
+            update_module.write_json(installation_home() / "current.json", {"root": str(candidate.resolve()), "commit": update_module.installed_commit(candidate), "previous_root": str(REPOSITORY_ROOT.resolve())})
+            # Allow the worker to commit its success state before exiting here.
+            threading.Timer(1, stop_requested.set).start()
+        except Exception as exc:
+            if replacement is not None:
+                stop_process_tree(replacement, timeout=20)
+            if database is not None and backup.is_file():
+                update_module.restore_database(backup, database)
+            wait_for_ports_free((api_port, web_port))
+            start_servers(REPOSITORY_ROOT, environment)
+            raise update_module.UpdateError("The update could not start. Your previous app and database have been restored. You can retry.") from exc
+        finally:
+            ready.unlink(missing_ok=True)
+
+    updater = update_module.NativeUpdater(REPOSITORY_ROOT, installation_home(), values, restart_updated) if update_module else None
 
     def handle_shutdown(_signum: int, _frame: object) -> None:
         raise KeyboardInterrupt
@@ -397,26 +492,12 @@ def serve(
     try:
         browser_url = f"http://127.0.0.1:{web_port}/"
         # Register shutdown before spawning children, including foreground runs.
-        control, control_token = start_control_server(stop_requested, browser_url, api_port=api_port)
+        control, control_token = start_control_server(stop_requested, browser_url, api_port=api_port, updater=updater)
         environment["ANM_LAUNCHER_CONTROL_PORT"] = str(control.server_port)
         environment["ANM_LAUNCHER_CONTROL_TOKEN"] = control_token
-        api = child_process(
-            [str(venv_python()), "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", str(api_port)],
-            cwd=API_ROOT,
-            env=environment,
-        )
-        processes.append(api)
-        web = child_process(
-            [npm_command(), "run", "dev", "--workspace", "apps/web", "--", "--host", "127.0.0.1", "--port", str(web_port), "--strictPort"],
-            cwd=REPOSITORY_ROOT,
-            env=environment,
-        )
-        processes.append(web)
-        threading.Thread(target=stream_output, args=(api, "api"), daemon=True).start()
-        threading.Thread(target=stream_output, args=(web, "web"), daemon=True).start()
-
-        wait_until_ready(f"http://127.0.0.1:{api_port}/api/v1/health", processes, stop_requested=stop_requested)
-        wait_until_ready(browser_url, processes, stop_requested=stop_requested)
+        if updater is not None:
+            environment["ANM_UPDATE_STATE_FILE"] = str(updater.state_file)
+        start_servers(REPOSITORY_ROOT, environment)
         if stop_requested.is_set():
             return 0
         print(f"[anm-player] Ready at {browser_url}", flush=True)
@@ -426,6 +507,8 @@ def serve(
             webbrowser.open(browser_url)
 
         while not stop_requested.wait(0.25):
+            if updater and updater.status().get("state") == "restarting":
+                continue
             for process in processes:
                 return_code = process.poll()
                 if return_code is not None:
@@ -484,7 +567,7 @@ def control_request(runtime: dict[str, object], *, stop: bool = False) -> bool:
 
 
 def start_control_server(
-    stop_requested: threading.Event, browser_url: str, *, api_port: int = 8000,
+    stop_requested: threading.Event, browser_url: str, *, api_port: int = 8000, updater=None,
 ) -> tuple[http.server.ThreadingHTTPServer, str]:
     token = secrets.token_urlsafe(32)
 
@@ -499,8 +582,33 @@ def start_control_server(
             if not secrets.compare_digest(self.headers.get("Authorization", ""), f"Bearer {token}"):
                 self.send_error(403)
                 return
+            if self.path.startswith("/updates/"):
+                if updater is None:
+                    self.send_error(409, "Updates are unavailable for this launcher.")
+                    return
+                try:
+                    if self.path == "/updates/status" and not stop:
+                        payload = updater.status()
+                    elif self.path in {"/updates/check", "/updates/install"} and stop:
+                        payload = updater.start(install=self.path.endswith("/install"))
+                    else:
+                        self.send_error(404)
+                        return
+                except RuntimeError as exc:
+                    self.send_error(409, str(exc))
+                    return
+                body = json.dumps(payload).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
             if self.path != ("/stop" if stop else "/status"):
                 self.send_error(404)
+                return
+            if stop and updater is not None and updater.running:
+                self.send_error(409, "Wait for the update to finish before closing the app.")
                 return
             self.send_response(200)
             self.send_header("Content-Length", "0")
@@ -776,6 +884,11 @@ def launch_background(args: argparse.Namespace) -> int:
 def main(argv: Iterable[str] | None = None) -> int:
     args = parse_args(argv)
     try:
+        if not args.background_worker and not args.skip_migrations:
+            active = redirected_source()
+            if active is not None:
+                env = {**os.environ, "ANM_INSTALL_ROOT": str(installation_home())}
+                return subprocess.call([sys.executable, str(active / "scripts/start_aura.py"), *(list(argv) if argv is not None else sys.argv[1:])], env=env)
         os.chdir(REPOSITORY_ROOT)
         if args.stop:
             return stop_background(api_port=args.api_port, web_port=args.web_port)
@@ -808,7 +921,10 @@ def main(argv: Iterable[str] | None = None) -> int:
         check_prerequisites()
         install_dependencies(force=args.force_install)
         values = ensure_environment()
-        run_migrations(values)
+        if os.environ.get("ANM_INSTALL_ROOT") and not args.skip_migrations and not (REPOSITORY_ROOT / "apps/web/dist/index.html").is_file():
+            run_checked([npm_command(), "run", "build"], cwd=REPOSITORY_ROOT, label="Building ANM Player")
+        if not args.skip_migrations:
+            run_migrations(values)
         if args.setup_only:
             print("[anm-player] Setup complete.", flush=True)
             return 0

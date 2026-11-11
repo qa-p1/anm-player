@@ -8,24 +8,33 @@ It's built for one person. Your library stays on your computer, or on your own s
 
 ## Getting started
 
-You need three free programs installed first:
+Download the setup file for your computer:
 
-- [Python 3.13](https://www.python.org/downloads/)
-- [Node.js 24 LTS](https://nodejs.org/)
-- [FFmpeg](https://ffmpeg.org/download.html) (used to save songs for offline listening)
+- **[Windows: setup-anm-player.cmd](https://github.com/qa-p1/anm-player/releases/download/v1.0.0/setup-anm-player.cmd)** — double-click it.
+- **[Mac: ANM Player setup.zip](https://github.com/qa-p1/anm-player/releases/download/v1.0.0/anm-player-mac-setup.zip)** — unzip it, then open `setup-anm-player.command`. macOS may ask you to allow a downloaded script.
+- **[Linux: setup-anm-player.sh](https://github.com/qa-p1/anm-player/releases/download/v1.0.0/setup-anm-player.sh)** — run it with `sh setup-anm-player.sh` (or choose Run in Terminal in your file manager).
 
-Then download ANM Player from the [latest release](https://github.com/qa-p1/anm-player/releases/latest) (or clone this repository) and start it:
+That's it. Setup downloads the app and its own Python, Node and FFmpeg, prepares your library, and opens ANM Player in your browser. You don't need to install those programs or edit a configuration file. The first run takes a few minutes; keep the setup window open until it finishes.
 
-- **Windows:** double-click `start-anm-player.cmd`
-- **Mac or Linux:** open a terminal in the folder and run `./start-anm-player.sh` (the first time, run `chmod +x start-anm-player.sh` before it)
-
-The first start takes a few minutes while everything installs. After that it opens in seconds. Your browser opens ANM Player automatically at <http://127.0.0.1:5173>.
+Use the **ANM Player** desktop shortcut next time. If your desktop doesn't support shortcuts, use **Start ANM Player** in the app's folder. Running the setup file again also opens the existing app and keeps your music and settings.
 
 **To close it,** click the power button at the bottom of the sidebar. Closing the browser tab alone keeps it running in the background.
 
-> **Self-hosting with Docker?** Docker includes the app and its dependencies—no Python or Node installation needed. Follow the [Docker setup and update guide](docs/advanced-setup.md#docker-quick-start).
+> **Self-hosting with Docker?** Follow the [Docker setup and update guide](docs/advanced-setup.md#docker-quick-start). Docker users manage updates with Compose.
 
 ---
+
+## Updating
+
+The button beside the power button handles updates:
+
+1. Click **refresh** to check. It spins while checking GitHub.
+2. If an update is available, the same button becomes **download**. Click it to install.
+3. A small progress bar appears below it. The app restarts and this browser tab refreshes when it's ready.
+
+There are no update popups. Your music, playlists, favorites and settings stay in place. Updates prepare a separate app copy first; if setup fails, the current app keeps working. If the new copy cannot start, the launcher restores the previous app and database. Old app copies and download caches are cleaned automatically; one previous app and the two newest database backups are kept for recovery.
+
+**v1 is the download you keep.** Future improvements arrive through this button from the official GitHub repository; you don't need a new release file for every update. If a download fails, check your connection and click the button to retry.
 
 ## Finding music
 

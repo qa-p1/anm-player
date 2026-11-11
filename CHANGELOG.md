@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.0 - 2026-11-11
+
+- Download-and-run setup scripts install private Python, Node, FFmpeg and the app automatically, with a launch shortcut and no global PATH changes.
+- One update button beside shutdown checks GitHub, changes to download when an update is available, and shows progress inline while installing and restarting. No update popup.
+- Updates build in a separate source folder, preserve library/configuration paths, back up the database and restore the previous app/database if startup fails. Old managed copies and caches are cleaned, keeping one rollback copy and two database backups.
+- Artists and Albums library pages now use the collection headers and artwork treatment from the app redesign. Search, filtering, sorting and playback remain available.
+- Fixed the compressed Save settings button height.
+- Docker remains managed through Compose; the desktop updater does not access the Docker daemon.
+
 ## 0.3.0 - 2026-11-08
 
 ### Highlights

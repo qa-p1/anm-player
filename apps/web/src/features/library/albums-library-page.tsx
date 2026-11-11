@@ -7,11 +7,13 @@ import { useShallow } from "zustand/react/shallow";
 
 import { pageTransition } from "@/animations/page-motion";
 import { ArtworkImage } from "@/components/cards/artwork-image";
+import { CollectionHero, MetaDots } from "@/components/collection/collection-hero";
 import { EqualizerBars } from "@/components/collection/equalizer-bars";
-import { LibraryPageHeader, Shelf, TileSkeleton, ViewToggle } from "@/components/collection/collection-parts";
+import { MosaicArtwork, Shelf, TileSkeleton, ViewToggle } from "@/components/collection/collection-parts";
 import { MediaTile, TileBadge } from "@/components/collection/media-tile";
 import { EmptyState } from "@/components/empty-states/empty-state";
 import { CollectionBrowser } from "@/components/filters/collection-browser";
+import { BackButton } from "@/components/navigation/back-button";
 import { Button } from "@/components/ui/button";
 import { playAlbumById, playingAlbumKey } from "@/features/library/collection-playback";
 import { cn } from "@/lib/utils";
@@ -58,14 +60,20 @@ export function AlbumsLibraryPage() {
 
   const recent = useMemo(() => [...albums].sort((a, b) => dateValue(b.added_at || b.created_at) - dateValue(a.added_at || a.created_at)).slice(0, 12), [albums]);
   const showShelf = !term && !offlineOnly && albums.length >= 8;
+  const covers = useMemo(() => recent.map((album) => cachedArtworkUrl(album.artwork_path || album.artwork_url)), [recent]);
 
   return (
-    <motion.div {...pageTransition} className="mx-auto max-w-7xl space-y-8 px-3 py-4 sm:px-6 lg:px-8 lg:py-7">
-      <LibraryPageHeader
+    <motion.div {...pageTransition} className="mx-auto max-w-7xl space-y-6 px-3 py-4 sm:px-6 lg:px-8 lg:py-7">
+      <BackButton fallback="/library" />
+      <CollectionHero
+        kind="Albums"
         title="Albums"
-        stats={albums.length ? stats : []}
-        actions={albums.length > 0 && <Button variant="glass" onClick={() => void playRandomAlbum(albums)}><Shuffle className="h-4 w-4" />Play a random album</Button>}
-      />
+        artworkUrl={covers.find(Boolean) ?? null}
+        artwork={<MosaicArtwork urls={covers} icon={Disc3} />}
+        meta={albums.length > 0 && <MetaDots items={stats.map((stat) => <span key={stat.label}>{stat.value} {stat.label}</span>)} />}
+      >
+        {albums.length > 0 && <Button variant="glass" onClick={() => void playRandomAlbum(albums)}><Shuffle className="h-4 w-4" />Play a random album</Button>}
+      </CollectionHero>
 
       {showShelf && (
         <Shelf title="Recently added">
@@ -73,15 +81,17 @@ export function AlbumsLibraryPage() {
         </Shelf>
       )}
 
-      <section className="space-y-4">
+      <section aria-label="Your albums" className="space-y-4">
         <CollectionBrowser label="albums" query={query} onQueryChange={setQuery} sort={sort} onSortChange={setSort} options={[{ value: "name", label: "Title" }, { value: "artist", label: "Artist" }, { value: "year", label: "Newest year" }, { value: "recent", label: "Recently added" }]}>
           <Button size="sm" variant={offlineOnly ? "default" : "glass"} aria-pressed={offlineOnly} onClick={() => setOfflineOnly(!offlineOnly)}>Downloaded only</Button>
           <ViewToggle label="Albums" value={view} onChange={(mode) => setViewMode("albums", mode)} />
         </CollectionBrowser>
-        {error && <div role="alert" className="flex items-center gap-2 text-sm text-red-400">{error.message}<Button variant="ghost" onClick={() => void refetch()}>Retry</Button></div>}
+        {error && <div role="alert" className="flex items-center gap-2 rounded-2xl border border-red-400/20 bg-red-500/5 p-3 text-sm text-red-400">{error.message}<Button variant="ghost" size="sm" onClick={() => void refetch()}>Retry</Button></div>}
 
-        {isLoading ? <TileSkeleton /> : albums.length === 0 ? (
+        {isLoading ? <TileSkeleton /> : error && albums.length === 0 ? null : albums.length === 0 ? (
           <EmptyState icon={Disc} title="No albums in library" description="Add an online album or scan local music to see it here." />
+        ) : visible.length === 0 ? (
+          <EmptyState icon={Disc} title="No matching albums" description="Try a different search or turn off the download filter." />
         ) : view === "grid" ? (
           <div className="-mx-2 grid grid-cols-2 gap-1 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6">
             {visible.map((album) => <AlbumTile key={album.public_id} album={album} isActive={playingAlbumId === album.public_id} />)}
@@ -91,7 +101,6 @@ export function AlbumsLibraryPage() {
             {visible.map((album) => <AlbumListRow key={album.public_id} album={album} isActive={playingAlbumId === album.public_id} />)}
           </div>
         )}
-        {!isLoading && albums.length > 0 && visible.length === 0 && <EmptyState icon={Disc} title="No matching albums" description="Try a different search or turn off the download filter." />}
       </section>
     </motion.div>
   );

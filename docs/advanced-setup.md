@@ -2,6 +2,24 @@
 
 This page holds the technical details that used to live in the README: Docker, the launcher flags, manual installation, environment variables, storage, backups and development. For everyday use, see the [README](../README.md).
 
+## Automatic desktop setup and updates
+
+Use the [setup downloads in the README](../README.md#getting-started) for normal desktop use. They install private runtimes and the app under:
+
+- Windows: `%LOCALAPPDATA%\ANMPlayer`
+- macOS: `~/Library/Application Support/ANM Player`
+- Linux: `~/.local/share/anm-player`
+
+No administrator installation or shell-profile PATH change is required. Initial setup needs internet access to GitHub, Node.js downloads and Python/npm package services. Linux needs a standard 64-bit glibc distribution and `curl` or `wget`; downloaded scripts may require your operating system's permission to execute. The Mac ZIP preserves the script's executable permission. Windows setup uses built-in PowerShell. If setup is interrupted, run it again.
+
+The install folder contains a stable `.env`, `storage-state.json`, private `tools/`, user `data/` and app source copies. `current.json` selects the active copy after an update. Keep the entire install folder for a full backup; a database-only backup remains available in Settings. Do not move the install folder by hand because runtime and storage paths are absolute.
+
+The in-app button checks the `main` branch of `qa-p1/anm-player` by commit ID, so a fresh release/tag is not required for each improvement. Installing downloads that exact commit archive, stages isolated Python/npm dependencies, builds the web app and restarts the launcher. Source checkouts also stage updates separately; their Git working files are not overwritten. The original start script follows `current.json` after a successful update.
+
+Before database migrations, the launcher stops its servers and makes a verified SQLite backup. If the replacement fails to start, the database is restored and the old app is restarted. Success keeps the active app, one preceding source/dependency copy and two database backups, and deletes older marked app copies plus installer caches. Music and configuration are outside those copies. Installer logs live under the install folder; update logs are rotated. If you close the machine during setup, rerun the launch shortcut and retry the update. Restore `current.json` to its `previous_root` only while the app is stopped if manual recovery is needed; database migrations can also require restoring the matching backup.
+
+Docker users continue with Compose below. The app intentionally does not mount the Docker socket or attempt to rebuild its own containers.
+
 ## Docker quick start
 
 Docker packages the web app, API, FFmpeg and their dependencies together. You only need Docker Desktop (with Linux containers), or Docker Engine with the Compose plugin. You do not need Python or Node installed on the host.
