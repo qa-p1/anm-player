@@ -153,7 +153,7 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     env:
-      ANM_INSTALL_ROOT: ${{ runner.temp }}/ANM Player setup smoke
+      ANM_INSTALL_ROOT: ${{ github.workspace }}/.aura/ANM Player setup smoke
       ANM_SETUP_ONLY: "1"
     steps:
       - uses: actions/checkout@v7
