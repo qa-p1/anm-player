@@ -193,3 +193,14 @@ def test_cleanup_keeps_active_previous_and_all_user_data(tmp_path):
     assert len(list((home / 'backups').iterdir())) == 2
     assert not cache.exists()
     assert runtime.is_file()
+
+
+def test_cleanup_protects_custom_storage_inside_an_older_app_copy(tmp_path):
+    home = tmp_path / 'home'
+    old = home / 'releases' / OLD
+    source(old)
+    updates.write_json(old / '.aura/install.json', {'commit': OLD, 'managed': True})
+    music = old / 'custom-music/song.mp3'
+    music.parent.mkdir(); music.write_bytes(b'my music')
+    updates.cleanup_updates(home, home / 'current', user_paths=(music.parent,))
+    assert music.read_bytes() == b'my music'

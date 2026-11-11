@@ -159,16 +159,18 @@ def restore_database(backup: Path, database: Path) -> None:
         source.backup(target)
 
 
-def cleanup_updates(home: Path, active: Path, previous: Path | None = None) -> None:
+def cleanup_updates(home: Path, active: Path, previous: Path | None = None, *, user_paths: tuple[Path, ...] = ()) -> None:
     """Only discard our marked source copies; user storage is never traversed."""
     protected = {active.resolve()}
     if previous is not None:
         protected.add(previous.resolve())
+    def contains_user_data(path: Path) -> bool:
+        return any(user.resolve().is_relative_to(path.resolve()) for user in user_paths)
     releases = home / "releases"
     candidates = list(releases.iterdir()) if releases.is_dir() else []
     candidates.append(home / "app")
     for path in candidates:
-        if path.is_symlink() or not path.is_dir() or path.resolve() in protected or (path / ".git").exists():
+        if path.is_symlink() or not path.is_dir() or path.resolve() in protected or (path / ".git").exists() or contains_user_data(path):
             continue
         marker = read_json(path / ".aura/install.json")
         if marker.get("managed") is not True or not COMMIT.fullmatch(str(marker.get("commit", ""))):
@@ -183,7 +185,7 @@ def cleanup_updates(home: Path, active: Path, previous: Path | None = None) -> N
                 path.unlink(missing_ok=True)
     # Only disposable installer download caches, not installed Python/Node/FFmpeg.
     for path in (home / "tools/cache", home / "download-cache"):
-        if path.is_dir() and not path.is_symlink():
+        if path.is_dir() and not path.is_symlink() and not contains_user_data(path):
             shutil.rmtree(path, ignore_errors=True)
 
 
@@ -204,7 +206,12 @@ class NativeUpdater:
         if not os.environ.get("ANM_UPDATE_RESTART"):
             pointer = read_json(home / "current.json")
             prior = pointer.get("previous_root")
-            cleanup_updates(home, root, Path(prior) if isinstance(prior, str) else None)
+            cleanup_updates(home, root, Path(prior) if isinstance(prior, str) else None, user_paths=self.user_paths())
+
+    def user_paths(self) -> tuple[Path, ...]:
+        state_file = Path(self.values["AURA_STATE_FILE"])
+        state = read_json(state_file)
+        return (Path(state.get("data_root") or self.values["AURA_DATA_ROOT"]), state_file)
 
     def status(self) -> dict:
         state = read_json(self.state_file)
@@ -272,9 +279,17 @@ class NativeUpdater:
             if read_json(self.home / "current.json").get("root") != str(candidate.resolve()):
                 write_json(self.home / "current.json", {"root": str(candidate.resolve()), "commit": commit, "previous_root": str(self.root.resolve())})
             self.set_state("completed", "Update installed. Opening your refreshed app…", installed_commit=commit)
-            cleanup_updates(self.home, candidate, self.root)
+            stable_bootstrap = self.home / "bootstrap.py"
+            if stable_bootstrap.is_file() and (candidate / "scripts/bootstrap.py").is_file():
+                try:
+                    temporary = stable_bootstrap.with_suffix(".next.py")
+                    shutil.copyfile(candidate / "scripts/bootstrap.py", temporary)
+                    os.replace(temporary, stable_bootstrap)
+                except OSError:
+                    temporary.unlink(missing_ok=True)
+            cleanup_updates(self.home, candidate, self.root, user_paths=self.user_paths())
         except Exception as exc:
-            if candidate is not None and candidate != self.root and read_json(self.home / "current.json").get("root") != str(candidate.resolve()):
+            if candidate is not None and candidate != self.root and read_json(self.home / "current.json").get("root") != str(candidate.resolve()) and not any(path.resolve().is_relative_to(candidate.resolve()) for path in self.user_paths()):
                 shutil.rmtree(candidate, ignore_errors=True)
             self.set_state("error", str(exc) if isinstance(exc, UpdateError) else "The update could not finish. Your previous app has been kept. Check your connection and try again.")
         finally:

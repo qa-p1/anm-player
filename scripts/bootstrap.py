@@ -93,7 +93,12 @@ def download(url: str, target: Path, *, sha256: str | None = None, max_bytes: in
 
 
 def remote_text(url: str, *, limit: int = 1024 * 1024) -> str:
-    request = urllib.request.Request(url, headers={"User-Agent": "ANM-Player-Setup/1", "Accept": "application/vnd.github+json"})
+    headers = {"User-Agent": "ANM-Player-Setup/1", "Accept": "application/vnd.github+json"}
+    # Shared CI runner IPs exhaust GitHub's anonymous limit. The job token is
+    # process-scoped and is never written into the app's configuration.
+    if url.startswith("https://api.github.com/") and os.environ.get("GITHUB_ACTIONS") == "true" and os.environ.get("GH_TOKEN"):
+        headers["Authorization"] = "Bearer " + os.environ["GH_TOKEN"]
+    request = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(request, timeout=30) as response:
         content = response.read(limit + 1)
     if len(content) > limit:

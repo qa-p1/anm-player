@@ -155,6 +155,7 @@ jobs:
     env:
       ANM_INSTALL_ROOT: ${{ github.workspace }}/.aura/ANM Player setup smoke
       ANM_SETUP_ONLY: "1"
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
