@@ -176,6 +176,10 @@ jobs:
           python-version: "3.13"
       # Python and Node come from the runner; FFmpeg is installed by setup through
       # the OS package manager (apt, Homebrew, winget/Chocolatey), like a user's machine.
+      - name: Windows Python discovery and installer fallbacks (PowerShell 5.1)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: ./scripts/check_windows_setup.ps1 -InstallFallback
       - uses: actions/setup-node@v7
         with:
           node-version: "24"

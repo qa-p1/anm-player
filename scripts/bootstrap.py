@@ -651,8 +651,9 @@ def write_macos_shortcuts(root: Path, launcher: Path, icon: Path) -> None:
 
 
 def write_windows_shortcuts(root: Path) -> None:
-    pythonw = shutil.which("pyw") or str(Path(sys.executable).with_name("pythonw.exe"))
-    arguments = ("-3 " if Path(pythonw).name.lower() == "pyw.exe" else "") + subprocess.list2cmdline([str(root / "bootstrap.py"), "--root", str(root)])
+    # Keep the runtime setup verified; pyw -3 may choose an unsupported 3.15.
+    pythonw = str(Path(sys.executable).with_name("pythonw.exe"))
+    arguments = subprocess.list2cmdline([str(root / "bootstrap.py"), "--root", str(root)])
     environment = os.environ.copy()
     environment.update({
         "ANM_SHORTCUT_TARGET": pythonw,

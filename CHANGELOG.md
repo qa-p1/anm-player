@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.1 - 2026-11-12
+
+- **Reliable Windows setup**: Setup finds your installed Python 3.13 or 3.14 and installs one automatically if needed, even without a working package manager.
+- **Reliable Windows shortcuts**: ANM Player keeps using the supported Python chosen during setup when a newer Python is also installed.
+
 ## 1.2.0 - 2026-11-12
 
 - **Redesigned full-screen player**: One player for every screen, with lyrics, Up next and the studio beside the song or in a sheet on phones.
