@@ -24,6 +24,76 @@ _cache_locks_guard = threading.Lock()
 _cache_locks = tuple(threading.Lock() for _ in range(64))
 _background_cache_active: set[str] = set()
 _download_slots = threading.BoundedSemaphore(settings.stream_fetch_max_concurrency)
+_progressive_downloads: dict[str, "ProgressiveDownload"] = {}
+
+
+class ProgressiveDownload:
+    """A cache download that playback can read while it is still arriving.
+
+    The first play of a song downloads it once: the player reads the growing
+    file instead of opening a second connection to YouTube.
+    """
+
+    def __init__(self, content_type: str) -> None:
+        self.content_type = content_type
+        self.temp: Path | None = None
+        self.final: Path | None = None
+        self.total: int | None = None
+        self.written = 0
+        self.finished = False
+        self.failed = False
+        self._changed = threading.Condition()
+
+    def started(self, temp: Path, total: int | None) -> None:
+        with self._changed:
+            self.temp, self.total = temp, total
+            self._changed.notify_all()
+
+    def advanced(self, written: int) -> None:
+        with self._changed:
+            self.written = written
+            self._changed.notify_all()
+
+    def finish(self, final: Path | None) -> None:
+        with self._changed:
+            self.final = final
+            self.finished = final is not None
+            self.failed = final is None
+            self._changed.notify_all()
+
+    def wait_started(self, timeout: float) -> bool:
+        with self._changed:
+            self._changed.wait_for(lambda: self.total is not None or self.failed or self.finished, timeout)
+            return self.total is not None and not self.failed
+
+    def wait_for(self, offset: int, timeout: float) -> bool:
+        """True once byte `offset` exists (or the file is complete)."""
+        with self._changed:
+            self._changed.wait_for(lambda: self.written > offset or self.finished or self.failed, timeout)
+            return not self.failed and (self.written > offset or self.finished)
+
+    def read(self, offset: int, size: int) -> bytes:
+        with self._changed:
+            path = self.final if self.finished else self.temp
+            available = (self.total or self.written) if self.finished else self.written
+        size = min(size, max(0, available - offset))
+        if path is None or size <= 0:
+            return b""
+        try:
+            return self._read_from(path, offset, size)
+        except FileNotFoundError:
+            # Renamed into place between the check and the read.
+            with self._changed:
+                self._changed.wait_for(lambda: self.finished or self.failed, 5)
+                final = self.final
+            return self._read_from(final, offset, size) if final else b""
+
+    @staticmethod
+    def _read_from(path: Path, offset: int, size: int) -> bytes:
+        # Opened per chunk so the finished file can be renamed into place.
+        with path.open("rb") as handle:
+            handle.seek(offset)
+            return handle.read(size)
 
 
 class StreamCacheService:
@@ -62,10 +132,15 @@ class StreamCacheService:
                 return cached
 
             resolved = playback or ytmusic_service.playback(video_id, quality=quality)
-            cache_path, content_type, size = self._download_to_cache(video_id, resolved)
+            cache_path, content_type, size = self._download_to_cache(video_id, resolved, self.progressive_download(video_id, quality))
             self._upsert_entry(video_id, cache_path, content_type, size, existing)
             self._enforce_budget(protected_video_id=video_id)
             return cache_path, content_type
+
+    @staticmethod
+    def progressive_download(video_id: str, quality: str) -> ProgressiveDownload | None:
+        with _cache_locks_guard:
+            return _progressive_downloads.get(f"{video_id}:{quality}")
 
     @classmethod
     def start_background_cache(cls, video_id: str, playback: PlaybackData, *, quality: str = "high") -> None:
@@ -74,6 +149,7 @@ class StreamCacheService:
             if active_key in _background_cache_active:
                 return
             _background_cache_active.add(active_key)
+            _progressive_downloads[active_key] = ProgressiveDownload(cls.content_type_for_playback(playback))
 
         def worker() -> None:
             from app.database.session import SessionLocal
@@ -88,6 +164,9 @@ class StreamCacheService:
             finally:
                 with _cache_locks_guard:
                     _background_cache_active.discard(active_key)
+                    progress = _progressive_downloads.pop(active_key, None)
+                if progress and not progress.finished:
+                    progress.finish(None)
 
         threading.Thread(target=worker, name=f"stream-cache-{video_id}", daemon=True).start()
 
@@ -209,7 +288,7 @@ class StreamCacheService:
         index = int(hashlib.sha256(video_id.encode("utf-8")).hexdigest()[:8], 16)
         return _cache_locks[index % len(_cache_locks)]
 
-    def _download_to_cache(self, video_id: str, playback: PlaybackData) -> tuple[Path, str, int]:
+    def _download_to_cache(self, video_id: str, playback: PlaybackData, progress: ProgressiveDownload | None = None) -> tuple[Path, str, int]:
         content_type = self._content_type(playback)
         suffix = ".m4a" if content_type == "audio/mp4" else ".webm"
         filename = f"{hashlib.sha256(f'{video_id}:{self.quality}'.encode()).hexdigest()}{suffix}"
@@ -218,7 +297,8 @@ class StreamCacheService:
         temp.unlink(missing_ok=True)
 
         max_bytes = settings.stream_max_file_mb * 1024 * 1024
-        request = Request(playback.stream_url, headers=playback.request_headers, method="GET")
+        # YouTube throttles whole-file requests to ~35 KB/s; an open-ended range downloads at full speed.
+        request = Request(playback.stream_url, headers={**playback.request_headers, "Range": "bytes=0-"}, method="GET")
         opener = build_opener()
         _download_slots.acquire()
         try:
@@ -231,16 +311,23 @@ class StreamCacheService:
                         declared_size = None
                     if declared_size is not None and declared_size > max_bytes:
                         raise ValueError("Stream exceeds the configured file-size limit")
+                    if progress is not None:
+                        progress.started(temp, declared_size)
                 size = 0
                 while True:
-                    chunk = response.read(256 * 1024)
+                    chunk = response.read1(256 * 1024)
                     if not chunk:
                         break
                     size += len(chunk)
                     if size > max_bytes:
                         raise ValueError("Stream exceeds the configured file-size limit")
                     output.write(chunk)
-            temp.replace(target)
+                    if progress is not None:
+                        output.flush()
+                        progress.advanced(size)
+            _replace_with_retry(temp, target)
+            if progress is not None:
+                progress.finish(target)
             return target, content_type, target.stat().st_size
         finally:
             temp.unlink(missing_ok=True)
@@ -278,3 +365,15 @@ class StreamCacheService:
         if "audio/mp4" in mime_type or "mp4a" in mime_type:
             return "audio/mp4"
         return "audio/webm"
+
+
+def _replace_with_retry(source: Path, target: Path, attempts: int = 20) -> None:
+    """Windows refuses the rename while a player is reading a chunk; it only takes a moment."""
+    for attempt in range(attempts):
+        try:
+            source.replace(target)
+            return
+        except PermissionError:
+            if attempt == attempts - 1:
+                raise
+            threading.Event().wait(0.05)

@@ -26,6 +26,7 @@ class ResolvedPlaybackSource:
     media_type: str
     path: Path | None = None
     playback: PlaybackData | None = None
+    quality: str = "high"
 
 
 class PlaybackSourceService:
@@ -58,7 +59,14 @@ class PlaybackSourceService:
             kind="streaming",
             media_type=StreamCacheService.content_type_for_playback(playback),
             playback=playback,
+            quality=quality,
         )
+
+    def has_local_copy(self, video_id: str, quality: str) -> bool:
+        """Downloaded or cached songs need no stream link."""
+        if self._downloaded_youtube(video_id):
+            return True
+        return StreamCacheService(self.session, quality=quality).get_cached_youtube_stream(video_id) is not None
 
     def _downloaded_youtube(self, video_id: str) -> ResolvedPlaybackSource | None:
         changed = False

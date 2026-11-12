@@ -38,7 +38,7 @@ class _OversizedResponse:
     def __exit__(self, *_args):
         return None
 
-    def read(self, _size):
+    def read1(self, _size):
         return b"12345"
 
 

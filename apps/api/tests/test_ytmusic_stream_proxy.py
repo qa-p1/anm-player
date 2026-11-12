@@ -6,7 +6,7 @@ class FakeRemoteResponse:
     status = 206
     headers = {"Content-Length": "4", "Content-Range": "bytes 0-3/4"}
 
-    def read(self, size):
+    def read1(self, size):
         if getattr(self, "done", False):
             return b""
         self.done = True
@@ -63,3 +63,39 @@ def test_expired_stream_link_is_refreshed_once(monkeypatch) -> None:
     response = ytmusic.stream("video", None, "bytes=0-3")
     assert response.status_code == 206
     assert invalidated == ["video"]
+
+
+def test_first_play_reads_the_cache_download_as_it_arrives(monkeypatch, tmp_path) -> None:
+    import asyncio
+    import threading
+
+    from app.services.stream_cache import ProgressiveDownload
+
+    data = bytes(range(256)) * 64
+    temp, final = tmp_path / "song.webm.part", tmp_path / "song.webm"
+    progress = ProgressiveDownload("audio/webm")
+    monkeypatch.setattr(ytmusic.StreamCacheService, "progressive_download", staticmethod(lambda video_id, quality: progress))
+
+    def download() -> None:
+        with temp.open("wb") as output:
+            progress.started(temp, len(data))
+            for offset in range(0, len(data), 1000):
+                output.write(data[offset:offset + 1000])
+                output.flush()
+                progress.advanced(min(len(data), offset + 1000))
+        temp.replace(final)
+        progress.finish(final)
+
+    playback = PlaybackData(video_id="video", title="Song", author="Artist", stream_url="https://example.com/audio", expires_in_seconds=60, client_name="test", format={"mimeType": "audio/webm"})
+    threading.Thread(target=download).start()
+    response = ytmusic._progressive_response(playback, "bytes=100-", "high")
+    assert response is not None
+    assert response.status_code == 206
+    assert response.headers["Content-Range"] == f"bytes 100-{len(data) - 1}/{len(data)}"
+
+    async def body() -> bytes:
+        return b"".join([chunk async for chunk in response.body_iterator])
+
+    assert asyncio.run(body()) == data[100:]
+    assert ytmusic._byte_span("bytes=-10", 50) == (40, 49)
+    assert ytmusic._byte_span("bytes=60-", 50) is None

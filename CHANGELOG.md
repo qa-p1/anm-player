@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Instant playback**: Songs start in about a second, almost at once if you hover first, and the next song is ready before yours ends.
+- **Half the data**: Streamed songs download once at full speed instead of twice, and replays come straight from the cache.
 - **Plays that really count**: A song counts as played after 30 seconds or half its length, and History shows one entry per listen.
 - **Like any song**: Heart a song you're only streaming to save it, and song menus now offer Go to artist and Go to album.
 - **Songs shows everything you saved**: The Songs page and counts include songs you saved or liked, not only downloads.

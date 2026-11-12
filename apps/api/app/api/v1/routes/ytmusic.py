@@ -18,6 +18,7 @@ from app.schemas.library import OnlineAlbumPreview
 from app.schemas.ytmusic import OnlineHomeResponse, OnlineRelatedResponse, OnlineSearchResponse
 from app.services.playback_sources import PlaybackSourceService
 from app.services.ytmusic_service.playback import PlaybackData
+from app.services.settings import SettingsService
 from app.services.stream_cache import StreamCacheService
 from app.services.ytmusic_service.regions import CHART_REGIONS, chart_region
 from app.services.ytmusic_service import ytmusic_service
@@ -86,6 +87,39 @@ def stream_status(video_id: VideoId, session: DbSession) -> dict[str, bool]:
     return {"cached": cache_service.get_cached_youtube_stream(video_id) is not None}
 
 
+_prepare_slots = threading.BoundedSemaphore(2)
+
+
+@router.post("/stream/{video_id}/prepare", status_code=status.HTTP_202_ACCEPTED, summary="Get a song ready to play")
+def prepare_stream(video_id: VideoId, download: bool = False) -> dict[str, bool]:
+    """Looks up the stream link ahead of a likely click (hover, next in queue).
+
+    With `download`, the song also starts caching so it begins instantly.
+    Busy slots mean the hint is dropped: playback never waits on it.
+    """
+    if not _prepare_slots.acquire(blocking=False):
+        return {"accepted": False}
+
+    def work() -> None:
+        from app.database.session import SessionLocal
+
+        try:
+            with SessionLocal() as session:
+                quality = SettingsService(session).get_str("stream_quality", "high")
+                source = PlaybackSourceService(session)
+                if download:
+                    source.resolve_youtube(video_id)
+                elif not source.has_local_copy(video_id, quality):
+                    ytmusic_service.playback(video_id, quality=quality)
+        except Exception:
+            logger.info("Could not prepare stream for %s", video_id, exc_info=True)
+        finally:
+            _prepare_slots.release()
+
+    threading.Thread(target=work, name=f"prepare-{video_id}", daemon=True).start()
+    return {"accepted": True}
+
+
 @router.get("/stream/{video_id}", response_model=None, summary="Stream and cache a YouTube Music audio track")
 def stream(
     video_id: VideoId,
@@ -131,7 +165,67 @@ def _source_response(source, range_header: str | None) -> Response:
         )
     if source.playback is None:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Playback source did not contain audio")
+    progressive = _progressive_response(source.playback, range_header, getattr(source, "quality", "high"))
+    if progressive is not None:
+        return progressive
     return _proxy_playback_stream(source.playback, range_header, source_kind=source.kind)
+
+
+PROGRESSIVE_START_WAIT = 4.0
+PROGRESSIVE_STALL_LIMIT = 30.0
+# A seek this far past what has arrived is served straight from YouTube instead of waiting.
+PROGRESSIVE_LOOKAHEAD = 4 * 1024 * 1024
+
+
+def _progressive_response(playback: PlaybackData, range_header: str | None, quality: str) -> StreamingResponse | None:
+    """Serve the first play from the cache file as it downloads, so the song is fetched once."""
+    progress = StreamCacheService.progressive_download(playback.video_id, quality)
+    if progress is None or not progress.wait_started(PROGRESSIVE_START_WAIT) or not progress.total:
+        return None
+    total = progress.total
+    span = _byte_span(range_header, total)
+    if span is None:
+        return None
+    start, end = span
+    if start > progress.written + PROGRESSIVE_LOOKAHEAD and not progress.finished:
+        return None
+
+    def chunks() -> Iterator[bytes]:
+        position = start
+        while position <= end:
+            if not progress.wait_for(position, PROGRESSIVE_STALL_LIMIT):
+                return
+            chunk = progress.read(position, min(256 * 1024, end - position + 1))
+            if not chunk:
+                return
+            position += len(chunk)
+            yield chunk
+
+    headers = {
+        "Cache-Control": "no-store",
+        "Accept-Ranges": "bytes",
+        "Content-Length": str(end - start + 1),
+        "X-ANM-Player-Playback-Source": "streaming",
+    }
+    if range_header:
+        headers["Content-Range"] = f"bytes {start}-{end}/{total}"
+    return StreamingResponse(chunks(), status_code=206 if range_header else 200, media_type=progress.content_type, headers=headers)
+
+
+def _byte_span(range_header: str | None, total: int) -> tuple[int, int] | None:
+    if not range_header:
+        return 0, total - 1
+    spec = range_header.removeprefix("bytes=")
+    first, _, last = spec.partition("-")
+    try:
+        if not first:
+            length = int(last)
+            return (max(0, total - length), total - 1) if length > 0 else None
+        start = int(first)
+        end = min(int(last), total - 1) if last else total - 1
+    except ValueError:
+        return None
+    return (start, end) if start <= end else None
 
 
 def _proxy_playback_stream(playback: PlaybackData, range_header: str | None, *, source_kind: str = "streaming") -> StreamingResponse:
@@ -173,7 +267,8 @@ def _proxy_playback_stream(playback: PlaybackData, range_header: str | None, *, 
 def _iter_remote_response(response) -> Iterator[bytes]:
     try:
         while True:
-            chunk = response.read(256 * 1024)
+            # read1 hands over what has arrived instead of waiting for a full block.
+            chunk = response.read1(256 * 1024)
             if not chunk:
                 break
             yield chunk

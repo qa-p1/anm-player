@@ -17,6 +17,7 @@ import { addUnifiedAlbumToLibrary } from "@/services/music-api";
 import { usePlayerStore } from "@/stores/player-store";
 import type { AlbumStatusItem, OnlineMusicItem } from "@/types/api";
 import { onlineItemToPlayerTrack } from "@/types/player";
+import { prepareOnHover } from "@/features/player/prepare-stream";
 import { cn } from "@/lib/utils";
 import { TrackDuration } from "@/components/cards/track-duration";
 
@@ -143,7 +144,7 @@ export function OnlineMusicCard({ item, context, variant = "tile", className, al
     }
     return (
       <article className={cn(flat ? "group relative flex min-w-0 items-center gap-3 rounded-xl p-2 transition hover:bg-white/[0.06]" : "glass-panel group relative flex min-w-0 items-center gap-3 rounded-2xl p-2.5 transition hover:bg-white/10 sm:p-3", className)}>
-        <button type="button" onClick={play} aria-label={`Open ${item.title}`} className="flex min-w-0 flex-1 items-center gap-3 text-left after:absolute after:inset-0 after:rounded-2xl focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-ring">
+        <button type="button" onClick={play} {...prepareOnHover(track)} aria-label={`Open ${item.title}`} className="flex min-w-0 flex-1 items-center gap-3 text-left after:absolute after:inset-0 after:rounded-2xl focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-ring">
           <Artwork artworkUrl={artworkUrl} title={item.title} round={false} />
           <span className="min-w-0 flex-1">
             <span className="block truncate text-sm font-semibold">{item.title}</span>
@@ -165,6 +166,7 @@ export function OnlineMusicCard({ item, context, variant = "tile", className, al
       <button
         type="button"
         onClick={play}
+        {...prepareOnHover(track)}
         aria-label={`${item.playable ? isCurrentPlaying ? "Pause" : "Play" : "Open"} ${item.title}`}
         className="block w-full min-w-0 text-left after:absolute after:inset-0 after:rounded-2xl focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-ring"
       >

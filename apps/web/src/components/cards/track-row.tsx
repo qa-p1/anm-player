@@ -9,6 +9,7 @@ import { TrackActionsMenu } from "@/components/menus/track-actions-menu";
 import { ArtworkImage } from "@/components/cards/artwork-image";
 import { TrackDuration } from "@/components/cards/track-duration";
 import { TrackMetadata } from "@/components/cards/track-metadata";
+import { prepareOnHover } from "@/features/player/prepare-stream";
 import { cn } from "@/lib/utils";
 import { usePlayerStore } from "@/stores/player-store";
 import type { PlayerTrack } from "@/types/player";
@@ -99,6 +100,7 @@ export function TrackRow({
         <button
           type="button"
           onClick={play}
+          {...prepareOnHover(track)}
           aria-label={isCurrentPlaying ? `Pause ${track.title}` : `Play ${track.title}`}
           className="absolute inset-0 z-0 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         />
@@ -143,6 +145,7 @@ export function TrackRow({
       <button
         type="button"
         onClick={play}
+        {...prepareOnHover(track)}
         aria-label={isCurrentPlaying ? `Pause ${track.title}` : `Play ${track.title}`}
         className="absolute inset-0 z-0 rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       />

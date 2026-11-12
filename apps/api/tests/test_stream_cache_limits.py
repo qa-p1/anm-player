@@ -32,7 +32,7 @@ class ChunkedResponse:
     def __exit__(self, *_args):
         return False
 
-    def read(self, _size: int) -> bytes:
+    def read1(self, _size: int) -> bytes:
         return self.chunks.pop(0)
 
 

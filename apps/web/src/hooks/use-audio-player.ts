@@ -6,6 +6,7 @@ import { useShallow } from "zustand/react/shallow";
 import { toast } from "@/components/ui/toast";
 import { queryClient } from "@/lib/query-client";
 import { audioService } from "@/services/audio-service";
+import { prepareTrack } from "@/features/player/prepare-stream";
 import { addHistory, getYouTubeRelated, updateHistory } from "@/services/music-api";
 import { usePlaybackPreferencesStore } from "@/stores/playback-preferences-store";
 import { knownTrackDuration } from "@/stores/track-duration-store";
@@ -176,6 +177,7 @@ export function useAudioPlayer() {
           state.setCurrentTime(currentTime);
         }
         if (state.isPlaying && state.currentSong) trackListening(state.currentSong, state.playbackRequestId, currentTime, audioService.getDuration());
+        if (state.isPlaying && state.currentSong) prepareUpcoming(currentTime, audioService.getDuration());
         audioService.updateMediaSessionPosition();
       }),
       audioService.onLoadedMetadata(() => {
@@ -476,6 +478,33 @@ function baseHistoryPayload(song: PlayerTrack): HistoryCreateRequest | null {
 
 function invalidatePlaybackHistory() {
   return invalidateHistory(queryClient);
+}
+
+const PREPARE_AHEAD_SECONDS = 30;
+let preparedAfter: string | null = null;
+
+/**
+ * Near the end of a song, start the next one downloading (and fetch radio
+ * songs if the queue is about to run out) so it begins without a gap.
+ */
+function prepareUpcoming(time: number, duration: number) {
+  const state = usePlayerStore.getState();
+  const song = state.currentSong;
+  if (!song || !(duration > 0) || duration - time > PREPARE_AHEAD_SECONDS || state.repeat === "one") return;
+  const key = `${song.id}:${state.playbackRequestId}`;
+  if (preparedAfter === key) return;
+  preparedAfter = key;
+  if (state.queue.length > 0) {
+    prepareTrack(state.queue[0], true);
+    return;
+  }
+  if (state.repeat !== "off" || !usePlaybackPreferencesStore.getState().autoplayEnabled || song.source !== "youtube") return;
+  void relatedAutoplayTracks(song).then((tracks) => {
+    const latest = usePlayerStore.getState();
+    if (latest.currentSong?.id !== song.id || latest.queue.length > 0 || tracks.length === 0) return;
+    latest.setQueue(tracks);
+    prepareTrack(tracks[0], true);
+  });
 }
 
 /**

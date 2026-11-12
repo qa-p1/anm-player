@@ -297,6 +297,11 @@ export function getChartRegions(signal?: AbortSignal) {
   return apiGet<ChartRegion[]>("/ytmusic/regions", { signal });
 }
 
+/** A hint that a song is about to play; the server may ignore it when busy. */
+export function prepareStream(videoId: string, download = false) {
+  return apiPost<{ accepted: boolean }, undefined>(`/ytmusic/stream/${encodeURIComponent(videoId)}/prepare${download ? "?download=true" : ""}`);
+}
+
 export function getYouTubeRelated(videoId: string, signal?: AbortSignal) {
   return apiGet<OnlineRelatedResponse>(`/ytmusic/related/${encodeURIComponent(videoId)}`, { signal });
 }
