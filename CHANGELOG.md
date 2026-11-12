@@ -2,31 +2,19 @@
 
 ## 1.1.0 - 2026-11-12
 
-Installed copies get this through the in-app update button.
-
-- Setup and the launcher now use the computer's own Python, Node.js and FFmpeg. Anything missing is installed system-wide with the package manager (pacman, apt, dnf, zypper, Homebrew, winget or Chocolatey) instead of downloading private copies. Existing installs drop their private `tools/` folder automatically and keep the library.
-- ANM Player appears in the app launcher (Linux app menu, macOS Applications, Windows Start menu) and on the desktop, with the app icon and no terminal window. Launch problems show a notification.
-- The app environment is rebuilt automatically if a system Python upgrade breaks it.
-- The production web preview no longer defaults to listening on every network interface.
-- **Downloads page** replaces the download popup: one overall progress bar, Queue / Downloaded / Failed tabs, albums and playlists grouped with their own progress, pause, resume, cancel and retry for every song (including songs inside albums), plus pause all, resume all, cancel all, retry all and clear. The sidebar entry shows a live progress ring; phones get a floating shortcut while something downloads.
-- **Download playlist**: one button downloads every song that isn't offline yet, shows a progress ring while it runs and a check when the whole playlist is offline.
-- Songs downloaded from a playlist, the song menu or search now show as offline everywhere they're saved, not only in the album they came from.
-- Download progress no longer jumps backwards as songs finish, and the queue uses one light poll instead of a live connection per song.
-- The Playlists page uses the same header as Albums and Artists.
-- **Quick find** (Ctrl K) was rebuilt: the best match comes first, results are grouped (songs, albums, artists, playlists, pages, commands), saved and downloaded songs play straight away, YouTube Music songs appear as you type, Shift+Enter adds a song to the queue, and it no longer loads your whole library every time it opens.
-- **Search is reliable and fast**: searches no longer wait behind Home or album pages loading, results are remembered so going back is instant, typing no longer rewrites the address bar on every key, switching between Songs/Videos/Albums/Artists never shows the wrong type, a failed search offers Try again instead of "No results", downloads running in the background no longer make results stutter, and recent searches only keep what you actually used.
-- **What's new on hover**: when an update is ready, hovering the update button lists everything it brings since your version (you can move onto the card and scroll it).
-- Installing an update always installs the newest version, even if more was published after the last check, so one update brings you fully up to date.
-- Home's regional sections are simply "Trending Albums" and "Top Songs", without country taglines.
-- Album tiles in search and Home keep the save button on the cover, so it no longer covers the album name, and show the artist instead of the word "album".
-- Trending Albums show each album's artist, Top Songs is ranked like Trending Globally, and shelves such as "More by" scroll with arrows or the mouse wheel.
-- Empty pages (Downloads, Playlists) no longer squeeze their button against the text.
-- **Danger zone** has three choices: erase all data and start fresh (no folder to pick any more), uninstall but keep your music and library for a reinstall, or uninstall and delete everything. Setup can also uninstall from the command line with `bootstrap.py --uninstall [--keep-data]`.
-- **Settings, rebuilt**: every change saves instantly (no Save button), grouped sections with a section list, switches, steppers and segmented choices, a storage breakdown with per-cache clearing, and update/close controls under About.
-- **Region for Home**: "Trending Albums" and the regional chart follow your country, worked out from your computer's time zone without any network lookup, and changeable in Settings. Trending albums are the newest releases from that country's top artists. Times and Insights always follow your own clock.
-- Artist pages show the real artist name, their albums and singles with years, and refresh from YouTube Music instead of keeping a stale copy forever.
-- Times are shown in your time zone everywhere (new playlists no longer say "Updated 6 hours ago"), and Insights counts days, hours and streaks by your clock.
-- Artwork caching: covers are kept by the browser for 30 days instead of being re-requested, a network blip is retried once instead of leaving a blank cover, failures are never cached, and cache clean-up runs at most once a minute instead of scanning the folder after every image.
+- **Downloads page**: One progress bar, Queue/Downloaded/Failed tabs, and pause, resume, cancel or retry for any song, album or playlist.
+- **Download playlists**: One button saves every song in a playlist for offline listening.
+- **Faster, steadier Search**: Results come back without waiting on other pages, return instantly when you go back, and never show the wrong type.
+- **New Quick find**: Ctrl K puts the best match first, groups results, plays songs directly and adds YouTube Music results as you type.
+- **Settings rebuilt**: Changes save instantly, with clearer storage use and per-cache clearing.
+- **Your region on Home**: Trending Albums and Top Songs follow your country, detected on your computer and changeable in Settings.
+- **Three ways to reset**: Start fresh, uninstall but keep your music, or uninstall and delete everything.
+- **What's new on hover**: Hover the update button to see what an update brings; updates always install the newest version.
+- **Uses your system tools**: Setup uses this computer's Python, Node.js and FFmpeg and adds ANM Player to your app menu and desktop.
+- **Better artist pages**: Real artist names, albums and singles with years, refreshed from YouTube Music.
+- **Your time zone everywhere**: Dates and listening insights follow your own clock.
+- **Reliable artwork**: Covers load once, retry after a network blip and stay cached for 30 days.
+- **Smaller fixes**: Album tiles show their artist, shelves scroll with arrows or the mouse wheel, and System theme follows your OS live.
 
 ## 1.0.0 - 2026-11-11
 

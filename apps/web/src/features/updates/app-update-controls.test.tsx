@@ -86,10 +86,22 @@ it("shows what's new while hovering an available update", async () => {
   expect(notes).toHaveTextContent("Faster search. Results come back sooner.");
   expect(notes).toHaveTextContent("Fixed the empty downloads page.");
   expect(notes).toHaveTextContent("Plus 3 more improvements.");
+  expect(screen.getByRole("link", { name: /Full changelog/ })).toHaveAttribute("href", "https://github.com/qa-p1/anm-player/blob/main/CHANGELOG.md");
   fireEvent.pointerLeave(button.parentElement!);
   fireEvent.pointerEnter(notes);
   await new Promise((resolve) => setTimeout(resolve, 300));
   expect(screen.getByRole("tooltip")).toBeInTheDocument();
   fireEvent.pointerLeave(notes);
   await waitFor(() => expect(screen.queryByRole("tooltip")).not.toBeInTheDocument());
+});
+
+it("keeps the card short and counts the rest", async () => {
+  const many = Array.from({ length: 9 }, (_, index) => ({ title: `Change ${index + 1}`, text: "Something better." }));
+  mocks.apiGet.mockResolvedValue({ ...idle, state: "available", message: "An update is ready", latest_commit: "c".repeat(40), notes: many, more: 4 });
+  mount();
+  const button = await screen.findByRole("button", { name: "Install app update and restart" });
+  fireEvent.pointerEnter(button.parentElement!);
+  expect(screen.getAllByRole("listitem")).toHaveLength(5);
+  expect(screen.getByRole("tooltip")).toHaveTextContent("Plus 8 more improvements.");
+  expect(screen.getByRole("link", { name: /Full changelog/ })).toHaveAttribute("href", `https://github.com/qa-p1/anm-player/blob/${"c".repeat(40)}/CHANGELOG.md`);
 });

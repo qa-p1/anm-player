@@ -42,6 +42,10 @@ export const useThemeStore = create<ThemeState>((set) => ({
 
 export function initializeTheme() {
   applyTheme(getInitialMode());
+  // "System" follows the OS live, e.g. when it switches to dark mode at sunset.
+  window.matchMedia?.("(prefers-color-scheme: dark)").addEventListener?.("change", () => {
+    if (useThemeStore.getState().mode === "system") applyTheme("system");
+  });
   const accent = (window.localStorage.getItem(accentStorageKey) as AccentTheme | null) ?? "rose";
   applyAccent(accent in accentValues ? accent : "rose");
 }

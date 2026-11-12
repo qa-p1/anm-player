@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { AlertCircle, Check, Download, RefreshCw } from "lucide-react";
+import { AlertCircle, Check, Download, ExternalLink, RefreshCw } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
 import { createPortal } from "react-dom";
 
@@ -50,12 +50,17 @@ export function AppUpdateControls() {
       </motion.div>}
     </AnimatePresence>
     <span className="sr-only" role="status" aria-live="polite">{message}</span>
-    {showNotes && <UpdateNotes anchor={anchor} notes={notes} more={data?.more ?? 0} changes={data?.changes ?? 0} summary={data?.summary} onPointerEnter={open} onPointerLeave={close} />}
+    {showNotes && <UpdateNotes anchor={anchor} notes={notes} more={data?.more ?? 0} changes={data?.changes ?? 0} summary={data?.summary} commit={data?.latest_commit} onPointerEnter={open} onPointerLeave={close} />}
   </div>;
 }
 
 /** What's new in the waiting update, shown while the update button is hovered or focused. */
-function UpdateNotes({ anchor, notes, more, changes, summary, onPointerEnter, onPointerLeave }: { anchor: RefObject<HTMLElement | null>; notes: Array<{ title: string | null; text: string }>; more: number; changes: number; summary?: string; onPointerEnter: () => void; onPointerLeave: () => void }) {
+const VISIBLE_NOTES = 5;
+const CHANGELOG_URL = "https://github.com/qa-p1/anm-player/blob";
+
+function UpdateNotes({ anchor, notes, more, changes, summary, commit, onPointerEnter, onPointerLeave }: { anchor: RefObject<HTMLElement | null>; notes: Array<{ title: string | null; text: string }>; more: number; changes: number; summary?: string; commit?: string; onPointerEnter: () => void; onPointerLeave: () => void }) {
+  const shown = notes.slice(0, VISIBLE_NOTES);
+  const hidden = notes.length - shown.length + more;
   const card = useRef<HTMLDivElement>(null);
   const [style, setStyle] = useState<CSSProperties>({ visibility: "hidden" });
   useLayoutEffect(() => {
@@ -70,13 +75,15 @@ function UpdateNotes({ anchor, notes, more, changes, summary, onPointerEnter, on
   return createPortal(
     <motion.div ref={card} id="app-update-notes" role="tooltip" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.12 }} style={style} onPointerEnter={onPointerEnter} onPointerLeave={onPointerLeave} className="fixed z-[450] w-[min(22rem,calc(100vw-1rem))] rounded-2xl border border-white/10 bg-card/95 p-4 text-sm shadow-2xl backdrop-blur-xl">
       <p className="font-bold">Update ready. Click to install and restart.</p>
-      {notes.length > 0 ? (
-        <ul className="mt-3 max-h-[50vh] list-disc space-y-2 overflow-y-auto overscroll-contain pl-4 pr-1 text-[13px] leading-5 text-muted-foreground">
-          {notes.map((note, index) => <li key={index}>{note.title && <strong className="text-foreground">{note.title}. </strong>}{note.text}</li>)}
+      {shown.length > 0 ? (
+        <ul className="mt-3 list-disc space-y-2 pl-4 text-[13px] leading-5 text-muted-foreground">
+          {shown.map((note, index) => <li key={index}><span className="line-clamp-2">{note.title && <strong className="text-foreground">{note.title}. </strong>}{note.text}</span></li>)}
         </ul>
-      ) : summary ? <p className="mt-2 text-[13px] text-muted-foreground">{summary}</p> : null}
-      {more > 0 && <p className="mt-3 text-[13px] font-semibold">Plus {more} more {more === 1 ? "improvement" : "improvements"}.</p>}
-      {changes > 1 && <p className="mt-2 text-xs text-muted-foreground">{changes} changes since your version</p>}
+      ) : summary ? <p className="mt-2 line-clamp-2 text-[13px] text-muted-foreground">{summary}</p> : null}
+      {hidden > 0 && <p className="mt-3 text-[13px] font-semibold">Plus {hidden} more {hidden === 1 ? "improvement" : "improvements"}.</p>}
+      <a href={`${CHANGELOG_URL}/${commit || "main"}/CHANGELOG.md`} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-1 text-xs text-muted-foreground transition hover:text-foreground">
+        {changes > 1 ? `${changes} changes · ` : ""}Full changelog<ExternalLink className="h-3 w-3" />
+      </a>
     </motion.div>,
     document.body,
   );
