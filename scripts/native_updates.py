@@ -72,13 +72,35 @@ def changelog_entries(text: str) -> list[str]:
     return [entry for entry in entries if entry]
 
 
-def release_notes(root: Path, commit: str) -> dict:
-    """What's new: changelog entries in the update that this install doesn't have yet."""
+def compare_commits(installed: str | None, latest: str) -> dict:
+    """GitHub's comparison of the installed commit with the newest one ({} when unknown)."""
+    if not installed or not COMMIT.fullmatch(installed):
+        return {}
+    request = urllib.request.Request(
+        f"https://api.github.com/repos/{REPOSITORY}/compare/{installed}...{latest}",
+        headers={"Accept": "application/vnd.github+json", "User-Agent": "ANM-Player-Updater"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            payload = json.loads(response.read(8 * 1024 * 1024))
+    except (OSError, ValueError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def release_notes(root: Path, commit: str, installed: str | None = None, comparison: dict | None = None) -> dict:
+    """What's new: changelog entries in the update that this install doesn't have yet,
+    or the update's commit messages when the changelog has nothing new."""
+    comparison = compare_commits(installed, commit) if comparison is None else comparison
+    subjects = [str(entry.get("commit", {}).get("message", "")).splitlines()[0] for entry in comparison.get("commits", []) if isinstance(entry, dict)]
+    subjects = [subject for subject in subjects if subject and not subject.startswith("Merge ")][::-1]
+    changes = int(comparison.get("total_commits") or len(subjects))
+    fallback = [{"title": None, "text": subject[:240]} for subject in subjects]
     try:
         with urllib.request.urlopen(f"https://raw.githubusercontent.com/{REPOSITORY}/{commit}/CHANGELOG.md", timeout=20) as response:
             remote = changelog_entries(response.read(1024 * 1024).decode("utf-8", errors="replace"))
     except (OSError, ValueError):
-        return {"notes": [], "more": 0}
+        return {"notes": fallback[:12], "more": max(0, len(fallback) - 12), "changes": changes}
     try:
         local = set(changelog_entries((root / "CHANGELOG.md").read_text(encoding="utf-8")))
     except OSError:
@@ -90,7 +112,8 @@ def release_notes(root: Path, commit: str) -> dict:
         plain = entry.replace("`", "")
         title, separator, text = plain.partition("**: ") if plain.startswith("**") else ("", "", plain)
         notes.append({"title": title.removeprefix("**") if separator else None, "text": text if separator else plain})
-    return {"notes": notes[:8], "more": max(0, len(notes) - 8)}
+    notes = notes or fallback
+    return {"notes": notes[:12], "more": max(0, len(notes) - 12), "changes": changes}
 
 
 def installed_commit(root: Path) -> str | None:
@@ -293,10 +316,20 @@ class NativeUpdater:
         try:
             if commit is None:
                 latest = github_head()
-                available = latest["commit"] != self.commit
-                notes = release_notes(self.root, latest["commit"]) if available else {"notes": [], "more": 0}
+                comparison = compare_commits(self.commit, latest["commit"]) if latest["commit"] != self.commit else {}
+                # A copy that is already newer than GitHub's main is up to date, not "downgradable".
+                available = latest["commit"] != self.commit and comparison.get("status") != "behind"
+                notes = release_notes(self.root, latest["commit"], self.commit, comparison) if available else {"notes": [], "more": 0, "changes": 0}
                 self.set_state("available" if available else "current", "An update is ready to install." if available else "You’re up to date.", latest_commit=latest["commit"], summary=latest["summary"], **notes)
                 return
+            # Install the newest version, even if more was published after the last check.
+            try:
+                latest = github_head()
+                if latest["commit"] != self.commit and compare_commits(self.commit, latest["commit"]).get("status") != "behind":
+                    commit = latest["commit"]
+                    self.set_state("downloading", "Downloading the update…", latest_commit=commit, summary=latest["summary"])
+            except (OSError, ValueError, UpdateError):
+                pass  # Offline at this moment: the checked version is still a valid update.
             candidate = self.home / "releases" / commit
             # A failed stage is disposable; never remove the running or selected source.
             active = read_json(self.home / "current.json").get("root")

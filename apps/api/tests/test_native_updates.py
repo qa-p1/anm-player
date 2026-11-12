@@ -14,6 +14,17 @@ updates = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(updates)
 OLD = "a" * 40
 NEW = "b" * 40
+NEWER = "c" * 40
+
+
+@pytest.fixture(autouse=True)
+def offline_github(monkeypatch):
+    """Tests never reach GitHub; ones that need it patch these back in."""
+    def offline(*_args, **_kwargs):
+        raise OSError("offline in tests")
+
+    monkeypatch.setattr(updates, "github_head", offline)
+    monkeypatch.setattr(updates.urllib.request, "urlopen", offline)
 
 
 def source(root):
@@ -119,7 +130,7 @@ def test_update_cannot_delete_its_running_source(tmp_path, monkeypatch):
 def test_check_detects_commit_changes_without_new_release(tmp_path, monkeypatch):
     m = manager(tmp_path)
     monkeypatch.setattr(updates, "github_head", lambda: {"commit": NEW, "summary": "Improve library"})
-    monkeypatch.setattr(updates, "release_notes", lambda root, commit: {"notes": [{"title": None, "text": "Faster"}], "more": 0})
+    monkeypatch.setattr(updates, "release_notes", lambda *_args: {"notes": [{"title": None, "text": "Faster"}], "more": 0})
     m._work(None)
     assert m.status()["state"] == "available"
     assert m.status()["notes"] == [{"title": None, "text": "Faster"}]
@@ -254,9 +265,44 @@ def test_release_notes_list_only_changelog_entries_this_install_lacks(tmp_path, 
 
     monkeypatch.setattr(updates.urllib.request, "urlopen", lambda url, timeout: Response(remote.encode()))
     notes = updates.release_notes(tmp_path, NEW)
-    assert notes == {"notes": [{"title": "Faster search", "text": "results come back sooner."}, {"title": None, "text": "Uses bootstrap.py now"}], "more": 0}
+    assert notes == {"notes": [{"title": "Faster search", "text": "results come back sooner."}, {"title": None, "text": "Uses bootstrap.py now"}], "more": 0, "changes": 0}
 
 
 def test_release_notes_are_optional_when_github_is_unreachable(tmp_path, monkeypatch):
     monkeypatch.setattr(updates.urllib.request, "urlopen", lambda url, timeout: (_ for _ in ()).throw(OSError("offline")))
-    assert updates.release_notes(tmp_path, NEW) == {"notes": [], "more": 0}
+    assert updates.release_notes(tmp_path, NEW, OLD) == {"notes": [], "more": 0, "changes": 0}
+
+
+def test_release_notes_fall_back_to_every_commit_since_the_installed_one(tmp_path, monkeypatch):
+    (tmp_path / "CHANGELOG.md").write_text("- Same\n", encoding="utf-8")
+    compare = {"total_commits": 3, "commits": [{"commit": {"message": "fix: first\n\nbody"}}, {"commit": {"message": "Merge branch x"}}, {"commit": {"message": "feat: second"}}]}
+
+    def respond(request, timeout):
+        url = getattr(request, "full_url", request)
+        body = json.dumps(compare).encode() if "/compare/" in url else b"- Same\n"
+        response = io.BytesIO(body)
+        response.__enter__ = lambda: response
+        return type("R", (), {"__enter__": lambda self: response, "__exit__": lambda self, *a: False})()
+
+    monkeypatch.setattr(updates.urllib.request, "urlopen", respond)
+    notes = updates.release_notes(tmp_path, NEW, OLD)
+    assert notes["notes"] == [{"title": None, "text": "feat: second"}, {"title": None, "text": "fix: first"}]
+    assert notes["changes"] == 3
+
+
+def test_install_takes_the_newest_version_not_the_one_seen_at_check_time(tmp_path, monkeypatch):
+    m = manager(tmp_path)
+    downloaded = []
+    monkeypatch.setattr(updates, "github_head", lambda: {"commit": NEWER, "summary": "Even newer"})
+    monkeypatch.setattr(updates, "download_source", lambda commit, root: (downloaded.append(commit), (_ for _ in ()).throw(updates.UpdateError("stop here")))[1])
+    m._work(NEW)
+    assert downloaded == [NEWER]
+    assert m.status()["latest_commit"] == NEWER
+
+
+def test_a_copy_newer_than_main_is_up_to_date(tmp_path, monkeypatch):
+    m = manager(tmp_path)
+    monkeypatch.setattr(updates, "github_head", lambda: {"commit": NEW, "summary": "Older main"})
+    monkeypatch.setattr(updates, "compare_commits", lambda installed, latest: {"status": "behind", "commits": []})
+    m._work(None)
+    assert m.status()["state"] == "current"

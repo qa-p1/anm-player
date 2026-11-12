@@ -92,7 +92,7 @@ def assemble_home(
         sections.append(
             OnlineHomeSection(
                 id="region-top",
-                title="Top 20",
+                title="Top Songs",
                 layout="song_list",
                 items=[item_to_schema(item) for item in region_chart[2][:20]],
             )

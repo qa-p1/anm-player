@@ -87,5 +87,9 @@ it("shows what's new while hovering an available update", async () => {
   expect(notes).toHaveTextContent("Fixed the empty downloads page.");
   expect(notes).toHaveTextContent("Plus 3 more improvements.");
   fireEvent.pointerLeave(button.parentElement!);
+  fireEvent.pointerEnter(notes);
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  expect(screen.getByRole("tooltip")).toBeInTheDocument();
+  fireEvent.pointerLeave(notes);
   await waitFor(() => expect(screen.queryByRole("tooltip")).not.toBeInTheDocument());
 });

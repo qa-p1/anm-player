@@ -15,8 +15,9 @@ These arrive through the in-app update button.
 - The Playlists page uses the same header as Albums and Artists.
 - **Quick find** (Ctrl K) was rebuilt: the best match comes first, results are grouped (songs, albums, artists, playlists, pages, commands), saved and downloaded songs play straight away, YouTube Music songs appear as you type, Shift+Enter adds a song to the queue, and it no longer loads your whole library every time it opens.
 - **Search is reliable and fast**: searches no longer wait behind Home or album pages loading, results are remembered so going back is instant, typing no longer rewrites the address bar on every key, switching between Songs/Videos/Albums/Artists never shows the wrong type, a failed search offers Try again instead of "No results", downloads running in the background no longer make results stutter, and recent searches only keep what you actually used.
-- **What's new on hover**: when an update is ready, hovering the update button lists what it brings.
-- Home's regional sections are simply "Trending Albums" and "Top 20", without country taglines.
+- **What's new on hover**: when an update is ready, hovering the update button lists everything it brings since your version (you can move onto the card and scroll it).
+- Installing an update always installs the newest version, even if more was published after the last check, so one update brings you fully up to date.
+- Home's regional sections are simply "Trending Albums" and "Top Songs", without country taglines.
 - Album tiles in search and Home keep the save button on the cover, so it no longer covers the album name, and show the artist instead of the word "album".
 - Empty pages (Downloads, Playlists) no longer squeeze their button against the text.
 - **Danger zone** has three choices: erase all data and start fresh (no folder to pick any more), uninstall but keep your music and library for a reinstall, or uninstall and delete everything. Setup can also uninstall from the command line with `bootstrap.py --uninstall [--keep-data]`.

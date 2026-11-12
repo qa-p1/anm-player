@@ -17,6 +17,7 @@ interface AppUpdateStatus {
   summary?: string;
   notes?: Array<{ title: string | null; text: string }>;
   more?: number;
+  changes?: number;
   updated_at?: number;
 }
 const key = ["app", "updates"];
