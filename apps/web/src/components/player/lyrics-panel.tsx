@@ -46,6 +46,7 @@ export function LyricsPanel({
     return null;
   }, [album, artist, duration, songId, title, videoId]);
   const lyricsState = useLyrics(target);
+  const floatingTools = side || stage;
   const currentTime = usePlayerStore((state) => state.currentTime);
   const [isEditing, setIsEditing] = useState(false);
   const [draftLyrics, setDraftLyrics] = useState("");
@@ -95,8 +96,13 @@ export function LyricsPanel({
   }
 
   return (
-    <section className={cn("flex h-full min-h-0 flex-col", immersive && "px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-[max(0.5rem,env(safe-area-inset-top))] sm:px-8")}>
-      <header className={cn("flex shrink-0 items-center gap-3", immersive ? "min-h-14" : "mb-3 justify-end")}>
+    <section className={cn("group/lyrics relative flex h-full min-h-0 flex-col", immersive && "px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-[max(0.5rem,env(safe-area-inset-top))] sm:px-8")}>
+      {/* Beside the player and on the lyrics stage, refresh/edit float in the corner on hover instead of taking a row. */}
+      <header className={cn(
+        "flex shrink-0 items-center gap-3",
+        immersive ? "min-h-14" : "mb-3 justify-end",
+        floatingTools && "absolute right-0 top-0 z-10 mb-0 rounded-full bg-black/30 opacity-0 backdrop-blur-md transition-opacity focus-within:opacity-100 group-hover/lyrics:opacity-100 [@media(hover:none)]:hidden",
+      )}>
         {immersive && (
           <button
             type="button"

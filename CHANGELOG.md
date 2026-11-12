@@ -4,7 +4,7 @@
 
 - **Redesigned full-screen player**: One player for every screen, with lyrics, Up next and the studio beside the song or in a sheet on phones.
 - **Apple Music style lyrics**: A full-screen lyrics view, a glowing current line kept at the top, and readable text on bright covers.
-- **Songs, not music videos**: Charts play the studio version of a song when there is one, so lyrics line up and there are no intros.
+- **Songs, not music videos**: Charts, radio and Top results play the studio version of a song, so lyrics line up and there are no intros.
 - **Sharp covers**: Downloads keep full-size cover art, and older blurry covers are upgraded automatically.
 - **Instant playback**: Songs start in about a second, almost at once if you hover first, and the next song is ready before yours ends.
 - **Half the data**: Streamed songs download once at full speed instead of twice, and replays come straight from the cache.

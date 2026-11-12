@@ -249,7 +249,7 @@ function ResultsSkeleton() {
 }
 
 const TOP_GROUPS = [
-  { title: "Songs", kinds: ["song", "video"], limit: 6, filter: "songs" },
+  { title: "Songs", kinds: ["song"], limit: 6, filter: "songs" },
   { title: "Artists", kinds: ["artist"], limit: 5, filter: "artists" },
   { title: "Albums", kinds: ["album"], limit: 5, filter: "albums" },
   { title: "Playlists", kinds: ["playlist"], limit: 5, filter: null },

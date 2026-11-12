@@ -363,7 +363,9 @@ async function relatedAutoplayTracks(seed: Extract<PlayerTrack, { source: "youtu
       ...state.originalQueue.map((track) => track.id),
     ]);
     const tracks: PlayerTrack[] = [];
-    for (const item of response.items) {
+    // Radio plays studio songs; music videos only fill in when there aren't enough songs.
+    const songsFirst = [...response.items].sort((a, b) => Number(a.kind !== "song") - Number(b.kind !== "song"));
+    for (const item of songsFirst) {
       if (!item.playable || !["song", "video", "episode"].includes(item.kind)) continue;
       const track = onlineItemToPlayerTrack(item);
       if (excluded.has(track.id)) continue;
