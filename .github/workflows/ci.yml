@@ -168,6 +168,17 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: "24"
+      # Hosted Ubuntu runners can't currently resolve Ubuntu's package mirrors, so
+      # apt hangs. Supply FFmpeg from the static release; Windows and macOS still
+      # exercise setup's package-manager install path.
+      - name: Provide FFmpeg on Linux
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          curl --fail --location --retry 3 --silent --show-error --output "$RUNNER_TEMP/ffmpeg.tar.xz" https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz
+          tar -xJf "$RUNNER_TEMP/ffmpeg.tar.xz" -C "$RUNNER_TEMP"
+          sudo install -m 755 "$RUNNER_TEMP"/ffmpeg-*-static/ffmpeg "$RUNNER_TEMP"/ffmpeg-*-static/ffprobe /usr/local/bin/
+          ffmpeg -version | head -1
       - name: Prepare the standalone script against this exact commit
         shell: python
         run: |
