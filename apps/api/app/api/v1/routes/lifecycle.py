@@ -3,6 +3,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import ProxyHandler, Request, build_opener
 
 from fastapi import APIRouter, Depends, HTTPException, Request as ApiRequest
+from pydantic import BaseModel, Field
 from urllib.parse import urlparse
 
 router = APIRouter()
@@ -19,6 +20,63 @@ def require_update_origin(request: ApiRequest) -> None:
         valid = False
     if not valid:
         raise HTTPException(status_code=403, detail="Updates can only be requested from this app's local window.")
+
+
+class UninstallRequest(BaseModel):
+    keep_data: bool
+    confirmation: str = Field(max_length=32)
+
+
+UNINSTALL_CONFIRMATIONS = {True: "UNINSTALL ANM PLAYER", False: "DELETE ANM PLAYER"}
+
+
+def installed_launcher() -> tuple[str, str] | None:
+    """The launcher control endpoint, when this is an installed desktop copy."""
+    port = os.environ.get("ANM_LAUNCHER_CONTROL_PORT", "")
+    token = os.environ.get("ANM_LAUNCHER_CONTROL_TOKEN", "")
+    if not os.environ.get("ANM_INSTALL_ROOT") or not port.isdecimal() or not 1 <= int(port) <= 65535 or not token:
+        return None
+    return port, token
+
+
+@router.get("/uninstall", summary="Whether this copy can uninstall itself")
+def uninstall_status() -> dict[str, object]:
+    from app.storage.paths import storage_manager
+
+    return {"supported": installed_launcher() is not None, "data_root": str(storage_manager.paths.root)}
+
+
+@router.post("/uninstall", status_code=202, summary="Remove the desktop app, optionally keeping its data", dependencies=[Depends(require_update_origin)])
+def uninstall(request: UninstallRequest) -> dict[str, str]:
+    import json
+
+    from app.storage.state import storage_state_store
+
+    if request.confirmation != UNINSTALL_CONFIRMATIONS[request.keep_data]:
+        raise HTTPException(status_code=422, detail=f"Type {UNINSTALL_CONFIRMATIONS[request.keep_data]} exactly to confirm")
+    launcher = installed_launcher()
+    if launcher is None:
+        raise HTTPException(status_code=409, detail="Only the installed desktop app can uninstall itself. Delete this folder to remove a developer copy.")
+    if storage_state_store.read().get("migration"):
+        raise HTTPException(status_code=409, detail="Finish the storage operation before uninstalling.")
+    port, token = launcher
+    control = Request(
+        f"http://127.0.0.1:{port}/uninstall",
+        data=json.dumps({"keep_data": request.keep_data}).encode(),
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with build_opener(ProxyHandler({})).open(control, timeout=3):
+            pass
+    except HTTPError as exc:
+        code = exc.code
+        exc.close()
+        detail = "Wait for the app update to finish before uninstalling." if code == 409 else "The launcher could not start the uninstall. Try again."
+        raise HTTPException(status_code=409 if code == 409 else 503, detail=detail) from exc
+    except (OSError, URLError) as exc:
+        raise HTTPException(status_code=503, detail="The launcher could not be reached. Restart ANM Player and try again.") from exc
+    return {"status": "uninstalling"}
 
 
 @router.post("/shutdown", status_code=202, summary="Shut down the native app and both servers")

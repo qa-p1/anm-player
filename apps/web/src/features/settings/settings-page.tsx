@@ -8,8 +8,8 @@ import { CloseAppButton } from "@/components/navigation/close-app-button";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { toast } from "@/components/ui/toast";
+import { DangerZone } from "@/features/settings/danger-zone";
 import { Segmented, SelectControl, SettingRow, SettingsGroup, Stepper, Switch } from "@/features/settings/settings-controls";
 import { AppUpdateControls } from "@/features/updates/app-update-controls";
 import { useSaveSetting, useSettings, type WritableSettings } from "@/hooks/use-settings";
@@ -22,7 +22,6 @@ import { accentValues, applyAccent, useThemeStore, type AccentTheme, type ThemeM
 import type { AudioFormat, DirectoryEntry, DirectoryListing, StorageSummary, StreamQuality } from "@/types/settings";
 import { detectRegion } from "@/utils/region";
 
-type BrowserPurpose = "migration" | "reset";
 type SaveState = "idle" | "saving" | "saved" | "error";
 
 const SECTIONS = [
@@ -50,10 +49,6 @@ export function SettingsPage() {
   const [newFolder, setNewFolder] = useState("");
   const [selected, setSelected] = useState<DirectoryEntry | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
-  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
-  const [resetConfirmation, setResetConfirmation] = useState("");
-  const [resetting, setResetting] = useState(false);
-  const [browserPurpose, setBrowserPurpose] = useState<BrowserPurpose>("migration");
   const [syncingLibrary, setSyncingLibrary] = useState(false);
   const [clearing, setClearing] = useState<string | null>(null);
   const setMode = useThemeStore((state) => state.setMode);
@@ -107,11 +102,9 @@ export function SettingsPage() {
     }
   }
 
-  async function openBrowser(purpose: BrowserPurpose = "migration") {
-    setBrowserPurpose(purpose);
+  async function openBrowser() {
     setBrowserOpen(true);
     setSelected(null);
-    setResetConfirmation("");
     await browse();
   }
 
@@ -135,8 +128,7 @@ export function SettingsPage() {
     if (!listing?.current?.empty) return;
     setSelected(listing.current);
     setBrowserOpen(false);
-    if (browserPurpose === "reset") setResetConfirmOpen(true);
-    else setConfirmOpen(true);
+    setConfirmOpen(true);
   }
 
   async function migrate() {
@@ -148,22 +140,6 @@ export function SettingsPage() {
       toast("Moving your data", "success");
     } catch (error) {
       toast(error instanceof Error ? error.message : "Could not start the move", "error");
-    }
-  }
-
-  async function resetAnmPlayer() {
-    if (!selected?.directory_id || resetConfirmation !== "RESET ANM PLAYER") return;
-    setResetting(true);
-    try {
-      await apiPost<{ operation_id: string }, { directory_id: string; confirmation: string }>("/settings/storage/reset", {
-        directory_id: selected.directory_id,
-        confirmation: resetConfirmation,
-      });
-      setResetConfirmOpen(false);
-      window.dispatchEvent(new CustomEvent("aura-storage-migration-started", { detail: { operation_kind: "reset" } }));
-    } catch (error) {
-      toast(error instanceof Error ? error.message : "Could not start fresh", "error");
-      setResetting(false);
     }
   }
 
@@ -304,7 +280,7 @@ export function SettingsPage() {
               </div>
               <p className="break-all font-mono text-xs text-muted-foreground">{storage?.data_root ?? ""}</p>
             </div>
-            <SettingRow label="Library folder" description="Move your music and library to another folder or drive." control={<Button variant="glass" size="sm" onClick={() => void openBrowser("migration")}><Folder className="h-4 w-4" />Change</Button>} />
+            <SettingRow label="Library folder" description="Move your music and library to another folder or drive." control={<Button variant="glass" size="sm" onClick={() => void openBrowser()}><Folder className="h-4 w-4" />Change</Button>} />
             <SettingRow label="Backup" description="Save a copy of your playlists, favorites and history. Music files aren't included." control={<Button asChild variant="glass" size="sm"><a href={getDatabaseBackupUrl()} download><Download className="h-4 w-4" />Download</a></Button>} />
             <SettingRow label="Scan for new music on start" description="Pick up songs added to the music folder outside the app." control={<Switch label="Scan for new music on start" checked={settings?.startup_scan_enabled ?? true} onChange={(value) => save({ startup_scan_enabled: value })} />} />
             <SettingRow label="Sync library now" control={<Button variant="glass" size="sm" disabled={syncingLibrary} onClick={() => void syncLibrary()}><RefreshCw className={cn("h-4 w-4", syncingLibrary && "animate-spin")} />{syncingLibrary ? "Syncing…" : "Sync"}</Button>} />
@@ -340,13 +316,7 @@ export function SettingsPage() {
             <SettingRow label="ANM Player" description={`Version ${settings?.version ?? "…"} · ${(settings?.song_count ?? 0).toLocaleString()} songs in your library`} control={<div className="flex items-center gap-1"><AppUpdateControls /><CloseAppButton compact /></div>} />
           </SettingsGroup>
 
-          <SettingsGroup id="danger" title="Danger zone" icon={<Bomb />} tone="danger">
-            <SettingRow
-              label="Erase everything and start fresh"
-              description="Deletes the library database, downloaded music, artwork, lyrics, caches, playlists, favorites, history and settings. You'll pick a new empty folder first."
-              control={<Button variant="outline" size="sm" className="border-red-500/50 text-red-300 hover:bg-red-500/15 hover:text-red-200" onClick={() => void openBrowser("reset")}><Bomb className="h-4 w-4" />Erase</Button>}
-            />
-          </SettingsGroup>
+          <DangerZone dataRoot={storage?.data_root} />
         </div>
       </div>
 
@@ -354,7 +324,7 @@ export function SettingsPage() {
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Choose an empty folder</DialogTitle>
-            <DialogDescription>{browserPurpose === "reset" ? "This becomes a brand-new library folder. It must be empty and separate from the current one." : "Your music and library move into the exact empty folder you pick."}</DialogDescription>
+            <DialogDescription>Your music and library move into the exact empty folder you pick.</DialogDescription>
           </DialogHeader>
           <div className="rounded-xl bg-muted/50 p-3 font-mono text-xs">{listing?.current?.display_path ?? "Drives"}</div>
           <div className="max-h-72 space-y-1 overflow-y-auto">
@@ -363,7 +333,7 @@ export function SettingsPage() {
             {!browserBusy && listing?.directories.length === 0 && <p className="py-8 text-center text-sm text-muted-foreground">No folders here.</p>}
           </div>
           {listing?.current && <div className="flex gap-2"><Input value={newFolder} onChange={(event) => setNewFolder(event.target.value)} placeholder="New folder name" aria-label="New folder name" /><Button variant="glass" disabled={!newFolder.trim() || browserBusy} onClick={() => void createFolder()}><FolderPlus className="h-4 w-4" />Create</Button></div>}
-          <DialogFooter><Button variant="ghost" onClick={() => setBrowserOpen(false)}>Cancel</Button><Button disabled={!listing?.current?.empty || browserBusy} onClick={chooseCurrent}>{browserPurpose === "reset" ? "Use for fresh start" : "Use this folder"}</Button></DialogFooter>
+          <DialogFooter><Button variant="ghost" onClick={() => setBrowserOpen(false)}>Cancel</Button><Button disabled={!listing?.current?.empty || browserBusy} onClick={chooseCurrent}>Use this folder</Button></DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -375,31 +345,6 @@ export function SettingsPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={resetConfirmOpen} onOpenChange={(open) => { if (!resetting) setResetConfirmOpen(open); }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Erase all ANM Player data?</DialogTitle>
-            <DialogDescription>This can't be undone. The new empty folder is checked before anything is deleted.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm">
-              <p><strong>Delete:</strong> <span className="break-all">{storage?.data_root}</span></p>
-              <p><strong>New folder:</strong> <span className="break-all">{selected?.display_path}</span></p>
-              <p><strong>Size:</strong> {formatBytes(storage?.used_bytes ?? 0)}</p>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="reset-anm-player-confirmation">Type <strong>RESET ANM PLAYER</strong> to continue</Label>
-              <Input id="reset-anm-player-confirmation" autoComplete="off" value={resetConfirmation} onChange={(event) => setResetConfirmation(event.target.value)} placeholder="RESET ANM PLAYER" />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="ghost" disabled={resetting} onClick={() => setResetConfirmOpen(false)}>Cancel</Button>
-            <Button variant="outline" className="border-red-500/50 text-red-300 hover:bg-red-500/15 hover:text-red-200" disabled={resetConfirmation !== "RESET ANM PLAYER" || resetting} onClick={() => void resetAnmPlayer()}>
-              <Bomb className="h-4 w-4" />{resetting ? "Starting…" : "Erase everything"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </motion.div>
   );
 }

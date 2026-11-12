@@ -158,18 +158,21 @@ class LibraryAlbumService:
             .order_by(LibraryTrack.created_at.desc())
             .limit(limit)
         ).all()
-        for track in tracks:
+        for track, response in zip(
+            tracks, self.responses.tracks_to_response(tracks), strict=True
+        ):
             results.append(
                 LibrarySearchResult(
                     item_type="track",
                     id=track.id,
                     title=track.title,
                     subtitle=track.artist_name,
-                    artwork_url=track.artwork_url,
-                    artwork_path=track.artwork_path,
+                    artwork_url=response.artwork_url,
+                    artwork_path=response.artwork_path,
                     href=f"/albums/{track.album.public_id}"
                     if track.album
                     else "/library/songs",
+                    track=response,
                 )
             )
 

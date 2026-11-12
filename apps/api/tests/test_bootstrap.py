@@ -343,3 +343,78 @@ def test_setup_lock_is_exclusive_and_reusable_after_failure(tmp_path):
             raise RuntimeError("interrupted")
     with bootstrap.setup_lock(tmp_path):
         pass
+
+
+def fake_installation(tmp_path, monkeypatch, *, data_root=None):
+    root = tmp_path / "anm"
+    (root / "app/scripts").mkdir(parents=True)
+    (root / "app/scripts/start_aura.py").write_text("")
+    (root / "bootstrap.py").write_text("")
+    (root / "launch.sh").write_text("")
+    (root / "releases/abc").mkdir(parents=True)
+    data = data_root or root / "data"
+    (data / "music").mkdir(parents=True)
+    (data / "music/song.mp3").write_bytes(b"music")
+    (data / "aura.db").write_bytes(b"db")
+    (root / "storage-state.json").write_text(json.dumps({"data_root": str(data)}))
+    applications = tmp_path / "data-home/applications"
+    applications.mkdir(parents=True)
+    (applications / "anm-player.desktop").write_text("[Desktop Entry]\nX-ANM-Player=true\n")
+    (applications / "other.desktop").write_text("[Desktop Entry]\n")
+    monkeypatch.setattr(bootstrap.sys, "platform", "linux")
+    monkeypatch.setattr(bootstrap.Path, "home", lambda: tmp_path)
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data-home"))
+    monkeypatch.setattr(bootstrap.shutil, "which", lambda name: None)
+    stopped = []
+    monkeypatch.setattr(bootstrap.subprocess, "run", lambda *args, **kwargs: stopped.append(args[0]))
+    return root, data, applications, stopped
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Linux desktop entries")
+def test_uninstall_keeping_data_leaves_only_the_library(tmp_path, monkeypatch):
+    root, data, applications, stopped = fake_installation(tmp_path, monkeypatch)
+    assert bootstrap.main(["--uninstall", "--keep-data", "--root", str(root)]) == 0
+    assert sorted(entry.name for entry in root.iterdir()) == ["data", "storage-state.json"]
+    assert (data / "music/song.mp3").read_bytes() == b"music"
+    assert not (applications / "anm-player.desktop").exists()
+    assert (applications / "other.desktop").exists()
+    assert stopped[0][-1] == "--stop"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Linux desktop entries")
+def test_uninstall_with_data_removes_everything(tmp_path, monkeypatch):
+    root, _, applications, _ = fake_installation(tmp_path, monkeypatch)
+    assert bootstrap.main(["--uninstall", "--root", str(root)]) == 0
+    assert not root.exists()
+    assert not (applications / "anm-player.desktop").exists()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Linux desktop entries")
+def test_uninstall_removes_only_app_files_from_a_moved_data_folder(tmp_path, monkeypatch):
+    moved = tmp_path / "Music Library"
+    root, _, _, _ = fake_installation(tmp_path, monkeypatch, data_root=moved)
+    (moved / "my notes.txt").write_text("keep")
+    assert bootstrap.main(["--uninstall", "--root", str(root)]) == 0
+    assert not root.exists()
+    assert sorted(entry.name for entry in moved.iterdir()) == ["my notes.txt"]
+
+
+def test_uninstall_refuses_a_folder_that_is_not_an_installation(tmp_path, monkeypatch):
+    folder = tmp_path / "Documents"
+    folder.mkdir()
+    (folder / "thesis.txt").write_text("important")
+    monkeypatch.setattr(bootstrap, "notify", lambda message: None)
+    assert bootstrap.main(["--uninstall", "--root", str(folder)]) == 1
+    assert (folder / "thesis.txt").read_text() == "important"
+
+
+def test_uninstall_waits_for_the_launcher_to_exit(tmp_path, monkeypatch):
+    checks = iter([True, True, False])
+    monkeypatch.setattr(bootstrap, "process_alive", lambda pid: next(checks))
+    monkeypatch.setattr(bootstrap.time, "sleep", lambda seconds: None)
+    removed = []
+    monkeypatch.setattr(bootstrap, "uninstall", lambda root, keep_data: removed.append((root, keep_data)))
+    monkeypatch.setattr(bootstrap, "notify", lambda message: None)
+    assert bootstrap.run_uninstall(tmp_path, keep_data=True, wait_pid=1234) == 0
+    assert removed == [(tmp_path, True)]
+    assert next(checks, None) is None

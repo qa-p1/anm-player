@@ -189,7 +189,7 @@ def reset_storage(request: StartResetRequest) -> StartMigrationResponse:
             detail="Type RESET ANM PLAYER exactly to confirm the fresh start",
         )
     try:
-        target = storage_coordinator.consume_directory(request.directory_id)
+        target = storage_coordinator.consume_directory(request.directory_id) if request.directory_id else None
         operation_id = storage_coordinator.start_reset(target)
     except StorageMigrationError as exc:
         already_running = "already" in str(exc).casefold()

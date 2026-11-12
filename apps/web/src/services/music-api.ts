@@ -390,6 +390,10 @@ function advancedSearchSongs(params: {
   return apiGet<Song[]>(`/advanced-search/songs?${query}`, { signal });
 }
 
+export function searchSongs(query: string, limit: number, signal?: AbortSignal) {
+  return advancedSearchSongs({ q: query, limit }, signal);
+}
+
 export function advancedSearchAllSongs(
   params: Omit<Parameters<typeof advancedSearchSongs>[0], "limit" | "offset">,
   signal?: AbortSignal,

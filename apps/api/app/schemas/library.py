@@ -271,7 +271,7 @@ class MixedPlaylistTrackResponse(BaseModel):
     track: LibraryTrackResponse | None = None
 
 
-class LibrarySearchResult(BaseModel):
+class LibrarySearchResult(ArtworkResponseModel):
     item_type: str
     id: int | str
     title: str
@@ -279,6 +279,7 @@ class LibrarySearchResult(BaseModel):
     artwork_url: str | None = None
     artwork_path: str | None = None
     href: str
+    track: LibraryTrackResponse | None = None
 
 
 class LibrarySearchResponse(BaseModel):

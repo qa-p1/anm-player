@@ -1,4 +1,5 @@
 import importlib.util
+import os
 import re
 import signal
 import socket
@@ -212,6 +213,62 @@ def test_control_server_requires_secret_and_acknowledges_shutdown(tmp_path, monk
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_control_server_uninstall_records_the_choice_and_stops(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(launcher, "RUNTIME_FILE", tmp_path / "launcher-runtime.json")
+    stop_requested = threading.Event()
+    requests: list[bool] = []
+    server, token = launcher.start_control_server(stop_requested, "http://127.0.0.1:5123/", on_uninstall=requests.append)
+
+    def post(body: bytes) -> int:
+        request = Request(f"http://127.0.0.1:{server.server_port}/uninstall", data=body, method="POST", headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
+        try:
+            with build_opener(ProxyHandler({})).open(request, timeout=2) as response:
+                return response.status
+        except HTTPError as exc:
+            exc.close()
+            return exc.code
+
+    try:
+        assert post(b'{"keep_data": "yes"}') == 400
+        assert post(b"not json") == 400
+        assert not stop_requested.is_set()
+        assert post(b'{"keep_data": true}') == 200
+        assert requests == [True]
+        assert stop_requested.wait(2)
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_control_server_refuses_uninstall_outside_an_installation(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(launcher, "RUNTIME_FILE", tmp_path / "launcher-runtime.json")
+    stop_requested = threading.Event()
+    server, token = launcher.start_control_server(stop_requested, "http://127.0.0.1:5123/")
+    try:
+        request = Request(f"http://127.0.0.1:{server.server_port}/uninstall", data=b'{"keep_data": false}', method="POST", headers={"Authorization": f"Bearer {token}"})
+        with pytest.raises(HTTPError) as refused:
+            build_opener(ProxyHandler({})).open(request, timeout=2)
+        assert refused.value.code == 409
+        refused.value.close()
+        assert not stop_requested.is_set()
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_uninstaller_runs_detached_from_a_copy_outside_the_install(tmp_path, monkeypatch) -> None:
+    started = []
+    monkeypatch.setattr(launcher.tempfile, "mkdtemp", lambda prefix: str(tmp_path))
+    monkeypatch.setattr(launcher, "installation_home", lambda: Path("/home/me/.local/share/anm-player"))
+    monkeypatch.setattr(launcher.subprocess, "Popen", lambda command, **kwargs: started.append((command, kwargs)))
+    launcher.spawn_uninstaller(keep_data=False)
+    command, options = started[0]
+    assert (tmp_path / "bootstrap.py").read_text() == (launcher.REPOSITORY_ROOT / "scripts/bootstrap.py").read_text()
+    assert command[1:] == [str(tmp_path / "bootstrap.py"), "--uninstall", "--root", "/home/me/.local/share/anm-player", "--wait-pid", str(os.getpid())]
+    assert options["cwd"] == tmp_path
+    assert not any(key.startswith(("ANM_", "AURA_")) for key in options["env"])
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX detached process integration")

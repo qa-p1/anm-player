@@ -13,6 +13,8 @@ These arrive through the in-app update button.
 - Songs downloaded from a playlist, the song menu or search now show as offline everywhere they're saved, not only in the album they came from.
 - Download progress no longer jumps backwards as songs finish, and the queue uses one light poll instead of a live connection per song.
 - The Playlists page uses the same header as Albums and Artists.
+- **Quick find** (Ctrl K) was rebuilt: the best match comes first, results are grouped (songs, albums, artists, playlists, pages, commands), saved and downloaded songs play straight away, YouTube Music songs appear as you type, Shift+Enter adds a song to the queue, and it no longer loads your whole library every time it opens.
+- **Danger zone** has three choices: erase all data and start fresh (no folder to pick any more), uninstall but keep your music and library for a reinstall, or uninstall and delete everything. Setup can also uninstall from the command line with `bootstrap.py --uninstall [--keep-data]`.
 - **Settings, rebuilt**: every change saves instantly (no Save button), grouped sections with a section list, switches, steppers and segmented choices, a storage breakdown with per-cache clearing, and update/close controls under About.
 - **Region for Home**: "Trending Albums" and the regional chart follow your country, worked out from your computer's time zone without any network lookup, and changeable in Settings. Trending albums are the newest releases from that country's top artists. Times and Insights always follow your own clock.
 - Artist pages show the real artist name, their albums and singles with years, and refresh from YouTube Music instead of keeping a stale copy forever.

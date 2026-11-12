@@ -142,6 +142,7 @@ class StorageCoordinator:
                 "verifying": 75,
                 "switched": 90,
                 "cleanup": 95,
+                "relocating": 98,
             }.get(str(result.get("phase")), 0)
         else:
             result["percent"] = 0
@@ -240,12 +241,23 @@ class StorageCoordinator:
             self._migration_lock.release()
             raise
 
-    def start_reset(self, target: str | Path) -> str:
+    def start_reset(self, target: str | Path | None = None) -> str:
+        """Erase all ANM Player data. Without a target the fresh library is built
+        beside the current one and then moved back under the same folder name."""
         if not self._migration_lock.acquire(blocking=False):
             raise StorageMigrationError("Another storage operation is already active.")
+        staging: Path | None = None
         try:
             if storage_state_store.read().get("migration"):
                 raise StorageMigrationError("Storage recovery or another operation is already active.")
+            if target is None:
+                home = storage_manager.paths.root.resolve()
+                staging = home.parent / f".{home.name}.fresh-{uuid.uuid4().hex[:8]}"
+                try:
+                    staging.mkdir()
+                except OSError as exc:
+                    raise StorageMigrationError("The data folder's parent is not writable.") from exc
+                target = staging
             old, target_path = self._validate_empty_target(target)
             self._assert_safe_reset_source(old, target_path)
             operation_id = uuid.uuid4().hex
@@ -258,6 +270,7 @@ class StorageCoordinator:
                 "target_root": str(target_path),
                 "temporary_root": None,
                 "copy_mode": "reset",
+                "restore_root": str(old) if staging else None,
                 "files_processed": 0,
                 "files_total": 0,
                 "bytes_processed": 0,
@@ -278,6 +291,8 @@ class StorageCoordinator:
             self._thread.start()
             return operation_id
         except Exception:
+            if staging is not None and not storage_state_store.read().get("migration"):
+                shutil.rmtree(staging, ignore_errors=True)
             self._migration_lock.release()
             raise
 
@@ -323,6 +338,10 @@ class StorageCoordinator:
         target = Path(operation["target_root"]).absolute()
         self._assert_safe_reset_source(old, target)
 
+        if operation.get("phase") == "relocating":
+            self._relocate_fresh_root(operation, target, old)
+            self._finish(operation)
+            return
         if operation.get("phase") in {"switched", "cleanup"}:
             self._resume_reset_cleanup(operation, old, target)
             return
@@ -379,7 +398,31 @@ class StorageCoordinator:
             logger.warning("could not remove obsolete reset source %s: %s", old, exc)
             self._unlock()
             return
+        if operation.get("restore_root"):
+            self._relocate_fresh_root(operation, target, old)
         self._finish(operation)
+
+    def _relocate_fresh_root(self, operation: dict[str, Any], fresh: Path, home: Path) -> None:
+        """Move the verified fresh data from its staging folder back to the original path."""
+        self._phase(operation, "relocating", "Moving the fresh library into place…")
+        engine_manager.checkpoint()
+        engine_manager.dispose()
+        close_storage_log_handlers()
+        if fresh.is_dir():
+            if home.exists():
+                # After an interrupted move, entries already at home win: the
+                # staging copies are brand-new files with nothing to lose.
+                for entry in list(fresh.iterdir()):
+                    if not (home / entry.name).exists():
+                        os.replace(entry, home / entry.name)
+                shutil.rmtree(fresh)
+            else:
+                os.replace(fresh, home)
+        storage_state_store.switch_root(home, migration=operation)
+        storage_manager.refresh().ensure()
+        engine_manager.bind(home / "aura.db")
+        self._sqlite_quick_check(home / "aura.db")
+        reconfigure_storage_logging()
 
     @staticmethod
     def _delete_reset_managed_data(root: Path) -> None:
@@ -774,13 +817,12 @@ class StorageCoordinator:
     def _discard_reset_target(self, operation: dict[str, Any]) -> None:
         target = Path(operation["target_root"])
         marker = self._reset_marker(operation, target)
-        if not marker.is_file():
-            return
-        if marker.read_text(encoding="utf-8").strip() != operation["operation_id"]:
-            return
-        self._assert_reset_target_disposable(target, marker)
-        shutil.rmtree(target)
-        target.mkdir(parents=False)
+        if marker.is_file() and marker.read_text(encoding="utf-8").strip() == operation["operation_id"]:
+            self._assert_reset_target_disposable(target, marker)
+            shutil.rmtree(target)
+            target.mkdir(parents=False)
+        if operation.get("restore_root") and target.is_dir() and not any(target.iterdir()):
+            target.rmdir()  # The staging folder was ANM Player's own; the user never picked it.
 
     @classmethod
     def _assert_reset_target_disposable(cls, target: Path, marker: Path) -> None:

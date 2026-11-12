@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { apiGet } from "@/services/api-client";
-import { suspendPersistence } from "@/lib/persist-storage";
+import { forgetBrowserData } from "@/lib/forget-browser-data";
 import { audioService } from "@/services/audio-service";
 
 export function StorageMigrationOverlay() {
@@ -88,21 +88,7 @@ export function StorageMigrationOverlay() {
             } else {
               terminalView.current = true;
               setView("verified");
-              if (next.operation_kind === "reset") {
-                suspendPersistence();
-                audioService.destroy();
-                for (const key of [
-                  "aura-player-storage",
-                  "anm-playback-preferences",
-                  "anm-lyrics-preferences",
-                  "anm-search-history",
-                  "anm-library-preferences",
-                  "aura-theme",
-                  "aura-accent",
-                ]) {
-                  window.localStorage.removeItem(key);
-                }
-              }
+              if (next.operation_kind === "reset") forgetBrowserData();
               refreshTimer.current = window.setTimeout(() => window.location.reload(), 2500);
             }
           } else if (next.error) {

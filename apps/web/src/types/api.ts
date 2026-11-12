@@ -516,6 +516,7 @@ interface LibrarySearchResult {
   artwork_url: string | null;
   artwork_path: string | null;
   href: string;
+  track: LibraryTrack | null;
 }
 
 export interface LibrarySearchResponse {

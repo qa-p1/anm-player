@@ -627,3 +627,44 @@ def test_importing_the_same_playlist_twice_creates_distinct_playlists(
         assert first["tracks"] == second["tracks"] == 1
 
     assert names == ["Road Trip", "Road Trip (2)"]
+
+
+def test_library_search_returns_playable_tracks_without_physical_paths() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine, expire_on_commit=False)
+    with Session() as session:
+        album = LibraryAlbum(
+            source="youtube",
+            external_id="album-id",
+            public_id="album-public-id",
+            title="Night Album",
+            artist_name="Artist",
+            artwork_path="/home/user/secret/cover.jpg",
+            is_in_library=True,
+        )
+        session.add(album)
+        session.flush()
+        session.add(
+            LibraryTrack(
+                source="youtube",
+                external_id="video-id",
+                album_id=album.id,
+                title="Nightcall",
+                artist_name="Artist",
+                duration_seconds=200,
+                position=0,
+                is_in_library=True,
+            )
+        )
+        session.commit()
+
+        results = LibraryAlbumService(session).search("night").results
+
+    album_result = next(item for item in results if item.item_type == "album")
+    track_result = next(item for item in results if item.item_type == "track")
+    assert album_result.artwork_path is None
+    assert track_result.track is not None
+    assert track_result.track.external_id == "video-id"
+    assert track_result.track.duration_seconds == 200
+    assert track_result.href == f"/albums/{album.public_id}"

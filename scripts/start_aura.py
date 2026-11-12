@@ -412,6 +412,7 @@ def serve(
     environment["ANM_WEB_PORT"] = str(web_port)
     processes: list[subprocess.Popen[str]] = []
     stop_requested = threading.Event()
+    uninstall_request: list[bool] = []
     control: http.server.ThreadingHTTPServer | None = None
     control_token: str | None = None
 
@@ -502,7 +503,8 @@ def serve(
     try:
         browser_url = f"http://127.0.0.1:{web_port}/"
         # Register shutdown before spawning children, including foreground runs.
-        control, control_token = start_control_server(stop_requested, browser_url, api_port=api_port, updater=updater)
+        installed = bool(os.environ.get("ANM_INSTALL_ROOT"))
+        control, control_token = start_control_server(stop_requested, browser_url, api_port=api_port, updater=updater, on_uninstall=uninstall_request.append if installed else None)
         environment["ANM_LAUNCHER_CONTROL_PORT"] = str(control.server_port)
         environment["ANM_LAUNCHER_CONTROL_TOKEN"] = control_token
         if updater is not None:
@@ -540,6 +542,24 @@ def serve(
             signal.signal(signal.SIGBREAK, previous_sigbreak)
         signal.signal(signal.SIGTERM, previous_sigterm)
         atexit.unregister(cleanup)
+        if uninstall_request:
+            spawn_uninstaller(keep_data=uninstall_request[-1])
+
+
+def spawn_uninstaller(*, keep_data: bool) -> None:
+    """Hand removal to a copy of the installer outside the install folder; it
+    waits for this launcher to exit so no file is still in use."""
+    staging = Path(tempfile.mkdtemp(prefix="anm-uninstall-"))
+    shutil.copyfile(REPOSITORY_ROOT / "scripts" / "bootstrap.py", staging / "bootstrap.py")
+    python = Path(sys.executable)
+    if os.name == "nt" and python.with_name("pythonw.exe").is_file():
+        python = python.with_name("pythonw.exe")
+    command = [str(python), str(staging / "bootstrap.py"), "--uninstall", "--root", str(installation_home()), "--wait-pid", str(os.getpid())]
+    if keep_data:
+        command.append("--keep-data")
+    options = {"start_new_session": True} if os.name != "nt" else {"creationflags": subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP}
+    with (staging / "uninstall.log").open("w", encoding="utf-8") as log:
+        subprocess.Popen(command, cwd=staging, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, env={key: value for key, value in os.environ.items() if not key.startswith(("ANM_", "AURA_"))}, **options)
 
 
 def read_runtime() -> dict[str, object] | None:
@@ -577,7 +597,7 @@ def control_request(runtime: dict[str, object], *, stop: bool = False) -> bool:
 
 
 def start_control_server(
-    stop_requested: threading.Event, browser_url: str, *, api_port: int = 8000, updater=None,
+    stop_requested: threading.Event, browser_url: str, *, api_port: int = 8000, updater=None, on_uninstall=None,
 ) -> tuple[http.server.ThreadingHTTPServer, str]:
     token = secrets.token_urlsafe(32)
 
@@ -614,12 +634,28 @@ def start_control_server(
                 self.end_headers()
                 self.wfile.write(body)
                 return
-            if self.path != ("/stop" if stop else "/status"):
+            if stop and self.path == "/uninstall":
+                if on_uninstall is None:
+                    self.send_error(409, "Only an installed copy of ANM Player can uninstall itself.")
+                    return
+                try:
+                    length = int(self.headers.get("Content-Length") or 0)
+                    request = json.loads(self.rfile.read(min(length, 1024)) or b"{}")
+                    keep_data = request["keep_data"]
+                except (ValueError, KeyError, TypeError):
+                    self.send_error(400)
+                    return
+                if not isinstance(keep_data, bool):
+                    self.send_error(400)
+                    return
+            elif self.path != ("/stop" if stop else "/status"):
                 self.send_error(404)
                 return
             if stop and updater is not None and updater.running and updater.status().get("state") != "checking":
                 self.send_error(409, "Wait for the update to finish before closing the app.")
                 return
+            if self.path == "/uninstall":
+                on_uninstall(keep_data)
             self.send_response(200)
             self.send_header("Content-Length", "0")
             self.end_headers()

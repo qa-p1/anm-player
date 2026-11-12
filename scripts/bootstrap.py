@@ -20,6 +20,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.request
 import zipfile
 from pathlib import Path, PurePosixPath
@@ -394,14 +395,7 @@ def retire_private_tools(root: Path) -> None:
         return
     print("[setup] Switching ANM Player to this computer's own Python, Node.js and FFmpeg…", flush=True)
     sources = [root / "app", *(sorted((root / "releases").iterdir()) if (root / "releases").is_dir() else [])]
-    pointer = root / "current.json"
-    try:
-        active = Path(json.loads(pointer.read_text(encoding="utf-8"))["root"]) if pointer.is_file() else root / "app"
-    except (OSError, ValueError, KeyError, TypeError):
-        active = root / "app"
-    if (active / "scripts" / "start_aura.py").is_file():
-        environment = {**os.environ, "ANM_INSTALL_ROOT": str(root)}
-        subprocess.run([sys.executable, str(active / "scripts" / "start_aura.py"), "--stop"], cwd=active, env=environment, check=False, capture_output=True, timeout=120)
+    stop_running_app(root, active_source(root))
     for source in sources:
         venv = source / "apps" / "api" / ".venv"
         if not venv.is_dir() or venv.is_symlink():
@@ -417,6 +411,20 @@ def retire_private_tools(root: Path) -> None:
     shutil.rmtree(tools)
     for leftover in ("Start ANM Player.sh", "Start ANM Player.command", "Start ANM Player.cmd"):
         (root / leftover).unlink(missing_ok=True)
+
+def active_source(root: Path) -> Path:
+    pointer = root / "current.json"
+    try:
+        return Path(json.loads(pointer.read_text(encoding="utf-8"))["root"]) if pointer.is_file() else root / "app"
+    except (OSError, ValueError, KeyError, TypeError):
+        return root / "app"
+
+
+def stop_running_app(root: Path, source: Path) -> None:
+    if (source / "scripts" / "start_aura.py").is_file():
+        environment = {**os.environ, "ANM_INSTALL_ROOT": str(root)}
+        subprocess.run([sys.executable, str(source / "scripts" / "start_aura.py"), "--stop"], cwd=source, env=environment, check=False, capture_output=True, timeout=120)
+
 
 def source_directory(root: Path) -> Path:
     pointer = root / "current.json"
@@ -692,6 +700,145 @@ def write_shortcuts(root: Path, source: Path) -> None:
         write_linux_shortcuts(root, launcher, icon)
 
 
+# Everything ANM Player keeps in a data folder; anything else there is the user's.
+MANAGED_DATA = ("music", "downloads", "cache", "config", "thumbnails", "logs", "aura.db", "aura.db-wal", "aura.db-shm", "aura.db-journal")
+
+
+def process_alive(pid: int) -> bool:
+    if os.name == "nt":
+        import ctypes
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.OpenProcess(0x00101000, False, pid)  # SYNCHRONIZE | QUERY_LIMITED_INFORMATION
+        if not handle:
+            return False
+        try:
+            return kernel32.WaitForSingleObject(handle, 0) == 0x102  # WAIT_TIMEOUT: still running
+        finally:
+            kernel32.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def remove_path(path: Path) -> None:
+    def make_writable(function, target, _error) -> None:
+        os.chmod(target, stat.S_IWRITE)
+        function(target)
+
+    for attempt in range(10):
+        try:
+            if path.is_dir() and not path.is_symlink():
+                shutil.rmtree(path, onexc=make_writable)
+            else:
+                path.unlink(missing_ok=True)
+            return
+        except FileNotFoundError:
+            return
+        except OSError:
+            if attempt == 9:
+                raise
+            time.sleep(1)  # Windows keeps files locked briefly after a process exits.
+
+
+def configured_data_root(root: Path) -> Path:
+    try:
+        value = json.loads((root / "storage-state.json").read_text(encoding="utf-8")).get("data_root")
+    except (OSError, ValueError, AttributeError):
+        value = None
+    return Path(value).resolve() if isinstance(value, str) and value else (root / "data").resolve()
+
+
+def remove_shortcuts(root: Path) -> None:
+    if os.name == "nt":
+        command = (
+            "$shell = New-Object -ComObject WScript.Shell; "
+            "foreach ($place in @([Environment]::GetFolderPath('Programs'), [Environment]::GetFolderPath('Desktop'))) { if ($place) { "
+            "$path = Join-Path $place 'ANM Player.lnk'; "
+            "if ((Test-Path -LiteralPath $path) -and $shell.CreateShortcut($path).WorkingDirectory -eq $env:ANM_SHORTCUT_ROOT) { Remove-Item -LiteralPath $path } } }"
+        )
+        powershell = shutil.which("powershell.exe")
+        if powershell:
+            subprocess.run([powershell, "-NoProfile", "-NonInteractive", "-Command", command], env={**os.environ, "ANM_SHORTCUT_ROOT": str(root)}, check=False, capture_output=True)
+        return
+    desktop = user_desktop_folder()
+    if sys.platform == "darwin":
+        bundle = Path.home() / "Applications" / "ANM Player.app"
+        if (bundle / "Contents" / "Resources" / "anm-player-setup").is_file():
+            remove_path(bundle)
+        link = desktop / "ANM Player.app" if desktop else None
+        if link is not None and link.is_symlink() and Path(os.readlink(link)) == bundle:
+            link.unlink()
+        return
+    applications = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share") / "applications"
+    for shortcut in (applications / f"{DESKTOP_ID}.desktop", *([desktop / "ANM Player.desktop"] if desktop else [])):
+        if shortcut.is_file() and owned_shortcut(shortcut, root):
+            shortcut.unlink()
+    if shutil.which("update-desktop-database") and applications.is_dir():
+        subprocess.run(["update-desktop-database", str(applications)], capture_output=True, check=False)
+
+
+def uninstall(root: Path, *, keep_data: bool) -> None:
+    """Remove the app and its shortcuts; optionally keep the music library for a reinstall."""
+    protected = {Path.home().resolve(), Path(root.anchor).resolve()}
+    markers = (root / "bootstrap.py", root / "current.json", root / "app" / "scripts" / "start_aura.py")
+    if root in protected or not any(marker.exists() for marker in markers):
+        raise SetupError(f"{root} does not look like an ANM Player installation, so nothing was removed.")
+    stop_running_app(root, active_source(root))
+    remove_shortcuts(root)
+    data = configured_data_root(root)
+    keep: set[Path] = set()
+    if keep_data:
+        # The state file remembers a data folder that was moved elsewhere.
+        keep.add(root / "storage-state.json")
+        if data.is_relative_to(root) and data != root:
+            keep.add(root / data.relative_to(root).parts[0])
+    elif not data.is_relative_to(root) and data not in protected:
+        for name in MANAGED_DATA:
+            remove_path(data / name)
+        try:
+            data.rmdir()
+        except OSError:
+            pass  # The folder also holds files that aren't ANM Player's.
+    for entry in list(root.iterdir()):
+        if entry not in keep:
+            remove_path(entry)
+    if not keep:
+        root.rmdir()
+
+
+def notify(message: str) -> None:
+    if sys.platform == "darwin":
+        subprocess.run(["osascript", "-e", "on run argv", "-e", "display notification (item 1 of argv) with title \"ANM Player\"", "-e", "end run", message], capture_output=True, check=False)
+    elif os.name != "nt" and shutil.which("notify-send"):
+        subprocess.run(["notify-send", "--app-name=ANM Player", "ANM Player", message], capture_output=True, check=False)
+
+
+def run_uninstall(root: Path, *, keep_data: bool, wait_pid: int | None) -> int:
+    if wait_pid:
+        deadline = time.monotonic() + 120
+        while process_alive(wait_pid) and time.monotonic() < deadline:
+            time.sleep(0.5)
+    try:
+        uninstall(root, keep_data=keep_data)
+    except (OSError, SetupError) as exc:
+        message = f"ANM Player could not be fully removed: {exc}"
+        print(f"[uninstall] {message}", file=sys.stderr, flush=True)
+        if os.name == "nt" and sys.stdout is None:
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(None, message, "ANM Player", 0x10)
+        else:
+            notify(message)
+        return 1
+    message = f"ANM Player was removed. Your music and settings are still in {configured_data_root(root)}." if keep_data else "ANM Player and all of its data were removed."
+    print(f"[uninstall] {message}", flush=True)
+    notify(message)
+    return 0
+
+
 def report_failure(message: str) -> None:
     print(f"\n[setup] {message}\nYour music and settings have been kept. Run this setup again to retry.", file=sys.stderr, flush=True)
     if os.name == "nt" and sys.stdout is None:
@@ -705,8 +852,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--root", type=Path)
     parser.add_argument("--no-browser", action="store_true")
     parser.add_argument("--setup-only", action="store_true", default=os.environ.get("ANM_SETUP_ONLY") == "1")
+    parser.add_argument("--uninstall", action="store_true", help="remove ANM Player and its shortcuts")
+    parser.add_argument("--keep-data", action="store_true", help="with --uninstall, keep the music library and settings")
+    parser.add_argument("--wait-pid", type=int, help=argparse.SUPPRESS)
     # Launcher options such as --stop or --foreground pass straight through.
     args, launcher_options = parser.parse_known_args(argv)
+    if args.uninstall:
+        return run_uninstall((args.root or install_root()).expanduser().resolve(), keep_data=args.keep_data, wait_pid=args.wait_pid)
     try:
         check_python()
         root = (args.root or install_root()).expanduser().resolve()

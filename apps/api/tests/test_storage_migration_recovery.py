@@ -684,3 +684,90 @@ def test_quiesced_revalidation_recovers_partial_layouts_and_refreshes_totals(
 
     with pytest.raises(StorageMigrationError, match="missing"):
         coordinator._sqlite_quick_check(tmp_path / "missing.db")
+
+
+def run_in_place_reset(tmp_path, isolated_coordinator, monkeypatch, *, before_run=None):
+    home = tmp_path / "data"
+    valid_database(home / "aura.db")
+    (home / "music").mkdir()
+    (home / "music" / "old.mp3").write_bytes(b"audio")
+    coordinator, state, _, engine = isolated_coordinator(home)
+
+    class InlineThread:
+        def __init__(self, *, target, args, name: str, daemon: bool) -> None:
+            self.args = args
+
+        def start(self) -> None:
+            pass
+
+    monkeypatch.setattr(coordinator_module.threading, "Thread", InlineThread)
+    coordinator.start_reset()
+    operation = state.read()["migration"]
+    staging = Path(operation["target_root"])
+    monkeypatch.setattr(coordinator, "_upgrade_database", lambda: valid_database(staging / "aura.db"))
+    monkeypatch.setattr(coordinator, "_verify_switched", lambda _root: None)
+    if before_run:
+        before_run(coordinator, operation, home, staging)
+    coordinator._run_reset(operation)
+    return home, staging, state, engine
+
+
+def test_fresh_start_in_place_keeps_the_data_folder_path(tmp_path, isolated_coordinator, monkeypatch) -> None:
+    home, staging, state, engine = run_in_place_reset(tmp_path, isolated_coordinator, monkeypatch)
+
+    persisted = state.read()
+    assert staging.parent == home.parent and staging.name.startswith(".data.fresh-")
+    assert Path(persisted["data_root"]) == home.resolve()
+    assert persisted["migration"] is None
+    assert (home / "aura.db").is_file()
+    assert not (home / "music" / "old.mp3").exists()
+    assert not staging.exists()
+    assert engine.bound[-1] == home.resolve() / "aura.db"
+
+
+def test_fresh_start_in_place_keeps_unrelated_files(tmp_path, isolated_coordinator, monkeypatch) -> None:
+    def add_unrelated(_coordinator, _operation, home: Path, _staging: Path) -> None:
+        (home / "notes.txt").write_text("mine", encoding="utf-8")
+
+    home, staging, state, _ = run_in_place_reset(tmp_path, isolated_coordinator, monkeypatch, before_run=add_unrelated)
+
+    assert (home / "notes.txt").read_text(encoding="utf-8") == "mine"
+    assert (home / "aura.db").is_file()
+    assert not staging.exists()
+    assert Path(state.read()["data_root"]) == home.resolve()
+
+
+def test_interrupted_in_place_move_resumes_without_overwriting_moved_files(tmp_path, isolated_coordinator, monkeypatch) -> None:
+    home = tmp_path / "data"
+    staging = tmp_path / ".data.fresh-test"
+    valid_database(home / "aura.db")
+    (staging / "music").mkdir(parents=True)
+    (staging / "aura.db").write_bytes(b"recreated after the crash")
+    operation = reset_for(home, staging, phase="relocating")
+    operation["restore_root"] = str(home)
+    coordinator, state, _, engine = isolated_coordinator(staging, operation)
+
+    coordinator._run_reset(operation)
+
+    assert (home / "music").is_dir()
+    assert (home / "aura.db").read_bytes() != b"recreated after the crash"
+    assert not staging.exists()
+    assert Path(state.read()["data_root"]) == home.resolve()
+    assert state.read()["migration"] is None
+    assert engine.bound[-1] == home.resolve() / "aura.db"
+
+
+def test_failed_in_place_fresh_start_removes_its_staging_folder(tmp_path, isolated_coordinator, monkeypatch) -> None:
+    home = tmp_path / "data"
+    valid_database(home / "aura.db")
+    coordinator, state, _, _ = isolated_coordinator(home)
+    monkeypatch.setattr(coordinator_module.threading, "Thread", lambda **_kwargs: type("T", (), {"start": lambda self: None})())
+    coordinator.start_reset()
+    operation = state.read()["migration"]
+    monkeypatch.setattr(coordinator, "_upgrade_database", lambda: (_ for _ in ()).throw(RuntimeError("boom")))
+
+    coordinator._run_guarded(operation["operation_id"])
+
+    assert not Path(operation["target_root"]).exists()
+    assert Path(state.read()["data_root"]) == home.resolve()
+    assert (home / "aura.db").is_file()
