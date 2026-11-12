@@ -1,6 +1,6 @@
 import { invalidateLibrary } from "@/services/music-invalidation";
 import { queryClient } from "@/lib/query-client";
-import { Check, Pause, Play, Plus } from "lucide-react";
+import { Check, Loader2, Pause, Play, Plus } from "lucide-react";
 import type { MouseEvent } from "react";
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router";
@@ -30,6 +30,8 @@ interface OnlineMusicCardProps {
   /** Flat tracklist rows instead of glass cards (used inside list panels). */
   flat?: boolean;
 }
+
+const KIND_LABELS: Partial<Record<string, string>> = { song: "Song", video: "Video", album: "Album", artist: "Artist", playlist: "Playlist", episode: "Episode", podcast: "Podcast" };
 
 export function OnlineMusicCard({ item, context, variant = "tile", className, albumStatus, isDownloaded = false, flat = false }: OnlineMusicCardProps) {
   const navigate = useNavigate();
@@ -94,7 +96,7 @@ export function OnlineMusicCard({ item, context, variant = "tile", className, al
       triggerClassName={variant === "tile" || variant === "artist" ? "opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100" : undefined}
       iconClassName="h-4 w-4"
     />
-  ) : item.kind === "album" ? (
+  ) : item.kind === "album" && variant === "row" ? (
     <Button
       size="sm"
       variant="ghost"
@@ -106,6 +108,23 @@ export function OnlineMusicCard({ item, context, variant = "tile", className, al
       {isSavingAlbum ? "Adding..." : isInLibrary ? "In library" : "Add"}
     </Button>
   ) : null;
+  // On tiles the save button sits on the cover so it never covers the title.
+  const albumCorner = item.kind === "album" && variant !== "row" ? (
+    <button
+      type="button"
+      aria-label={isInLibrary ? `${item.title} is in your library` : `Add ${item.title} to library`}
+      title={isInLibrary ? "In library" : "Add to library"}
+      disabled={isInLibrary || isSavingAlbum}
+      onClick={saveAlbum}
+      className={cn(
+        "absolute right-2 top-2 z-10 grid h-8 w-8 place-items-center rounded-full border border-white/15 bg-black/55 text-white backdrop-blur-md transition hover:scale-105 hover:bg-black/75 disabled:hover:scale-100",
+        isInLibrary ? "text-emerald-400" : "opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 [@media(hover:none)]:opacity-100",
+      )}
+    >
+      {isSavingAlbum ? <Loader2 className="h-4 w-4 animate-spin" /> : isInLibrary ? <Check className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+    </button>
+  ) : null;
+  const subtitle = item.subtitle || item.artists.map((artist) => artist.name).filter(Boolean).join(", ") || KIND_LABELS[item.kind] || item.kind;
 
   if (variant === "row") {
     if (track) {
@@ -113,7 +132,7 @@ export function OnlineMusicCard({ item, context, variant = "tile", className, al
         <TrackRow
           track={track}
           context={contextTracks}
-          subtitle={item.subtitle ?? item.kind}
+          subtitle={subtitle}
           className={className}
           isDownloaded={isDownloaded}
           variant={flat ? "list" : "card"}
@@ -128,7 +147,7 @@ export function OnlineMusicCard({ item, context, variant = "tile", className, al
           <Artwork artworkUrl={artworkUrl} title={item.title} round={false} />
           <span className="min-w-0 flex-1">
             <span className="block truncate text-sm font-semibold">{item.title}</span>
-            <span className="block truncate text-xs text-muted-foreground">{item.subtitle ?? item.kind}</span>
+            <span className="block truncate text-xs text-muted-foreground">{subtitle}</span>
           </span>
           <TrackDuration trackId={`youtube:${item.id}`} seconds={item.duration_seconds} className="hidden text-xs text-muted-foreground sm:block" />
           <PlayIcon className="h-4 w-4 shrink-0 fill-current" />
@@ -169,7 +188,7 @@ export function OnlineMusicCard({ item, context, variant = "tile", className, al
         <div className={cn("pointer-events-none relative z-10 min-w-0", isArtist && "text-center", actions && "pr-11")}>
           <TrackMetadata
             track={track}
-            fallbackArtist={item.subtitle ?? item.kind}
+            fallbackArtist={subtitle}
             className="mt-1 flex text-xs text-muted-foreground"
             linkClassName="pointer-events-auto"
           />
@@ -178,12 +197,13 @@ export function OnlineMusicCard({ item, context, variant = "tile", className, al
         <span className={cn("pointer-events-none relative z-10 mt-1 block min-w-0 truncate text-xs text-muted-foreground", isArtist && "text-center", actions && "pr-24")}>
           {artistId ? (
             <Link to={`/library/artists/online/${encodeURIComponent(artistId)}`} className="pointer-events-auto hover:text-primary hover:underline">
-              {item.subtitle ?? item.artists[0].name}
+              {subtitle}
             </Link>
-          ) : item.subtitle ?? item.kind}
+          ) : subtitle}
         </span>
       )}
-      <div className="absolute bottom-0 right-0 z-10">{actions}</div>
+      {albumCorner}
+      {actions && <div className="absolute bottom-0 right-0 z-10">{actions}</div>}
     </article>
   );
 }

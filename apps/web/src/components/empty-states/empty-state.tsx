@@ -19,7 +19,7 @@ export function EmptyState({ icon: Icon, title, description, children }: EmptySt
         </div>
         <h3 className="text-base font-semibold">{title}</h3>
         <p className="mt-2 max-w-md text-sm text-muted-foreground">{description}</p>
-        {children}
+        {children && <div className="mt-5 flex flex-wrap justify-center gap-2">{children}</div>}
       </CardContent>
     </Card>
   );

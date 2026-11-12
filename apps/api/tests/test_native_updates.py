@@ -1,4 +1,5 @@
 import importlib.util
+import io
 import json
 import sqlite3
 import stat
@@ -118,8 +119,10 @@ def test_update_cannot_delete_its_running_source(tmp_path, monkeypatch):
 def test_check_detects_commit_changes_without_new_release(tmp_path, monkeypatch):
     m = manager(tmp_path)
     monkeypatch.setattr(updates, "github_head", lambda: {"commit": NEW, "summary": "Improve library"})
+    monkeypatch.setattr(updates, "release_notes", lambda root, commit: {"notes": [{"title": None, "text": "Faster"}], "more": 0})
     m._work(None)
     assert m.status()["state"] == "available"
+    assert m.status()["notes"] == [{"title": None, "text": "Faster"}]
     monkeypatch.setattr(updates, "github_head", lambda: {"commit": OLD, "summary": "Current"})
     m._work(None)
     assert m.status()["state"] == "current"
@@ -236,3 +239,24 @@ def test_completion_is_published_only_after_cleanup_finishes(tmp_path, monkeypat
     monkeypatch.setattr(updates, 'cleanup_updates', clean)
     m._work(NEW)
     assert events == ['cleaned', 'handover']
+
+
+def test_release_notes_list_only_changelog_entries_this_install_lacks(tmp_path, monkeypatch):
+    (tmp_path / "CHANGELOG.md").write_text("# Changelog\n\n## 1.0\n\n- Old entry\n", encoding="utf-8")
+    remote = "# Changelog\n\n## Updates\n\n- **Faster search**: results\n  come back sooner.\n- Uses `bootstrap.py` now\n\n## 1.0\n\n- Old entry\n"
+
+    class Response(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    monkeypatch.setattr(updates.urllib.request, "urlopen", lambda url, timeout: Response(remote.encode()))
+    notes = updates.release_notes(tmp_path, NEW)
+    assert notes == {"notes": [{"title": "Faster search", "text": "results come back sooner."}, {"title": None, "text": "Uses bootstrap.py now"}], "more": 0}
+
+
+def test_release_notes_are_optional_when_github_is_unreachable(tmp_path, monkeypatch):
+    monkeypatch.setattr(updates.urllib.request, "urlopen", lambda url, timeout: (_ for _ in ()).throw(OSError("offline")))
+    assert updates.release_notes(tmp_path, NEW) == {"notes": [], "more": 0}

@@ -59,6 +59,40 @@ def github_head() -> dict:
     return {"commit": sha, "summary": str(payload.get("commit", {}).get("message", "Update ANM Player")).splitlines()[0][:240]}
 
 
+def changelog_entries(text: str) -> list[str]:
+    """Bullet points from the changelog, one string per entry (wrapped lines joined)."""
+    entries: list[str] = []
+    for line in text.splitlines():
+        if line.startswith("- "):
+            entries.append(line[2:].strip())
+        elif entries and line.startswith("  ") and line.strip():
+            entries[-1] += " " + line.strip()
+        elif line.startswith("#") and entries:
+            entries.append("")  # Keep sections apart so a heading never merges two entries.
+    return [entry for entry in entries if entry]
+
+
+def release_notes(root: Path, commit: str) -> dict:
+    """What's new: changelog entries in the update that this install doesn't have yet."""
+    try:
+        with urllib.request.urlopen(f"https://raw.githubusercontent.com/{REPOSITORY}/{commit}/CHANGELOG.md", timeout=20) as response:
+            remote = changelog_entries(response.read(1024 * 1024).decode("utf-8", errors="replace"))
+    except (OSError, ValueError):
+        return {"notes": [], "more": 0}
+    try:
+        local = set(changelog_entries((root / "CHANGELOG.md").read_text(encoding="utf-8")))
+    except OSError:
+        local = set()
+    notes = []
+    for entry in remote:
+        if entry in local:
+            continue
+        plain = entry.replace("`", "")
+        title, separator, text = plain.partition("**: ") if plain.startswith("**") else ("", "", plain)
+        notes.append({"title": title.removeprefix("**") if separator else None, "text": text if separator else plain})
+    return {"notes": notes[:8], "more": max(0, len(notes) - 8)}
+
+
 def installed_commit(root: Path) -> str | None:
     commit = read_json(root / ".aura" / "install.json").get("commit")
     if isinstance(commit, str) and COMMIT.fullmatch(commit):
@@ -260,7 +294,8 @@ class NativeUpdater:
             if commit is None:
                 latest = github_head()
                 available = latest["commit"] != self.commit
-                self.set_state("available" if available else "current", "An update is ready to install." if available else "You’re up to date.", latest_commit=latest["commit"], summary=latest["summary"])
+                notes = release_notes(self.root, latest["commit"]) if available else {"notes": [], "more": 0}
+                self.set_state("available" if available else "current", "An update is ready to install." if available else "You’re up to date.", latest_commit=latest["commit"], summary=latest["summary"], **notes)
                 return
             candidate = self.home / "releases" / commit
             # A failed stage is disposable; never remove the running or selected source.

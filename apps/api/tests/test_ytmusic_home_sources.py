@@ -195,7 +195,7 @@ def test_home_assembly_returns_only_approved_ids_in_order() -> None:
         "quick-picks",
         "global-trending",
         "trending-albums",
-        "region-pulse",
+        "region-top",
     ]
     assert response.chips == []
 
@@ -360,7 +360,7 @@ def test_failed_chart_refresh_returns_previous_complete_response() -> None:
         region="GLOBAL",
         sections=[
             OnlineHomeSection(id="global-trending", title="Global", layout="song_list"),
-            OnlineHomeSection(id="region-pulse", title="India", layout="song_list"),
+            OnlineHomeSection(id="region-top", title="Top 20", layout="song_list"),
         ],
     )
     service._home_cache = {"US": (0, previous)}
@@ -434,10 +434,10 @@ def test_home_uses_the_requested_region_and_caches_each_region_separately() -> N
 
     assert calls == ["IN", "US"]
     assert india.region == "IN" and usa.region == "US" and unknown.region == "US"
-    pulse = {section.id: section for section in india.sections}["region-pulse"]
-    assert pulse.title == "India Pulse" and pulse.items[0].id == "chart-IN"
+    top = {section.id: section for section in india.sections}["region-top"]
+    assert top.title == "Top 20" and top.subtitle is None and top.items[0].id == "chart-IN"
     albums = {section.id: section for section in usa.sections}["trending-albums"]
-    assert albums.subtitle == "New albums & singles in United States"
+    assert albums.subtitle is None and "United States" not in albums.title
 
 
 def test_newest_release_picks_the_latest_year() -> None:

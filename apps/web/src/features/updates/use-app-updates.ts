@@ -15,6 +15,8 @@ interface AppUpdateStatus {
   latest_commit?: string;
   installed_commit?: string;
   summary?: string;
+  notes?: Array<{ title: string | null; text: string }>;
+  more?: number;
   updated_at?: number;
 }
 const key = ["app", "updates"];

@@ -75,3 +75,17 @@ it("returns the up-to-date tick to refresh after 6.5 seconds", () => {
   act(() => vi.advanceTimersByTime(2));
   expect(screen.getByRole("button", { name: "Check for app updates" })).toBeInTheDocument();
 });
+
+it("shows what's new while hovering an available update", async () => {
+  mocks.apiGet.mockResolvedValue({ ...idle, state: "available", message: "An update is ready", notes: [{ title: "Faster search", text: "Results come back sooner." }, { title: null, text: "Fixed the empty downloads page." }], more: 3 });
+  mount();
+  const button = await screen.findByRole("button", { name: "Install app update and restart" });
+  expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+  fireEvent.pointerEnter(button.parentElement!);
+  const notes = screen.getByRole("tooltip");
+  expect(notes).toHaveTextContent("Faster search. Results come back sooner.");
+  expect(notes).toHaveTextContent("Fixed the empty downloads page.");
+  expect(notes).toHaveTextContent("Plus 3 more improvements.");
+  fireEvent.pointerLeave(button.parentElement!);
+  await waitFor(() => expect(screen.queryByRole("tooltip")).not.toBeInTheDocument());
+});

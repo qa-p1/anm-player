@@ -66,8 +66,8 @@ describe("playback cards", () => {
   it("opens album cards while keeping their save action independent", async () => {
     const album: OnlineMusicItem = { ...item, kind: "album", playable: false, browse_id: "album-id" };
     render(<MemoryRouter><OnlineMusicCard item={album} /><Location /></MemoryRouter>);
-    fireEvent.click(screen.getByRole("button", { name: "Add" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "In library" })).toBeDisabled());
+    fireEvent.click(screen.getByRole("button", { name: `Add ${item.title} to library` }));
+    await waitFor(() => expect(screen.getByRole("button", { name: `${item.title} is in your library` })).toBeDisabled());
     expect(mocks.saveAlbum).toHaveBeenCalledWith("album-id");
     expect(screen.getByTestId("location")).toHaveTextContent(/^\/$/);
     fireEvent.click(screen.getByText(item.title));

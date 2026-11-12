@@ -117,7 +117,7 @@ class YouTubeMusicService:
                 return previous
             response = assemble_home(
                 provider_result[0], global_result[0], region_result[0], albums_result[0],
-                region=region, region_name=CHART_REGIONS[region],
+                region=region,
             )
             self._home_cache[region] = (now + self.home_cache_ttl_seconds, response)
             return response

@@ -31,7 +31,6 @@ def assemble_home(
     explore_albums: list[YTItem] | None,
     *,
     region: str = "US",
-    region_name: str = "United States",
 ) -> OnlineHomeResponse:
     provider_sections = provider_home.sections if provider_home else []
     quick_shelf = find_provider_quick_picks(provider_sections)
@@ -85,7 +84,6 @@ def assemble_home(
             OnlineHomeSection(
                 id="trending-albums",
                 title="Trending Albums",
-                subtitle=f"New albums & singles in {region_name}",
                 layout="album_grid",
                 items=[item_to_schema(item) for item in explore_albums[:12]],
             )
@@ -93,9 +91,8 @@ def assemble_home(
     if region_chart:
         sections.append(
             OnlineHomeSection(
-                id="region-pulse",
-                title=f"{region_name} Pulse",
-                subtitle=region_chart[0],
+                id="region-top",
+                title="Top 20",
                 layout="song_list",
                 items=[item_to_schema(item) for item in region_chart[2][:20]],
             )
@@ -105,7 +102,7 @@ def assemble_home(
 
 def has_complete_charts(response: OnlineHomeResponse) -> bool:
     section_ids = {section.id for section in response.sections}
-    return {"global-trending", "region-pulse"}.issubset(section_ids)
+    return {"global-trending", "region-top"}.issubset(section_ids)
 
 
 def item_to_schema(item: YTItem) -> OnlineMusicItem:

@@ -51,7 +51,7 @@ export function HomePage() {
   const apiQuickPicks = findById(sections, "quick-picks");
   const globalTrending = findById(sections, "global-trending");
   const trendingAlbums = findById(sections, "trending-albums");
-  const regionPulse = findById(sections, "region-pulse");
+  const regionTop = findById(sections, "region-top");
   const seedVideoId = recentHistory.find((entry) => entry.source === "youtube" && entry.external_id)?.external_id ?? null;
   const { data: related, isLoading: isRelatedLoading } = useQuery({
     queryKey: ["ytmusic", "related", seedVideoId],
@@ -70,8 +70,8 @@ export function HomePage() {
   }, [apiQuickPicks, related, globalTrending, todayIds]);
   const recentlyPlayed = recentHistory.slice(0, 5);
   const displayedPlayable = useMemo(
-    () => uniqueItems([heroItems, quickPicks?.items ?? [], globalTrending?.items ?? [], regionPulse?.items ?? []].flat()),
-    [heroItems, quickPicks, globalTrending, regionPulse],
+    () => uniqueItems([heroItems, quickPicks?.items ?? [], globalTrending?.items ?? [], regionTop?.items ?? []].flat()),
+    [heroItems, quickPicks, globalTrending, regionTop],
   );
   const downloadJobsKey = downloadJobs.map((job) => `${job.id}:${job.status}:${job.progress}`).join(",");
 
@@ -175,7 +175,7 @@ export function HomePage() {
       {quickPicks && <SongSection section={quickPicks} title="Quick Picks" limit={8} downloadedTracks={downloadedTracks} />}
       {globalTrending && <SongSection section={globalTrending} title="Trending Globally" icon={TrendingUp} ranked downloadedTracks={downloadedTracks} />}
       {trendingAlbums && <AlbumSection section={trendingAlbums} albumStatuses={albumStatuses} />}
-      {regionPulse && <SongSection section={regionPulse} title={regionPulse.title} downloadedTracks={downloadedTracks} />}
+      {regionTop && <SongSection section={regionTop} title={regionTop.title} downloadedTracks={downloadedTracks} />}
 
       {recentlyPlayed.length > 0 && (
         <Section title="Continue Listening" icon={Music}>

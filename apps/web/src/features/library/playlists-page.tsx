@@ -127,7 +127,7 @@ export function PlaylistsPage() {
 
         {isLoading ? <TileSkeleton /> : playlists.length === 0 ? (
           <EmptyState icon={ListMusic} title="No playlists yet" description="Create your first playlist to organize your music, or import one from YouTube Music.">
-            <div className="flex flex-wrap justify-center gap-2"><Button onClick={() => setCreateOpen(true)}><Plus className="h-4 w-4" />New playlist</Button><Button variant="glass" onClick={() => setImportOpen(true)}>Import URL</Button></div>
+            <Button onClick={() => setCreateOpen(true)}><Plus className="h-4 w-4" />New playlist</Button><Button variant="glass" onClick={() => setImportOpen(true)}>Import URL</Button>
           </EmptyState>
         ) : view === "grid" ? (
           <div className="-mx-2 grid grid-cols-2 gap-1 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6">
