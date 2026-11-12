@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { ChevronLeft, ChevronRight, ListPlus, Music, Play, Search, Sparkles, TrendingUp } from "lucide-react";
+import { ChevronLeft, ChevronRight, Flame, ListPlus, Music, Play, Search, Sparkles, TrendingUp } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { useShallow } from "zustand/react/shallow";
@@ -175,7 +175,7 @@ export function HomePage() {
       {quickPicks && <SongSection section={quickPicks} title="Quick Picks" limit={8} downloadedTracks={downloadedTracks} />}
       {globalTrending && <SongSection section={globalTrending} title="Trending Globally" icon={TrendingUp} ranked downloadedTracks={downloadedTracks} />}
       {trendingAlbums && <AlbumSection section={trendingAlbums} albumStatuses={albumStatuses} />}
-      {regionTop && <SongSection section={regionTop} title={regionTop.title} downloadedTracks={downloadedTracks} />}
+      {regionTop && <SongSection section={regionTop} title={regionTop.title} icon={Flame} ranked downloadedTracks={downloadedTracks} />}
 
       {recentlyPlayed.length > 0 && (
         <Section title="Continue Listening" icon={Music}>

@@ -1,5 +1,5 @@
-import { LayoutGrid, List, type LucideIcon } from "lucide-react";
-import type { ReactNode } from "react";
+import { ChevronLeft, ChevronRight, LayoutGrid, List, type LucideIcon } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 import { ArtworkImage } from "@/components/cards/artwork-image";
 import { cn } from "@/lib/utils";
@@ -39,10 +39,54 @@ export function ViewToggle({ value, onChange, label }: { value: CollectionViewMo
 
 /** Horizontally scrolling shelf with snap points, used for "recently added" rows. */
 export function Shelf({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) {
+  const track = useRef<HTMLDivElement>(null);
+  const [edges, setEdges] = useState({ start: true, end: true });
+  const measure = useCallback(() => {
+    const element = track.current;
+    if (!element) return;
+    setEdges({ start: element.scrollLeft <= 2, end: element.scrollLeft + element.clientWidth >= element.scrollWidth - 2 });
+  }, []);
+
+  useEffect(() => {
+    const element = track.current;
+    if (!element) return;
+    measure();
+    // A mouse wheel scrolls the shelf sideways until it reaches an end, then the page takes over.
+    const onWheel = (event: WheelEvent) => {
+      if (event.shiftKey || Math.abs(event.deltaX) >= Math.abs(event.deltaY)) return;
+      const atStart = element.scrollLeft <= 0 && event.deltaY < 0;
+      const atEnd = element.scrollLeft + element.clientWidth >= element.scrollWidth - 1 && event.deltaY > 0;
+      if (element.scrollWidth <= element.clientWidth || atStart || atEnd) return;
+      event.preventDefault();
+      element.scrollBy({ left: event.deltaY * (event.deltaMode === 1 ? 32 : 1) });
+    };
+    element.addEventListener("wheel", onWheel, { passive: false });
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    observer?.observe(element);
+    return () => { element.removeEventListener("wheel", onWheel); observer?.disconnect(); };
+  }, [measure]);
+
+  const page = (direction: 1 | -1) => {
+    const element = track.current;
+    if (element) element.scrollBy({ left: direction * element.clientWidth * 0.85, behavior: "smooth" });
+  };
+  const scrollable = !(edges.start && edges.end);
+
   return (
-    <section className="space-y-3">
-      <div className="flex items-center justify-between gap-3"><h2 className="text-xl font-bold tracking-tight">{title}</h2>{action}</div>
-      <div className="no-scrollbar -mx-3 flex snap-x gap-1 overflow-x-auto px-1 pb-2 sm:-mx-2">{children}</div>
+    <section className="space-y-3" aria-label={title}>
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-xl font-bold tracking-tight">{title}</h2>
+        <div className="flex items-center gap-2">
+          {action}
+          {scrollable && (
+            <div className="hidden items-center gap-1 sm:flex">
+              <button type="button" aria-label={`Scroll ${title} left`} disabled={edges.start} onClick={() => page(-1)} className="grid h-8 w-8 place-items-center rounded-full border border-white/10 bg-white/[0.04] text-muted-foreground transition hover:bg-white/10 hover:text-foreground disabled:opacity-30"><ChevronLeft className="h-4 w-4" /></button>
+              <button type="button" aria-label={`Scroll ${title} right`} disabled={edges.end} onClick={() => page(1)} className="grid h-8 w-8 place-items-center rounded-full border border-white/10 bg-white/[0.04] text-muted-foreground transition hover:bg-white/10 hover:text-foreground disabled:opacity-30"><ChevronRight className="h-4 w-4" /></button>
+            </div>
+          )}
+        </div>
+      </div>
+      <div ref={track} onScroll={measure} className="no-scrollbar -mx-3 flex snap-x gap-1 overflow-x-auto px-1 pb-2 sm:-mx-2">{children}</div>
     </section>
   );
 }

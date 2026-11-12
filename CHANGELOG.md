@@ -1,8 +1,8 @@
 # Changelog
 
-## Updates after 1.0.0
+## 1.1.0 - 2026-11-12
 
-These arrive through the in-app update button.
+Installed copies get this through the in-app update button.
 
 - Setup and the launcher now use the computer's own Python, Node.js and FFmpeg. Anything missing is installed system-wide with the package manager (pacman, apt, dnf, zypper, Homebrew, winget or Chocolatey) instead of downloading private copies. Existing installs drop their private `tools/` folder automatically and keep the library.
 - ANM Player appears in the app launcher (Linux app menu, macOS Applications, Windows Start menu) and on the desktop, with the app icon and no terminal window. Launch problems show a notification.
@@ -19,6 +19,7 @@ These arrive through the in-app update button.
 - Installing an update always installs the newest version, even if more was published after the last check, so one update brings you fully up to date.
 - Home's regional sections are simply "Trending Albums" and "Top Songs", without country taglines.
 - Album tiles in search and Home keep the save button on the cover, so it no longer covers the album name, and show the artist instead of the word "album".
+- Trending Albums show each album's artist, Top Songs is ranked like Trending Globally, and shelves such as "More by" scroll with arrows or the mouse wheel.
 - Empty pages (Downloads, Playlists) no longer squeeze their button against the text.
 - **Danger zone** has three choices: erase all data and start fresh (no folder to pick any more), uninstall but keep your music and library for a reinstall, or uninstall and delete everything. Setup can also uninstall from the command line with `bootstrap.py --uninstall [--keep-data]`.
 - **Settings, rebuilt**: every change saves instantly (no Save button), grouped sections with a section list, switches, steppers and segmented choices, a storage breakdown with per-cache clearing, and update/close controls under About.

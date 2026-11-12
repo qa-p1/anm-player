@@ -435,7 +435,7 @@ def test_home_uses_the_requested_region_and_caches_each_region_separately() -> N
     assert calls == ["IN", "US"]
     assert india.region == "IN" and usa.region == "US" and unknown.region == "US"
     top = {section.id: section for section in india.sections}["region-top"]
-    assert top.title == "Top Songs" and top.subtitle is None and top.items[0].id == "chart-IN"
+    assert top.title == "Top Songs" and top.items[0].id == "chart-IN"
     albums = {section.id: section for section in usa.sections}["trending-albums"]
     assert albums.subtitle is None and "United States" not in albums.title
 
@@ -462,9 +462,11 @@ def test_regional_albums_use_each_top_artists_newest_release_and_fall_back_to_ex
             return charts if browse_id == "FEmusic_charts" else {"explore": True}
 
     service._region_clients["GB"] = type("Client", (), {"session": Session()})()
-    monkeypatch.setattr(service_module, "item_from_renderer", lambda value: SimpleNamespace(kind="artist", id=value["musicResponsiveListItemRenderer"]["id"]))
+    monkeypatch.setattr(service_module, "item_from_renderer", lambda value: SimpleNamespace(kind="artist", id=value["musicResponsiveListItemRenderer"]["id"], title=f"Artist {value['musicResponsiveListItemRenderer']['id']}"))
     service._artist_page_or_none = lambda artist_id: {"raw_albums": [(album(f"{artist_id}-old"), "2019"), (album(f"{artist_id}-new"), "2025")]}
-    assert [item.id for item in service._region_explore_sync("GB")] == ["UCa-new", "UCb-new"]
+    albums = service._region_explore_sync("GB")
+    assert [item.id for item in albums] == ["UCa-new", "UCb-new"]
+    assert [(item.artists[0].name, item.artists[0].id) for item in albums] == [("Artist UCa", "UCa"), ("Artist UCb", "UCb")]
 
     service._artist_page_or_none = lambda artist_id: None
     monkeypatch.setattr(service_module, "extract_explore_albums", lambda raw: [album("explore")] if raw.get("explore") else [])

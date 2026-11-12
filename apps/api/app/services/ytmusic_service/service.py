@@ -16,7 +16,7 @@ from app.schemas.ytmusic import (
     OnlineSearchResponse,
 )
 from app.services.ytmusic_service.client import YouTubeMusicClient
-from app.services.ytmusic_service.models import HomePage, PlaybackData, YTItem
+from app.services.ytmusic_service.models import ArtistRef, HomePage, PlaybackData, YTItem
 from app.services.ytmusic_service.parsing import (
     runs_text,
     best_thumbnail,
@@ -438,6 +438,7 @@ class YouTubeMusicService:
                 form_data={"selectedValues": [region]},
             )
             artist_ids: list[str] = []
+            artist_names: dict[str, str] = {}
             for shelf in walk_renderers(raw_charts, "musicCarouselShelfRenderer"):
                 title = runs_text((shelf.get("header") or {}).get("musicCarouselShelfBasicHeaderRenderer", {}).get("title"))
                 if not title.strip().casefold().startswith("top artists"):
@@ -446,13 +447,17 @@ class YouTubeMusicService:
                     item = item_from_renderer({"musicResponsiveListItemRenderer": renderer})
                     if item and item.kind == "artist" and item.id and item.id not in artist_ids:
                         artist_ids.append(item.id)
+                        artist_names[item.id] = item.title
             artist_ids = artist_ids[:TRENDING_ARTISTS]
             with ThreadPoolExecutor(max_workers=min(6, len(artist_ids) or 1)) as pool:
                 pages = list(pool.map(self._artist_page_or_none, artist_ids))
             albums: list[YTItem] = []
-            for page in pages:
+            for artist_id, page in zip(artist_ids, pages, strict=True):
                 newest = newest_release(page["raw_albums"]) if page else None
                 if newest is not None:
+                    # Cards on an artist's own page carry no artist; this one is shown elsewhere.
+                    if not newest.artists:
+                        newest.artists = [ArtistRef(name=artist_names[artist_id], id=artist_id)]
                     albums.append(newest)
             if albums:
                 logger.info("Built regional trending albums", extra={"source": "Region albums", "country": region, "item_count": len(albums)})
