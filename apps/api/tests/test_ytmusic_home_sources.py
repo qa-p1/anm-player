@@ -478,3 +478,31 @@ def test_chart_titles_drop_video_clutter() -> None:
     assert clean_chart_title("Clave Especial - MAÑA [Video Oficial]", ["CLAVE ESPECIAL"]) == "MAÑA"
     assert clean_chart_title("Tu Mil Jaaye (From \"KING\")", ["Kumaar"]) == "Tu Mil Jaaye (From \"KING\")"
     assert clean_chart_title("Arz Kiya Hai | Coke Studio Bharat", ["Anuv Jain"]) == "Arz Kiya Hai | Coke Studio Bharat"
+
+
+def test_chart_videos_become_their_studio_songs(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    from app.services.ytmusic_service.models import ArtistRef, YTItem
+    from app.services.ytmusic_service.service import YouTubeMusicService
+
+    def video(video_id: str, title: str, artist: str) -> YTItem:
+        endpoint = {"watchEndpoint": {"videoId": video_id, "watchEndpointMusicSupportedConfigs": {"watchEndpointMusicConfig": {"musicVideoType": "MUSIC_VIDEO_TYPE_OMV"}}}}
+        return YTItem(kind="song", id=video_id, title=title, artists=[ArtistRef(name=artist, id=None)], endpoint=endpoint)
+
+    studio = YTItem(kind="song", id="atv1", title="Save Your Tears", artists=[ArtistRef(name="The Weeknd", id=None)])
+    searches: list[str] = []
+
+    class Client:
+        def search(self, query, params=None):
+            searches.append(query)
+            return SimpleNamespace(items=[studio] if "Save Your Tears" in query else [])
+
+    service = YouTubeMusicService.__new__(YouTubeMusicService)
+    service._song_versions = {}
+    service._song_versions_lock = __import__("threading").Lock()
+    items = [video("v1", "The Weeknd - Save Your Tears (Official Music Video)", "The Weeknd"), video("v2", "Save Your Tears (Lyric Video)", "The Weeknd"), video("v3", "Unreleased clip", "Someone")]
+    result = service._prefer_song_versions(items, Client())
+    assert [item.id for item in result] == ["atv1", "v3"]
+    assert service._prefer_song_versions(items, Client()) == result
+    assert len(searches) == 3

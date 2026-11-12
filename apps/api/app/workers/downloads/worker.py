@@ -25,7 +25,7 @@ from app.repositories.music import (
     DownloadJobRepository,
     SongRepository,
 )
-from app.services.artwork_cache import ArtworkCacheService
+from app.services.artwork_cache import ArtworkCacheService, high_res_artwork_url
 from app.services.download_state import (
     claim_job_ownership,
     release_job_ownership,
@@ -953,9 +953,13 @@ class DownloadWorker:
             return None
         try:
             artwork_cache = ArtworkCacheService(storage_manager.paths.artwork_cache)
-            cached_path = asyncio.run(artwork_cache.download_and_cache(artwork_url))
-            if not cached_path:
+            artwork_url = high_res_artwork_url(artwork_url)
+            medium_path = asyncio.run(artwork_cache.download_and_cache(artwork_url))
+            if not medium_path:
                 return None
+            # Keep the largest copy: covers fill the full-screen player.
+            large_path = artwork_cache.get_cache_path(artwork_url, "large")
+            cached_path = large_path if large_path.is_file() else medium_path
             persistent_dir = storage_manager.paths.download_thumbnails
             persistent_dir.mkdir(parents=True, exist_ok=True)
             persistent_path = persistent_dir / cached_path.name
@@ -985,6 +989,43 @@ class DownloadWorker:
 
 
 download_worker = DownloadWorker()
+
+# Older downloads saved YouTube's 120 px thumbnail; anything this small gets the full cover.
+SMALL_ARTWORK_BYTES = 20_000
+
+
+def upgrade_small_download_artwork() -> int:
+    """Swap tiny saved covers for full-size ones, once, in the background."""
+    from sqlalchemy import select, update
+
+    from app.database.session import SessionLocal
+    from app.models import Album, Artist, LibraryAlbum, LibraryTrack, Song
+
+    upgraded = 0
+    with SessionLocal() as session:
+        songs = session.scalars(
+            select(Song).where(
+                Song.artwork_url.is_not(None),
+                Song.artwork_path.like("/api/v1/media/artwork/downloads/%"),
+            )
+        ).all()
+        replaced: dict[str, str] = {}
+        for song in songs:
+            old = song.artwork_path or ""
+            if old in replaced:
+                continue
+            saved = storage_manager.paths.download_thumbnails / old.rsplit("/", 1)[-1]
+            if saved.is_file() and saved.stat().st_size >= SMALL_ARTWORK_BYTES:
+                continue
+            new = download_worker._cache_artwork(song.artwork_url)
+            if not new or new == old:
+                continue
+            replaced[old] = new
+            for model in (Song, Album, Artist, LibraryTrack, LibraryAlbum):
+                session.execute(update(model).where(model.artwork_path == old).values(artwork_path=new))
+            upgraded += 1
+        session.commit()
+    return upgraded
 
 
 def _safe_video_id(value: str | None) -> str | None:

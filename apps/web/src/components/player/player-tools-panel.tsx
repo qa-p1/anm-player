@@ -44,12 +44,12 @@ const tabs: Array<{ id: ToolTab; label: string; icon: typeof Gauge }> = [
   { id: "markers", label: "Markers", icon: Bookmark },
 ];
 
-export function PlayerToolsPanel({ trackId, currentTime, duration, onClose }: PlayerToolsPanelProps) {
+export function PlayerToolsPanel({ trackId, currentTime, duration, onClose, embedded = false }: PlayerToolsPanelProps & { embedded?: boolean }) {
   const [tab, setTab] = useState<ToolTab>("playback");
 
   return (
-    <section className="relative mx-auto flex h-full w-full max-w-3xl flex-col px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-[max(0.75rem,env(safe-area-inset-top))] sm:px-8">
-      <header className="mb-3 grid shrink-0 grid-cols-[2.75rem_1fr_2.75rem] items-center">
+    <section className={cn("relative mx-auto flex h-full w-full flex-col", embedded ? "" : "max-w-3xl px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-[max(0.75rem,env(safe-area-inset-top))] sm:px-8")}>
+      <header className={cn("mb-3 grid shrink-0 grid-cols-[2.75rem_1fr_2.75rem] items-center", embedded && "hidden")}>
         <button type="button" aria-label="Return to player" onClick={onClose} className="flex h-11 w-11 items-center justify-center rounded-full text-white/80 hover:bg-white/10 hover:text-white">
           <ChevronDown className="h-6 w-6" />
         </button>
@@ -57,13 +57,15 @@ export function PlayerToolsPanel({ trackId, currentTime, duration, onClose }: Pl
         <span />
       </header>
 
-      <div className="no-scrollbar mb-4 flex shrink-0 gap-2 overflow-x-auto rounded-2xl bg-black/15 p-1.5">
+      <div role="tablist" aria-label="Studio sections" className="no-scrollbar mb-4 flex shrink-0 gap-1 overflow-x-auto rounded-full border border-white/10 bg-white/[0.06] p-1">
         {tabs.map(({ id, label, icon: Icon }) => (
           <button
             key={id}
             type="button"
             onClick={() => setTab(id)}
-            className={cn("flex min-w-max flex-1 items-center justify-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold text-white/55 transition", tab === id && "bg-white text-black shadow-lg")}
+            role="tab"
+            aria-selected={tab === id}
+            className={cn("flex h-9 min-w-max flex-1 items-center justify-center gap-2 rounded-full px-3 text-sm font-semibold transition", tab === id ? "bg-white text-black" : "text-white/65 hover:text-white")}
           >
             <Icon className="h-4 w-4" />{label}
           </button>
@@ -187,7 +189,7 @@ function SoundTools() {
         <RangeRow label="Stereo balance" value={preferences.stereoBalance} min={-1} max={1} step={0.05} display={balanceLabel(preferences.stereoBalance)} onChange={preferences.setStereoBalance} />
         <ToggleRow label="Mono audio" description="Blend both channels into every speaker." checked={preferences.monoEnabled} onChange={preferences.setMonoEnabled} />
         <ToggleRow label="Loudness normalization" description="Compress sudden level differences between tracks." checked={preferences.normalizationEnabled} onChange={preferences.setNormalizationEnabled} />
-        <Button variant="glass" size="sm" onClick={preferences.resetAudioProcessing}><RotateCcw className="h-4 w-4" />Reset sound</Button>
+        <Button variant="glass" size="sm" className="mt-4" onClick={preferences.resetAudioProcessing}><RotateCcw className="h-4 w-4" />Reset sound</Button>
       </ToolCard>
     </div>
   );
@@ -285,8 +287,8 @@ function MarkerTools({ trackId, currentTime, duration }: { trackId: string; curr
 
 function ToolCard({ title, description, icon: Icon, children }: { title: string; description: string; icon: typeof Gauge; children: React.ReactNode }) {
   return (
-    <section className="rounded-3xl border border-white/[0.12] bg-white/[0.09] p-4 backdrop-blur-xl sm:p-5">
-      <div className="mb-4 flex items-start gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-white/10"><Icon className="h-5 w-5" /></span><div><h3 className="font-bold">{title}</h3><p className="mt-0.5 text-xs leading-5 text-white/50">{description}</p></div></div>
+    <section className="rounded-[1.4rem] border border-white/10 bg-white/[0.05] p-4 sm:p-5">
+      <div className="mb-4 flex items-start gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white/10"><Icon className="h-5 w-5" /></span><div><h3 className="font-bold">{title}</h3><p className="mt-0.5 text-xs leading-5 text-white/50">{description}</p></div></div>
       {children}
     </section>
   );
@@ -294,21 +296,21 @@ function ToolCard({ title, description, icon: Icon, children }: { title: string;
 
 function ToggleRow({ label, description, checked, onChange }: { label: string; description: string; checked: boolean; onChange: (checked: boolean) => void }) {
   return (
-    <button type="button" role="switch" aria-checked={checked} onClick={() => onChange(!checked)} className="mt-3 flex w-full items-center gap-3 rounded-xl bg-white/[0.06] p-3 text-left transition hover:bg-white/10">
+    <button type="button" role="switch" aria-checked={checked} onClick={() => onChange(!checked)} className="mt-3 flex w-full items-center gap-3 rounded-2xl bg-white/[0.04] p-3 text-left transition hover:bg-white/[0.08]">
       <span className="min-w-0 flex-1"><span className="block text-sm font-semibold">{label}</span><span className="mt-0.5 block text-xs leading-5 text-white/45">{description}</span></span>
-      <span className={cn("relative h-6 w-11 shrink-0 rounded-full transition", checked ? "bg-white" : "bg-white/20")}><span className={cn("absolute top-1 h-4 w-4 rounded-full transition", checked ? "left-6 bg-black" : "left-1 bg-white/65")} /></span>
+      <span className={cn("relative h-6 w-11 shrink-0 rounded-full transition", checked ? "bg-primary" : "bg-white/20")}><span className={cn("absolute top-1 h-4 w-4 rounded-full bg-white shadow transition-[left]", checked ? "left-6" : "left-1")} /></span>
     </button>
   );
 }
 
 function ChoiceButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
-  return <button type="button" aria-pressed={active} onClick={onClick} className={cn("min-w-max rounded-xl bg-white/[0.08] px-3 py-2 text-xs font-semibold text-white/65 transition hover:bg-white/15 hover:text-white", active && "bg-white text-black hover:bg-white/90 hover:text-black")}>{children}</button>;
+  return <button type="button" aria-pressed={active} onClick={onClick} className={cn("h-9 min-w-max rounded-full border border-white/10 px-3.5 text-sm font-semibold text-white/70 transition hover:bg-white/10 hover:text-white", active && "border-transparent bg-white text-black hover:bg-white hover:text-black")}>{children}</button>;
 }
 
 function RangeRow({ label, value, min, max, step, display, onChange }: { label: string; value: number; min: number; max: number; step: number; display: string; onChange: (value: number) => void }) {
   const progress = ((value - min) / (max - min)) * 100;
   return (
-    <div className="mt-4 block rounded-xl bg-white/[0.06] p-3"><span className="mb-2 flex items-center justify-between text-xs font-semibold"><span>{label}</span><span className="tabular-nums text-white/55">{display}</span></span><input type="range" min={min} max={max} step={step} value={value} onChange={(event) => onChange(Number(event.target.value))} className="apple-player-range w-full" style={{ "--range-progress": `${progress}%` } as React.CSSProperties} aria-label={label} /></div>
+    <div className="mt-4 block rounded-2xl bg-white/[0.04] p-3"><span className="mb-2 flex items-center justify-between text-xs font-semibold"><span>{label}</span><span className="tabular-nums text-white/55">{display}</span></span><input type="range" min={min} max={max} step={step} value={value} onChange={(event) => onChange(Number(event.target.value))} className="apple-player-range w-full" style={{ "--range-progress": `${progress}%` } as React.CSSProperties} aria-label={label} /></div>
   );
 }
 

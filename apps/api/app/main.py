@@ -21,7 +21,7 @@ from app.storage import storage_manager
 from app.storage.coordinator import storage_coordinator
 from app.storage.middleware import StorageGateMiddleware
 from app.services.websocket_manager import download_progress_hub
-from app.workers.downloads.worker import download_worker
+from app.workers.downloads.worker import download_worker, upgrade_small_download_artwork
 
 logger = logging.getLogger(__name__)
 LIBRARY_RECONCILE_INTERVAL_SECONDS = 30
@@ -75,6 +75,18 @@ async def _library_reconcile_loop() -> None:
 async def _start_runtime_work() -> None:
     download_worker.start()
     await _schedule_scan_if_enabled()
+    task = asyncio.create_task(asyncio.to_thread(_upgrade_artwork), name="aura-artwork-upgrade")
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+
+
+def _upgrade_artwork() -> None:
+    try:
+        upgraded = upgrade_small_download_artwork()
+        if upgraded:
+            logger.info("Upgraded %s downloaded covers to full size", upgraded)
+    except Exception:
+        logger.exception("cover upgrade failed")
 
 
 async def _schedule_scan_if_enabled() -> None:

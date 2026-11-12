@@ -502,6 +502,9 @@ def test_publish_group_fallback_output_and_async_helpers(
         async def download_and_cache(self, _url):
             return cached
 
+        def get_cache_path(self, _url, _size):
+            return cached.with_name("missing-large.jpg")
+
     monkeypatch.setattr(worker_module, "ArtworkCacheService", FakeArtworkCache)
     result = worker._cache_artwork("https://example.com/art.jpg")
     assert result == "/api/v1/media/artwork/downloads/art.jpg"

@@ -153,14 +153,6 @@
     opacity: 1;
   }
 
-  .lyrics-active-glow {
-    text-shadow:
-      0 0 10px rgb(255 255 255 / 0.34),
-      0 0 28px rgb(255 255 255 / 0.24),
-      0 0 64px rgb(255 255 255 / 0.14);
-    filter: drop-shadow(0 8px 24px rgb(0 0 0 / 0.18));
-  }
-
   .track-actions-menu-content[data-state="open"] {
     transform-origin: var(--radix-dropdown-menu-content-transform-origin);
     animation: track-menu-bounce-in 420ms cubic-bezier(0.22, 1.35, 0.36, 1) both;
@@ -268,3 +260,36 @@ html.light .hover\:border-white\/30:hover:not(.keep-dark, .keep-dark *) { border
 html.light .ring-white\/10:not(.keep-dark, .keep-dark *) { --tw-ring-color: rgb(0 0 0 / 0.07); }
 html.light .ring-white\/20:not(.keep-dark, .keep-dark *) { --tw-ring-color: rgb(0 0 0 / 0.14); }
 html.light .glass-panel { border-color: rgb(0 0 0 / 0.07); }
+
+/* Full-screen player backdrop: blurred cover that drifts slowly, like a lava lamp. */
+@keyframes player-backdrop-drift {
+  0% { transform: translate(-50%, -50%) rotate(0deg) scale(1); }
+  50% { transform: translate(-46%, -54%) rotate(180deg) scale(1.12); }
+  100% { transform: translate(-50%, -50%) rotate(360deg) scale(1); }
+}
+@keyframes player-backdrop-drift-reverse {
+  0% { transform: rotate(0deg) scale(1.1); }
+  50% { transform: rotate(-180deg) scale(1); }
+  100% { transform: rotate(-360deg) scale(1.1); }
+}
+.player-backdrop-drift { animation: player-backdrop-drift 90s linear infinite; }
+.player-backdrop-drift-reverse { animation: player-backdrop-drift-reverse 120s linear infinite; }
+
+/* Lyrics: the sung line glows like Apple Music; others blur slightly with distance until hovered. */
+.lyric-line {
+  filter: blur(var(--lyric-blur, 0px));
+  transition: color 0.5s ease, filter 0.5s ease, text-shadow 0.5s ease, transform 0.5s ease;
+  transform-origin: left center;
+}
+.lyric-line:hover { filter: none; }
+.text-center.lyric-line { transform-origin: center; }
+.lyric-line-active {
+  text-shadow:
+    0 0 14px rgb(255 255 255 / 0.6),
+    0 0 36px rgb(255 255 255 / 0.38),
+    0 0 80px rgb(255 255 255 / 0.22);
+  transform: scale(1.02);
+}
+@media (prefers-reduced-motion: reduce) {
+  .lyric-line { transition: none; }
+}

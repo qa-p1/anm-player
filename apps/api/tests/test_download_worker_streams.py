@@ -193,3 +193,11 @@ def test_original_quality_keeps_youtube_audio_without_reencoding(worker, tmp_pat
     _, target = worker._download_media_direct(1, "test-video", "original", tmp_path)
     assert target.suffix == ".opus"
     assert ["-c:a", "copy"] == commands[0][commands[0].index("-c:a"):commands[0].index("-c:a") + 2]
+
+
+def test_download_covers_are_saved_at_full_size():
+    from app.services.artwork_cache import high_res_artwork_url
+
+    assert high_res_artwork_url("https://yt3.googleusercontent.com/abc=w120-h120-l90-rj") == "https://yt3.googleusercontent.com/abc=w1200-h1200-l90-rj"
+    assert high_res_artwork_url("https://lh3.googleusercontent.com/abc=s60") == "https://lh3.googleusercontent.com/abc=s1200"
+    assert high_res_artwork_url("https://example.com/cover.jpg") == "https://example.com/cover.jpg"

@@ -707,3 +707,14 @@ def _dedupe_sections(sections: list[HomeSection]) -> list[HomeSection]:
 
 def _stable_id(title: str) -> str:
     return hashlib.sha256(title.encode("utf-8")).hexdigest()[:16]
+
+
+def is_music_video(item: YTItem) -> bool:
+    """A music video rather than the studio track (YouTube marks those ATV)."""
+    if item.kind == "video":
+        return True
+    endpoint = item.endpoint or {}
+    # The music config sits under watchEndpoint, or at the top of a bare watch endpoint.
+    config = (endpoint.get("watchEndpoint") or endpoint).get("watchEndpointMusicSupportedConfigs") or {}
+    video_type = (config.get("watchEndpointMusicConfig") or {}).get("musicVideoType")
+    return bool(video_type) and video_type != "MUSIC_VIDEO_TYPE_ATV"

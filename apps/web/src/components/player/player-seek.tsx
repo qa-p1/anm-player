@@ -9,6 +9,9 @@ interface PlayerSeekProps {
   duration: number;
   bufferedUntil: number;
   className?: string;
+  label?: string;
+  /** Full-screen players use a bolder bar than the mini-player's hairline. */
+  thick?: boolean;
 }
 
 /**
@@ -16,7 +19,7 @@ interface PlayerSeekProps {
  * hover, previews the time under the pointer and keeps a native range input
  * underneath for keyboard, touch and screen-reader seeking.
  */
-export function PlayerSeek({ currentTime, duration, bufferedUntil, className }: PlayerSeekProps) {
+export function PlayerSeek({ currentTime, duration, bufferedUntil, className, label = "Mini-player song progress", thick = false }: PlayerSeekProps) {
   const [hoverFraction, setHoverFraction] = useState<number | null>(null);
   const validDuration = Number.isFinite(duration) && duration > 0 ? duration : 0;
   const elapsed = Number.isFinite(currentTime) ? Math.max(0, Math.min(currentTime, validDuration)) : 0;
@@ -44,12 +47,12 @@ export function PlayerSeek({ currentTime, duration, bufferedUntil, className }: 
       onPointerMove={trackHover}
       onPointerLeave={() => setHoverFraction(null)}
     >
-      <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-foreground/[0.12] transition-[height] duration-150 group-hover/seek:h-[5px] group-focus-within/seek:h-[5px]">
+      <div aria-hidden="true" className={cn("pointer-events-none absolute inset-x-0 top-1/2 -translate-y-1/2 rounded-full bg-foreground/[0.12] transition-[height] duration-150", thick ? "h-[6px] group-hover/seek:h-[8px] group-focus-within/seek:h-[8px]" : "h-[3px] group-hover/seek:h-[5px] group-focus-within/seek:h-[5px]")}>
         <span className="absolute inset-y-0 left-0 rounded-full bg-foreground/[0.18]" style={{ width: `${buffered}%` }} />
         <span className="absolute inset-y-0 left-0 rounded-full bg-primary shadow-[0_0_14px_hsl(var(--primary)/0.75)]" style={{ width: `${progress}%` }} />
         {hoverFraction !== null && <span className="absolute inset-y-0 left-0 rounded-full bg-foreground/20" style={{ width: `${hoverFraction * 100}%` }} />}
       </div>
-      <span aria-hidden="true" className="pointer-events-none absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 scale-0 rounded-full bg-primary shadow-[0_0_0_3px_hsl(var(--background)),0_2px_8px_rgb(0_0_0/0.4)] transition-transform duration-150 group-hover/seek:scale-100 group-focus-within/seek:scale-100" style={{ left: `${progress}%` }} />
+      <span aria-hidden="true" className={cn("pointer-events-none absolute top-1/2 -translate-x-1/2 -translate-y-1/2 scale-0 rounded-full bg-primary shadow-[0_0_0_3px_hsl(var(--background)),0_2px_8px_rgb(0_0_0/0.4)] transition-transform duration-150 group-hover/seek:scale-100 group-focus-within/seek:scale-100", thick ? "h-4 w-4" : "h-3 w-3")} style={{ left: `${progress}%` }} />
       {hoverFraction !== null && (
         <span aria-hidden="true" className="pointer-events-none absolute bottom-full mb-1.5 -translate-x-1/2 rounded-md border border-white/10 bg-background/90 px-1.5 py-0.5 text-[0.65rem] font-semibold tabular-nums shadow-lg backdrop-blur" style={{ left: `${hoverFraction * 100}%` }}>
           {formatTime(hoverFraction * validDuration)}
@@ -64,7 +67,7 @@ export function PlayerSeek({ currentTime, duration, bufferedUntil, className }: 
         onChange={(event) => seekPlayback(Number(event.target.value))}
         onKeyDown={handleKeyDown}
         className="pointer-events-auto absolute inset-0 m-0 h-full w-full cursor-pointer opacity-0 disabled:cursor-default"
-        aria-label="Mini-player song progress"
+        aria-label={label}
         aria-valuetext={`${formatTime(elapsed)} of ${formatTime(validDuration)}`}
         disabled={!validDuration}
       />

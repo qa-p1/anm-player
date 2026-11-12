@@ -57,7 +57,7 @@ interface QueueEntry {
   queueIndex: number;
 }
 
-export function QueuePanel({ onClose }: { onClose: () => void }) {
+export function QueuePanel({ onClose, embedded = false }: { onClose: () => void; embedded?: boolean }) {
   const {
     currentSong,
     queue,
@@ -161,8 +161,8 @@ export function QueuePanel({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <section className="relative mx-auto flex h-full w-full max-w-3xl flex-col px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-[max(0.75rem,env(safe-area-inset-top))] sm:px-8">
-      <header className="mb-3 grid shrink-0 grid-cols-[2.75rem_1fr_2.75rem] items-center">
+    <section className={cn("relative mx-auto flex h-full w-full flex-col", embedded ? "" : "max-w-3xl px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-[max(0.75rem,env(safe-area-inset-top))] sm:px-8")}>
+      <header className={cn("mb-3 grid shrink-0 grid-cols-[2.75rem_1fr_2.75rem] items-center", embedded && "hidden")}>
         <button type="button" aria-label="Return to player" onClick={onClose} className="flex h-11 w-11 items-center justify-center rounded-full text-white/80 hover:bg-white/10 hover:text-white"><ChevronDown className="h-6 w-6" /></button>
         <div className="text-center"><h2 className="text-base font-bold">Play queue</h2><p className="text-[0.68rem] text-white/50">{queue.length} upcoming · {formatQueueDuration(queueSeconds)}</p></div>
         <span />

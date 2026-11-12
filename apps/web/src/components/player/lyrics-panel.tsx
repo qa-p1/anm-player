@@ -1,5 +1,5 @@
 import { ChevronDown, Copy, FileText, LocateFixed, Loader2, Maximize2, Minus, Pencil, Plus, RefreshCw, RotateCcw, Save, Type, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 
 import { EmptyState } from "@/components/empty-states/empty-state";
 import { useLyrics } from "@/components/player/use-lyrics";
@@ -21,6 +21,8 @@ interface LyricsPanelProps {
   immersive?: boolean;
   /** Beside the artwork in the wide full-screen player: big lyrics, no header of its own. */
   side?: boolean;
+  /** Full-screen lyrics on wide screens: the biggest text, no header of its own. */
+  stage?: boolean;
   onClose?: () => void;
   onExpand?: () => void;
 }
@@ -34,6 +36,7 @@ export function LyricsPanel({
   duration,
   immersive = false,
   side = false,
+  stage = false,
   onClose,
   onExpand,
 }: LyricsPanelProps) {
@@ -166,7 +169,7 @@ export function LyricsPanel({
             lines={lrcLines.length > 0 ? lrcLines : plainLines(lyricsState.lyrics)}
             timed={lrcLines.length > 0}
             activeLine={activeLine}
-            layout={immersive ? "immersive" : side ? "side" : "panel"}
+            layout={immersive ? "immersive" : stage ? "stage" : side ? "side" : "panel"}
             autoScroll={lyricsPreferences.autoScroll}
             timeOffset={timeOffset}
             fontSize={lyricsPreferences.fontSize}
@@ -194,7 +197,7 @@ function LyricsEmptyState({ status, onRefetch }: { status: string; onRefetch: ()
   );
 }
 
-type LyricsLayout = "panel" | "side" | "immersive";
+type LyricsLayout = "panel" | "side" | "stage" | "immersive";
 
 /** Plain lyrics are the same lines, just without timestamps. */
 function plainLines(lyrics: string): LrcLine[] {
@@ -208,6 +211,8 @@ function plainLines(lyrics: string): LrcLine[] {
 function LyricsLines({ lines, timed, activeLine, layout, autoScroll, timeOffset, fontSize }: { lines: LrcLine[]; timed: boolean; activeLine: number; layout: LyricsLayout; autoScroll: boolean; timeOffset: number; fontSize: LyricsFontSize }) {
   const immersive = layout === "immersive";
   const onArtwork = layout !== "panel";
+  const centered = layout === "stage";
+  const focusBlur = timed && activeLine >= 0 && (layout === "stage" || layout === "side");
   const containerRef = useRef<HTMLDivElement | null>(null);
   const lineRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const manualScrollUntil = useRef(0);
@@ -219,25 +224,27 @@ function LyricsLines({ lines, timed, activeLine, layout, autoScroll, timeOffset,
     if (!timed || !autoScroll || !container || !line || Date.now() < manualScrollUntil.current) return;
     if (raf.current) window.cancelAnimationFrame(raf.current);
     raf.current = window.requestAnimationFrame(() => {
-      const targetTop = line.offsetTop - 18;
+      // The sung line rides at the top, with everything that follows in view below it.
+      const targetTop = line.offsetTop - (layout === "stage" ? container.clientHeight * 0.12 : 24);
       container.scrollTo({ top: Math.max(0, targetTop), behavior: "smooth" });
     });
     return () => {
       if (raf.current) window.cancelAnimationFrame(raf.current);
     };
-  }, [activeLine, autoScroll, timed]);
+  }, [activeLine, autoScroll, layout, timed]);
 
   return (
     <ScrollArea
       ref={containerRef}
-      className="no-scrollbar h-full px-1 [mask-image:linear-gradient(to_bottom,transparent,black_5%,black_85%,transparent)]"
+      // The scroll area clips at its edges, so the lines sit inset far enough for their glow.
+      className={cn("no-scrollbar h-full [mask-image:linear-gradient(to_bottom,transparent,black_5%,black_85%,transparent)]", onArtwork ? "-mx-6 px-6" : "px-1")}
       onScroll={() => {
         manualScrollUntil.current = Date.now() + 2500;
       }}
     >
-      <div className={cn("mx-auto max-w-3xl space-y-4 py-8", immersive && "max-w-5xl space-y-5 pb-[70vh] pt-4 sm:space-y-7 sm:pt-6", layout === "side" && "space-y-3 pb-[40vh] pt-6")}>
+      <div className={cn("mx-auto max-w-3xl space-y-4 py-8", immersive && "max-w-5xl space-y-5 pb-[70vh] pt-4 sm:space-y-7 sm:pt-6", layout === "side" && "space-y-3 pb-[40vh] pt-6", layout === "stage" && "max-w-5xl space-y-6 pb-[45vh] pt-[18vh]")}>
         {!timed && (
-          <p className={cn("inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold", onArtwork ? "bg-white/10 text-white/70" : "bg-muted text-muted-foreground")}>
+          <p className={cn(centered ? "mx-auto flex w-fit" : "inline-flex", "items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold", onArtwork ? "bg-white/10 text-white/70" : "bg-muted text-muted-foreground")}>
             <FileText className="h-3.5 w-3.5" />Not synced to the song
           </p>
         )}
@@ -247,6 +254,7 @@ function LyricsLines({ lines, timed, activeLine, layout, autoScroll, timeOffset,
               key={`plain-${index}`}
               className={cn(
                 "break-words font-black leading-[1.08] tracking-[-0.035em] [overflow-wrap:anywhere]",
+                centered && "text-center",
                 lyricsSize(layout, fontSize),
                 onArtwork ? "text-white/85" : "text-foreground/85",
               )}
@@ -261,12 +269,15 @@ function LyricsLines({ lines, timed, activeLine, layout, autoScroll, timeOffset,
               }}
               type="button"
               onClick={() => audioService.seek(Math.max(0, line.time + timeOffset))}
+              // Apple Music style: the sung line glows, the rest soften with distance.
+              style={focusBlur ? { "--lyric-blur": `${Math.min(Math.abs(index - activeLine), 3) * 0.35}px` } as CSSProperties : undefined}
               className={cn(
-                "block w-full break-words text-left font-black leading-[1.08] tracking-[-0.035em] transition duration-300 [overflow-wrap:anywhere]",
+                "lyric-line block w-full break-words font-black leading-[1.08] tracking-[-0.035em] [overflow-wrap:anywhere]",
+                centered ? "text-center" : "text-left",
                 lyricsSize(layout, fontSize),
-                onArtwork ? "text-white/30 hover:text-white/65" : "text-muted-foreground/45 hover:text-foreground",
-                index === activeLine && (onArtwork ? "lyrics-active-glow scale-[1.01] text-white" : "scale-[1.02] text-foreground"),
-                index < activeLine && (onArtwork ? "text-white/20" : "text-muted-foreground/30"),
+                onArtwork ? "text-white/35 hover:text-white/75" : "text-muted-foreground/45 hover:text-foreground",
+                index === activeLine && (onArtwork ? "lyric-line-active text-white" : "text-foreground"),
+                index < activeLine && (onArtwork ? "text-white/25" : "text-muted-foreground/30"),
               )}
             >
               {line.text}
@@ -316,6 +327,7 @@ function LyricsTool({ active = false, label, onClick, children }: { active?: boo
 function lyricsSize(layout: LyricsLayout, size: LyricsFontSize) {
   if (layout === "immersive") return immersiveLyricsSize(size);
   if (layout === "side") return size === "compact" ? "text-xl" : size === "large" ? "text-3xl" : "text-2xl";
+  if (layout === "stage") return size === "compact" ? "text-[clamp(1.75rem,2.6vw,2.75rem)]" : size === "large" ? "text-[clamp(2.5rem,4vw,4.25rem)]" : "text-[clamp(2.1rem,3.3vw,3.5rem)]";
   return compactLyricsSize(size);
 }
 

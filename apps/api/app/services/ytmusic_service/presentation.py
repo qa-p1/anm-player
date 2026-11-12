@@ -13,6 +13,7 @@ from app.schemas.ytmusic import (
 )
 from app.services.ytmusic_service.models import HomePage, YTItem
 from app.services.ytmusic_service.parsing import (
+    is_music_video,
     find_provider_quick_picks,
     get_browse_id,
     get_playlist_id,
@@ -53,6 +54,12 @@ def clean_chart_title(title: str, artist_names: list[str]) -> str:
     parts = [part for part in parts if not _VIDEO_WORDS.fullmatch(part) and not re.fullmatch(r"(?i)(official\s+)?(music\s+)?video(\s+klip)?|video\s+oficial", part)]
     result = cleaned if parts == original_parts else " - ".join(parts).strip(" -")
     return result or title
+
+
+def song_key(title: str) -> str:
+    """Comparable song name: no brackets, punctuation or case."""
+    base = _BRACKETS.sub("", title)
+    return re.sub(r"[^\w]+", " ", base).strip().casefold()
 
 
 def chart_item(item: YTItem) -> YTItem:
@@ -189,12 +196,7 @@ def subtitle(item: YTItem) -> str | None:
 
 
 def looks_like_video(item: YTItem) -> bool:
-    music_type = (
-        ((item.endpoint or {}).get("watchEndpointMusicSupportedConfigs") or {})
-        .get("watchEndpointMusicConfig", {})
-        .get("musicVideoType")
-    )
-    return item.kind == "song" and music_type not in {None, "MUSIC_VIDEO_TYPE_ATV"}
+    return item.kind == "song" and is_music_video(item)
 
 
 def album_title_from_raw(raw: dict[str, Any]) -> str | None:

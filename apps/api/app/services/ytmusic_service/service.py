@@ -18,6 +18,7 @@ from app.schemas.ytmusic import (
 from app.services.ytmusic_service.client import YouTubeMusicClient
 from app.services.ytmusic_service.models import ArtistRef, HomePage, PlaybackData, YTItem
 from app.services.ytmusic_service.parsing import (
+    is_music_video,
     runs_text,
     best_thumbnail,
     extract_explore_albums,
@@ -87,6 +88,9 @@ class YouTubeMusicService:
         self._playback_cache_lock = threading.Lock()
         self.playback_cache_ttl_seconds = 1800.0
         self.playback_cache_max_entries = 64
+        # Chart videos mapped to their studio song (video id -> expiry, song or None).
+        self._song_versions: dict[str, tuple[float, YTItem | None]] = {}
+        self._song_versions_lock = threading.Lock()
 
     async def home(self, region: str = DEFAULT_REGION) -> OnlineHomeResponse:
         """Home with global sections plus the region's chart and new releases (cached per region)."""
@@ -406,7 +410,7 @@ class YouTubeMusicService:
         raw_playlist = client.session.browse(
             client=client.session.web_remix_client(), browse_id=playlist_id
         )
-        items = parse_chart_tracks(raw_playlist)[:20]
+        items = self._prefer_song_versions(parse_chart_tracks(raw_playlist)[:20], client)
         if not items:
             raise RuntimeError(
                 f"Selected chart playlist {playlist_id} contained no playable tracks"
@@ -422,6 +426,61 @@ class YouTubeMusicService:
             },
         )
         return selected.title, playlist_id, items
+
+    SONG_VERSION_TTL_SECONDS = 24 * 60 * 60
+
+    def _prefer_song_versions(self, items: list[YTItem], client: YouTubeMusicClient) -> list[YTItem]:
+        """Charts list music videos; play the studio song instead when YouTube Music has it.
+
+        Video versions carry intros, skits and different timing, so lyrics never line up.
+        """
+        now = time.monotonic()
+        with self._song_versions_lock:
+            missing = [item for item in items if is_music_video(item) and not ((cached := self._song_versions.get(item.id)) and cached[0] > now)]
+        if missing:
+            with ThreadPoolExecutor(max_workers=4, thread_name_prefix="song-version") as pool:
+                found = list(pool.map(lambda item: self._find_song_version(item, client), missing))
+            with self._song_versions_lock:
+                for video, song in zip(missing, found):
+                    self._song_versions[video.id] = (now + self.SONG_VERSION_TTL_SECONDS, song)
+                while len(self._song_versions) > 2000:
+                    self._song_versions.pop(next(iter(self._song_versions)))
+        with self._song_versions_lock:
+            mapped = [
+                (self._song_versions.get(item.id, (0, None))[1] or item) if is_music_video(item) else item
+                for item in items
+            ]
+        # Two videos of one song (say, a remix and its lyric video) become one entry.
+        seen: set[str] = set()
+        return [item for item in mapped if not (item.id in seen or seen.add(item.id))]
+
+    @staticmethod
+    def _find_song_version(video: YTItem, client: YouTubeMusicClient) -> YTItem | None:
+        from app.services.ytmusic_service.presentation import clean_chart_title, song_key
+
+        artists = [artist.name for artist in video.artists if artist.name]
+        title = clean_chart_title(video.title, artists)
+        wanted = song_key(title)
+        if not wanted:
+            return None
+        try:
+            results = client.search(" ".join([title, *artists[:1]]), params=SEARCH_FILTERS["songs"]).items
+        except Exception:
+            logger.info("Song version lookup failed for %s", video.id, exc_info=True)
+            return None
+        wanted_artists = {name.casefold() for name in artists}
+        for candidate in results[:5]:
+            if candidate.kind != "song" or not candidate.id:
+                continue
+            found = song_key(candidate.title)
+            same_title = found == wanted or (min(len(found), len(wanted)) >= 4 and (found.startswith(wanted) or wanted.startswith(found)))
+            candidate_artists = {artist.name.casefold() for artist in candidate.artists if artist.name}
+            same_artist = not wanted_artists or bool(wanted_artists & candidate_artists) or any(
+                mine in theirs or theirs in mine for mine in wanted_artists for theirs in candidate_artists
+            )
+            if same_title and same_artist:
+                return candidate
+        return None
 
     def _region_explore_sync(self, region: str) -> list[YTItem]:
         """The newest release from each of the region's top artists.

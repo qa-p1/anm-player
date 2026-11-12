@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import asyncio
 import hashlib
 import logging
@@ -280,3 +282,14 @@ class ArtworkCacheService:
     def _lock_for(url: str) -> threading.Lock:
         index = int(hashlib.sha256(url.encode("utf-8")).hexdigest()[:8], 16) % len(_url_locks)
         return _url_locks[index]
+
+
+_PROVIDER_SIZE = re.compile(r"=w\d+-h\d+(-[a-z0-9-]+)?", re.IGNORECASE)
+_PROVIDER_SQUARE = re.compile(r"=s\d+(-[a-z0-9-]+)?", re.IGNORECASE)
+
+
+def high_res_artwork_url(url: str, size: int = 1200) -> str:
+    """YouTube Music hands out 60–120 px thumbnails; the same image exists at full size."""
+    if "googleusercontent.com" not in url and "ggpht.com" not in url:
+        return url
+    return _PROVIDER_SQUARE.sub(f"=s{size}", _PROVIDER_SIZE.sub(f"=w{size}-h{size}-l90-rj", url))
