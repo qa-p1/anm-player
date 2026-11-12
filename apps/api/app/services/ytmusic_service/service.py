@@ -77,7 +77,7 @@ class YouTubeMusicService:
         self._artist_cache: dict[str, tuple[float, dict[str, Any]]] = {}
         self.artist_cache_ttl_seconds = 600.0
         self._home_refresh_lock = asyncio.Lock()
-        self.search_cache_ttl_seconds = 120.0
+        self.search_cache_ttl_seconds = 600.0
         self.home_cache_ttl_seconds = 600.0
         self.related_cache_ttl_seconds = 300.0
         # Resolving a stream costs a player call plus validation range requests
@@ -211,8 +211,8 @@ class YouTubeMusicService:
             items=[item_to_schema(item) for item in raw.items],
             continuation=raw.continuation,
         )
-        if len(self._search_cache) >= 256:
-            self._search_cache.clear()
+        while len(self._search_cache) >= 256:
+            self._search_cache.pop(next(iter(self._search_cache)))
         self._search_cache[cache_key] = (now + self.search_cache_ttl_seconds, response)
         return response
 

@@ -25,14 +25,16 @@ from app.services.ytmusic_service import ytmusic_service
 router = APIRouter()
 logger = logging.getLogger(__name__)
 _upstream_limit = asyncio.Semaphore(4)
+# Typing in Search must never queue behind slow page loads such as Home or an artist.
+_search_limit = asyncio.Semaphore(4)
 _resolution_limit = threading.BoundedSemaphore(settings.stream_fetch_max_concurrency)
 
 VideoId = Annotated[str, Path(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")]
 BrowseId = Annotated[str, Path(min_length=1, max_length=255, pattern=r"^[A-Za-z0-9_-]+$")]
 
 
-async def _limited_upstream(awaitable):
-    async with _upstream_limit:
+async def _limited_upstream(awaitable, limit: asyncio.Semaphore = _upstream_limit):
+    async with limit:
         return await awaitable
 
 
@@ -61,7 +63,7 @@ async def search(
     continuation: Annotated[str | None, Query(max_length=4096)] = None,
 ) -> OnlineSearchResponse:
     search_task = asyncio.create_task(
-        _limited_upstream(ytmusic_service.search(q, filter_name=filter, continuation=continuation))
+        _limited_upstream(ytmusic_service.search(q, filter_name=filter, continuation=continuation), _search_limit)
     )
     while not search_task.done():
         if await request.is_disconnected():
