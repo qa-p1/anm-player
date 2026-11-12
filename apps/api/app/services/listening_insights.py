@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta, tzinfo
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -34,13 +34,11 @@ class ListeningInsightsService:
     def __init__(self, session: Session) -> None:
         self.session = session
 
-    def get(self, *, days: int = 30) -> ListeningInsightsResponse:
+    def get(self, *, days: int = 30, zone: tzinfo = UTC) -> ListeningInsightsResponse:
+        """Days, hours and streaks follow the listener's clock (`zone`), not UTC."""
         now = datetime.now(UTC)
-        range_start = (
-            now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=days - 1)
-            if days > 0
-            else None
-        )
+        local_midnight = now.astimezone(zone).replace(hour=0, minute=0, second=0, microsecond=0)
+        range_start = (local_midnight - timedelta(days=days - 1)).astimezone(UTC) if days > 0 else None
         statement = select(History).order_by(History.played_at.asc(), History.id.asc())
         if range_start is not None:
             # SQLite returns its stored UTC timestamps without tzinfo. Comparing
@@ -69,14 +67,15 @@ class ListeningInsightsService:
             event_seconds = self._event_listening_seconds(entry)
             accumulator.listening_seconds += event_seconds
             listening_seconds += event_seconds
-            event_date = self._utc_datetime(entry.played_at).date()
+            local_time = self._utc_datetime(entry.played_at).astimezone(zone)
+            event_date = local_time.date()
 
             if entry.event_type == "played":
                 total_plays += 1
                 accumulator.play_count += 1
                 active_dates.add(event_date)
                 daily_counts[event_date][0] += 1
-                hourly_counts[self._utc_datetime(entry.played_at).hour] += 1
+                hourly_counts[local_time.hour] += 1
                 if entry.artist_name:
                     artist_counts[entry.artist_name][0] += 1
                 if entry.album_title:
@@ -106,7 +105,7 @@ class ListeningInsightsService:
             unique_tracks=sum(1 for item in tracks.values() if item.play_count > 0),
             unique_artists=sum(1 for counts in artist_counts.values() if counts[0] > 0),
             active_days=len(active_dates),
-            current_streak_days=self._current_streak(active_dates, now.date()),
+            current_streak_days=self._current_streak(active_dates, now.astimezone(zone).date()),
             completion_rate=round(completion_rate, 1),
         )
 
@@ -132,7 +131,7 @@ class ListeningInsightsService:
             )[:10]
         ]
 
-        daily = self._daily_series(daily_counts, now.date(), days)
+        daily = self._daily_series(daily_counts, now.astimezone(zone).date(), days)
         hourly = [HourlyListening(hour=hour, play_count=count) for hour, count in enumerate(hourly_counts)]
         return ListeningInsightsResponse(
             summary=summary,

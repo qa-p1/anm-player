@@ -54,6 +54,8 @@ from app.services.settings import SettingsService
 from app.services.ytmusic_service import ytmusic_service
 
 logger = logging.getLogger(__name__)
+# Older versions stored this when the provider header couldn't be parsed.
+PLACEHOLDER_ARTIST_NAMES = frozenset({"", "Artist"})
 
 
 class LibraryAlbumService:
@@ -566,104 +568,122 @@ class LibraryAlbumService:
         )
 
     async def get_online_artist(self, external_id: str) -> LibraryArtistDetailResponse:
+        """Artist page: live YouTube Music data (cached briefly), merged with the library.
+
+        Saved data is the fallback when the provider is unreachable, so the page
+        still opens offline; a placeholder name is never stored.
+        """
         artist = self.session.scalars(
             select(LibraryArtist).where(
                 LibraryArtist.source == "youtube",
                 LibraryArtist.external_id == external_id,
             )
         ).first()
-        artist_name = artist.name if artist else "Artist"
+        online: dict | None = None
+        try:
+            online = await ytmusic_service.artist(external_id)
+        except Exception:
+            logger.warning("Could not refresh artist from YouTube Music", extra={"artist": external_id}, exc_info=True)
 
-        albums = (
+        stored_name = artist.name if artist and artist.name not in PLACEHOLDER_ARTIST_NAMES else None
+        artist_name = (online or {}).get("name") or stored_name or "Unknown artist"
+        if online and (online.get("name") or artist is None):
+            artist = self._upsert_artist(
+                external_id=external_id,
+                name=artist_name,
+                thumbnail_url=online.get("thumbnail_url"),
+            )
+
+        if online:
+            tracks = self._upsert_artist_tracks(external_id, artist_name, online.get("tracks", [])[:20])
+        else:
+            tracks = self.session.scalars(
+                select(LibraryTrack)
+                .where(or_(LibraryTrack.artist_external_id == external_id, LibraryTrack.artist_name == artist_name))
+                .order_by(LibraryTrack.created_at.desc())
+                .limit(20)
+            ).all()
+
+        saved_albums = (
             self.session.scalars(
                 select(LibraryAlbum)
                 .options(joinedload(LibraryAlbum.tracks))
-                .where(
-                    or_(
-                        LibraryAlbum.artist_external_id == external_id,
-                        LibraryAlbum.artist_name == artist_name,
-                    )
-                )
+                .where(or_(LibraryAlbum.artist_external_id == external_id, LibraryAlbum.artist_name == artist_name))
                 .order_by(LibraryAlbum.added_at.desc())
-                .limit(20)
+                .limit(40)
             )
             .unique()
             .all()
         )
-        await self._refresh_missing_album_durations(list(albums))
-        tracks = self.session.scalars(
-            select(LibraryTrack)
-            .where(
-                or_(
-                    LibraryTrack.artist_external_id == external_id,
-                    LibraryTrack.artist_name == artist_name,
-                )
+        await self._refresh_missing_album_durations(list(saved_albums))
+        album_responses = self.responses.albums_to_response(saved_albums)
+        known = {album.external_id for album in album_responses}
+        now = datetime.now(UTC)
+        for index, item in enumerate((online or {}).get("albums", [])):
+            browse_id = item.browse_id or item.id
+            if not browse_id or browse_id in known:
+                continue
+            known.add(browse_id)
+            year = re.search(r"\b(19|20)\d{2}\b", item.subtitle or "")
+            album_responses.append(LibraryAlbumResponse(
+                id=-(index + 1),  # Not saved yet; the page links by public id.
+                public_id=browse_id,
+                canonical_url=f"/albums/{browse_id}",
+                external_id=browse_id,
+                title=item.title,
+                artist_name=artist_name,
+                artist_external_id=external_id,
+                year=int(year.group(0)) if year else None,
+                artwork_url=item.thumbnail,
+                is_in_library=False,
+                added_at=now,
+                created_at=now,
+                updated_at=now,
+            ))
+        self.session.commit()
+
+        if artist is None:
+            # Offline and never seen before: show what the library knows without saving a stub.
+            return LibraryArtistDetailResponse(
+                external_id=external_id,
+                name=artist_name,
+                album_count=len(album_responses),
+                track_count=len(tracks),
+                albums=album_responses,
+                top_tracks=self.responses.tracks_to_response(tracks),
             )
-            .order_by(LibraryTrack.created_at.desc())
-            .limit(20)
-        ).all()
-
-        if not artist:
-            try:
-                online = await ytmusic_service.artist(external_id)
-                artist_name = online.get("name") or artist_name
-                artist = self._upsert_artist(
-                    external_id=external_id,
-                    name=artist_name,
-                    thumbnail_url=online.get("thumbnail_url"),
-                )
-                top_tracks = []
-                for index, item in enumerate(online.get("tracks", [])[:20]):
-                    track = self.session.scalars(
-                        select(LibraryTrack).where(
-                            LibraryTrack.source == "youtube",
-                            LibraryTrack.external_id == item.id,
-                        )
-                    ).first()
-                    if not track:
-                        track = LibraryTrack(
-                            source="youtube",
-                            external_id=item.id,
-                            title=item.title,
-                            position=index,
-                        )
-                        self.session.add(track)
-                    track.artist_name = (
-                        item.artists[0].name if item.artists else artist_name
-                    )
-                    track.artist_external_id = external_id
-                    track.album_title = item.album.name if item.album else None
-                    track.duration_seconds = item.duration_seconds
-                    track.source_url = item.url
-                    track.artwork_url = item.thumbnail
-                    track.explicit = item.explicit
-                    top_tracks.append(track)
-                self.session.commit()
-                albums = []
-                tracks = top_tracks
-            except Exception:
-                self.session.rollback()
-                artist = self._upsert_artist(
-                    external_id=external_id, name=artist_name, thumbnail_url=None
-                )
-                self.session.commit()
-        if not artist.id:
-            self.session.add(artist)
-            self.session.commit()
-
         return LibraryArtistDetailResponse(
             id=artist.id,
             source=artist.source,
             external_id=artist.external_id,
-            name=artist.name,
+            name=artist.name if artist.name not in PLACEHOLDER_ARTIST_NAMES else artist_name,
             description=artist.description,
             thumbnail_url=artist.thumbnail_url,
-            album_count=len(albums),
+            album_count=len(album_responses),
             track_count=len(tracks),
             added_at=artist.added_at,
-            albums=self.responses.albums_to_response(albums),
+            albums=album_responses,
             top_tracks=self.responses.tracks_to_response(tracks),
         )
+
+    def _upsert_artist_tracks(self, external_id: str, artist_name: str, items: list) -> list[LibraryTrack]:
+        tracks: list[LibraryTrack] = []
+        for index, item in enumerate(items):
+            track = self.session.scalars(
+                select(LibraryTrack).where(LibraryTrack.source == "youtube", LibraryTrack.external_id == item.id)
+            ).first()
+            if not track:
+                track = LibraryTrack(source="youtube", external_id=item.id, title=item.title, position=index)
+                self.session.add(track)
+            track.artist_name = item.artists[0].name if item.artists else artist_name
+            track.artist_external_id = external_id
+            track.album_title = item.album.name if item.album else track.album_title
+            track.duration_seconds = item.duration_seconds or track.duration_seconds
+            track.source_url = item.url
+            track.artwork_url = item.thumbnail or track.artwork_url
+            track.explicit = item.explicit
+            tracks.append(track)
+        return tracks
 
     def smart_collection(
         self, collection_id: str, *, limit: int = 50

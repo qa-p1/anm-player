@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
+import { localTimeZone, parseServerDate } from "@/utils/dates";
 import { cachedArtworkUrl } from "@/services/api-client";
 import {
   clearHistory,
@@ -39,7 +40,7 @@ type HistoryFilter = "all" | "played" | "completed" | "skipped";
 export function InsightsPage() {
   const [period, setPeriod] = useState(30);
   const client = useQueryClient();
-  const insightsQuery = useQuery({ queryKey: musicKeys.insights(period), queryFn: ({ signal }) => getListeningInsights(period, signal) });
+  const insightsQuery = useQuery({ queryKey: musicKeys.insights(period), queryFn: ({ signal }) => getListeningInsights(period, signal, localTimeZone()) });
   // Older entries are appended to the same list each time "Load more" is used.
   const [historyFilter, setHistoryFilter] = useState<HistoryFilter>("all");
   const historyQuery = useInfiniteQuery({
@@ -227,6 +228,9 @@ function ActivityChart({ insights }: { insights: ListeningInsights }) {
   return (
     <section className="rounded-[1.6rem] border border-white/[0.06] bg-card/40 p-5 pb-8 sm:p-6 sm:pb-9">
       <h2 className="mb-6 text-lg font-bold">Activity</h2>
+      {visible.every((day) => day.play_count === 0) ? (
+        <div className="grid h-48 place-items-center rounded-2xl border border-dashed border-white/10 text-sm text-muted-foreground">No plays in this period</div>
+      ) : (
       <div className="flex h-48 items-end gap-1" aria-label="Daily listening activity chart">
         {visible.map((day, index) => {
           const magnitude = Math.max(day.play_count, day.listening_seconds / 180);
@@ -237,11 +241,12 @@ function ActivityChart({ insights }: { insights: ListeningInsights }) {
               <div className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-2 hidden -translate-x-1/2 whitespace-nowrap rounded-lg bg-popover px-2 py-1 text-[0.68rem] shadow-xl group-hover:block">
                 {new Date(`${day.date}T00:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" })}: {day.play_count} plays · {compactDuration(day.listening_seconds)}
               </div>
-              {index % 7 === 0 && <span className="absolute -bottom-5 left-0 text-[0.6rem] text-muted-foreground">{new Date(`${day.date}T00:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</span>}
+              {index % 7 === 0 && <span className="absolute -bottom-5 left-0 whitespace-nowrap text-[0.6rem] text-muted-foreground">{new Date(`${day.date}T00:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</span>}
             </div>
           );
         })}
       </div>
+      )}
     </section>
   );
 }
@@ -303,7 +308,7 @@ function HistoryRow({ entry, onReplay, onRemove }: { entry: HistoryEntry; onRepl
   const artwork = cachedArtworkUrl(entry.song?.artwork_path || entry.song?.artwork_url || entry.artwork_url);
   const track = historyEntryToPlayerTrack(entry);
   const EventIcon = entry.event_type === "completed" ? CheckCircle2 : entry.event_type === "skipped" ? SkipForward : Play;
-  const playedAt = new Date(entry.played_at);
+  const playedAt = parseServerDate(entry.played_at);
   return (
     <article className="group relative flex items-center gap-3 rounded-xl p-2 transition hover:bg-white/[0.05]">
       {/* Sibling overlay keeps artist/album links clickable without nesting them in a button. */}
@@ -320,7 +325,7 @@ function HistoryRow({ entry, onReplay, onRemove }: { entry: HistoryEntry; onRepl
             : <span className="block truncate text-xs text-muted-foreground">{entry.song?.artist_name || entry.artist_name || "Unknown artist"}</span>}
         </span>
         <span title={entry.event_type} className={cn("pointer-events-auto hidden shrink-0 sm:block", entry.event_type === "completed" ? "text-emerald-400" : entry.event_type === "skipped" ? "text-amber-400" : "text-muted-foreground")}><EventIcon aria-label={entry.event_type} className="h-3.5 w-3.5" /></span>
-        <time dateTime={entry.played_at} className="w-16 shrink-0 text-right text-xs tabular-nums text-muted-foreground">{Number.isFinite(playedAt.getTime()) ? playedAt.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) : ""}</time>
+        <time dateTime={entry.played_at} className="w-16 shrink-0 text-right text-xs tabular-nums text-muted-foreground">{playedAt ? playedAt.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) : ""}</time>
       </div>
       <Button size="icon" variant="ghost" className="relative z-10 h-8 w-8 shrink-0 text-muted-foreground opacity-100 hover:text-red-400 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100" aria-label={`Remove ${title} from history`} onClick={onRemove}><Trash2 className="h-3.5 w-3.5" /></Button>
     </article>
@@ -354,8 +359,9 @@ function groupByDay(entries: HistoryEntry[]) {
   yesterday.setDate(today.getDate() - 1);
   const groups: Array<{ key: string; label: string; entries: HistoryEntry[] }> = [];
   for (const entry of entries) {
-    const date = new Date(entry.played_at);
-    const valid = Number.isFinite(date.getTime());
+    const parsed = parseServerDate(entry.played_at);
+    const date = parsed ?? new Date(0);
+    const valid = parsed !== null;
     const key = valid ? dayKey(date) : "unknown";
     const label = !valid ? "Earlier" : key === dayKey(today) ? "Today" : key === dayKey(yesterday) ? "Yesterday"
       : date.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric", year: date.getFullYear() === today.getFullYear() ? undefined : "numeric" });

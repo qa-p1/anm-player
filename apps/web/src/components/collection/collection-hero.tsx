@@ -61,7 +61,7 @@ export function CollectionHero({ kind, title, artworkUrl, artwork, shape = "squa
           {meta && <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">{meta}</div>}
         </div>
       </div>
-      {children && <div className="flex flex-wrap items-center gap-2 border-t border-white/[0.06] bg-background/20 px-5 py-4 sm:gap-3 sm:px-7 lg:px-9">{children}</div>}
+      {children && <div className="no-scrollbar flex items-center gap-1.5 overflow-x-auto border-t border-white/[0.06] bg-background/20 px-4 py-3 sm:flex-wrap sm:gap-3 sm:overflow-visible sm:px-7 sm:py-4 lg:px-9 [&>*]:shrink-0">{children}</div>}
     </section>
   );
 }
@@ -81,7 +81,7 @@ export function BigPlayButton({ label, onClick, disabled, isPlaying = false, cla
       title={label}
       onClick={onClick}
       disabled={disabled}
-      className={cn("grid h-14 w-14 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground shadow-glow transition hover:scale-105 hover:bg-primary/90 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50", className)}
+      className={cn("grid h-12 w-12 shrink-0 place-items-center rounded-full bg-primary sm:h-14 sm:w-14 text-primary-foreground shadow-glow transition hover:scale-105 hover:bg-primary/90 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50", className)}
     >
       <Icon className={cn("h-6 w-6 fill-current", !isPlaying && "translate-x-[1px]")} />
     </button>
@@ -96,7 +96,7 @@ export function HeroIconButton({ label, onClick, disabled, active = false, child
       title={label}
       onClick={onClick}
       disabled={disabled}
-      className={cn("grid h-11 w-11 shrink-0 place-items-center rounded-full border border-white/10 bg-white/[0.06] text-foreground/80 backdrop-blur-xl transition hover:scale-105 hover:bg-white/15 hover:text-foreground active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-40", active && "text-primary hover:text-primary", className)}
+      className={cn("grid h-10 w-10 shrink-0 place-items-center rounded-full border border-white/10 sm:h-11 sm:w-11 bg-white/[0.06] text-foreground/80 backdrop-blur-xl transition hover:scale-105 hover:bg-white/15 hover:text-foreground active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-40", active && "text-primary hover:text-primary", className)}
     >
       {children}
     </button>

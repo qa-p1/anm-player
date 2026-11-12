@@ -267,3 +267,35 @@ def walk_strings(value: Any):
     elif isinstance(value, list):
         for item in value:
             yield from walk_strings(item)
+
+
+ARTIST_HEADER_KEYS = (
+    "musicImmersiveHeaderRenderer",
+    "musicVisualHeaderRenderer",
+    "musicResponsiveHeaderRenderer",
+    "musicDetailHeaderRenderer",
+)
+
+
+def artist_name_from_raw(raw: dict[str, Any]) -> str | None:
+    """Artist pages use an immersive or visual header, not an album header."""
+    header = raw.get("header") if isinstance(raw.get("header"), dict) else {}
+    for key in ARTIST_HEADER_KEYS:
+        renderer = header.get(key)
+        if isinstance(renderer, dict):
+            title = header_title(renderer.get("title")) or runs_text(renderer.get("title"))
+            if title and title.strip():
+                return title.strip()
+    return album_title_from_raw(raw)
+
+
+def artist_release_shelves(raw: dict[str, Any]) -> list[dict[str, Any]]:
+    """The artist's own "Albums" and "Singles & EPs" rows, not "Featured on" or playlists."""
+    shelves = []
+    for shelf in walk_renderers(raw, "musicCarouselShelfRenderer"):
+        title = runs_text(
+            (shelf.get("header") or {}).get("musicCarouselShelfBasicHeaderRenderer", {}).get("title")
+        ).strip().casefold()
+        if title.startswith(("albums", "singles", "eps")):
+            shelves.append(shelf)
+    return shelves

@@ -20,6 +20,7 @@ import { playPlaylistById } from "@/features/library/collection-playback";
 import { useAllPlaylists, useCreatePlaylist } from "@/hooks/use-music-queries";
 import { queryClient } from "@/lib/query-client";
 import { cn } from "@/lib/utils";
+import { serverTime } from "@/utils/dates";
 import { cachedArtworkUrl } from "@/services/api-client";
 import { importPlaylistUrl } from "@/services/music-api";
 import { invalidatePlaylists } from "@/services/music-invalidation";
@@ -56,8 +57,8 @@ export function PlaylistsPage() {
       sort === "name" ? collator.compare(a.name, b.name)
         : sort === "tracks" ? b.song_count - a.song_count
           : sort === "length" ? (b.duration_seconds ?? 0) - (a.duration_seconds ?? 0)
-            : sort === "created" ? dateValue(b.created_at) - dateValue(a.created_at)
-              : dateValue(b.updated_at) - dateValue(a.updated_at))), [playlists, pinned, sort, term]);
+            : sort === "created" ? serverTime(b.created_at) - serverTime(a.created_at)
+              : serverTime(b.updated_at) - serverTime(a.updated_at))), [playlists, pinned, sort, term]);
 
   const totals = useMemo(() => ({
     songs: playlists.reduce((total, playlist) => total + playlist.song_count, 0),
@@ -232,9 +233,4 @@ function PlaylistListRow({ playlist, pinned, onTogglePin }: { playlist: Playlist
       </button>
     </article>
   );
-}
-
-function dateValue(value: string | null | undefined) {
-  const time = value ? new Date(value).getTime() : 0;
-  return Number.isFinite(time) ? time : 0;
 }

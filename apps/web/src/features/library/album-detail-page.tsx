@@ -187,7 +187,7 @@ export function AlbumDetailPage() {
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button type="button" aria-label="More album actions" title="More" className="ml-auto grid h-11 w-11 place-items-center rounded-full text-muted-foreground transition hover:bg-white/10 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><MoreHorizontal className="h-5 w-5" /></button>
+            <button type="button" aria-label="More album actions" title="More" className="ml-auto grid h-10 w-10 sm:h-11 sm:w-11 place-items-center rounded-full text-muted-foreground transition hover:bg-white/10 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><MoreHorizontal className="h-5 w-5" /></button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-60">
             <DropdownMenuItem disabled={playerTracks.length === 0} onSelect={() => setSaveOpen(true)}><Plus className="mr-2 h-4 w-4" />Save as playlist</DropdownMenuItem>
@@ -217,6 +217,7 @@ export function AlbumDetailPage() {
                   showArtwork={false}
                   number={track.track_number ?? index + 1}
                   explicit={track.explicit}
+                  hideAlbum
                   subtitle={track.artist_name || album.artist.name || "Unknown Artist"}
                   status={track.is_downloaded ? "Offline" : null}
                   isDownloaded={track.is_downloaded}

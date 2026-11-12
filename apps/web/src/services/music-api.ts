@@ -256,8 +256,10 @@ export function clearHistory() {
   return apiDelete<{ deleted: number }>("/history");
 }
 
-export function getListeningInsights(days = 30, signal?: AbortSignal) {
-  return apiGet<ListeningInsights>(`/insights?days=${days}`, { signal });
+export function getListeningInsights(days = 30, signal?: AbortSignal, timeZone?: string) {
+  const params = new URLSearchParams({ days: String(days) });
+  if (timeZone) params.set("tz", timeZone);
+  return apiGet<ListeningInsights>(`/insights?${params.toString()}`, { signal });
 }
 
 export function getSongStreamUrl(songId: number): string {

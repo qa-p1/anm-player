@@ -13,13 +13,15 @@ interface TrackMetadataProps {
   className?: string;
   linkClassName?: string;
   onNavigate?: () => void;
+  /** On an album's own page the album name is redundant. */
+  hideAlbum?: boolean;
 }
 
 /** Shared artist/album metadata used by rows and both player bars. */
-export function TrackMetadata({ track, fallbackArtist, className, linkClassName, onNavigate }: TrackMetadataProps) {
+export function TrackMetadata({ track, fallbackArtist, className, linkClassName, onNavigate, hideAlbum = false }: TrackMetadataProps) {
   const artist = track.artistName || fallbackArtist || "Unknown Artist";
   const artistHref = trackArtistHref(track);
-  const album = track.albumTitle;
+  const album = hideAlbum ? null : track.albumTitle;
   const albumHref = trackAlbumHref(track);
   const linkClasses = cn(
     "min-w-0 truncate transition hover:text-primary hover:underline hover:underline-offset-2",

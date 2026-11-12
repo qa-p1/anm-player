@@ -328,7 +328,7 @@ export function PlaylistDetailPage() {
         <HeroIconButton label="Edit details" onClick={openEditor} disabled={isMutating}><Pencil className="h-5 w-5" /></HeroIconButton>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button type="button" aria-label="More playlist actions" title="More" className="ml-auto grid h-11 w-11 place-items-center rounded-full text-muted-foreground transition hover:bg-white/10 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><MoreHorizontal className="h-5 w-5" /></button>
+            <button type="button" aria-label="More playlist actions" title="More" className="ml-auto grid h-10 w-10 sm:h-11 sm:w-11 place-items-center rounded-full text-muted-foreground transition hover:bg-white/10 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><MoreHorizontal className="h-5 w-5" /></button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-60">
             <DropdownMenuItem disabled={isUploadingCover} onSelect={() => coverInputRef.current?.click()}><Camera className="mr-2 h-4 w-4" />Change cover</DropdownMenuItem>

@@ -295,3 +295,22 @@ def test_recent_history_uses_latest_event_and_keeps_orphaned_local_tracks_distin
 
     assert [entry.title for entry in recent] == ["First completed", "Second"]
     assert [entry.id for entry in first_page + second_page] == [events[2].id, events[1].id]
+
+
+def test_days_and_hours_follow_the_listeners_time_zone() -> None:
+    from zoneinfo import ZoneInfo
+
+    zone = ZoneInfo("Asia/Kolkata")
+    # 20:00 UTC yesterday is 01:30 today in India: one day later and at 1 a.m.
+    yesterday = (datetime.now(UTC) - timedelta(days=1)).date()
+    played = datetime.combine(yesterday, time(20, 0), tzinfo=UTC)
+    with make_session() as session:
+        session.add(history_event(title="Late", artist="A", event_type="played", when=played.replace(tzinfo=None), external_id="late"))
+        session.commit()
+        local = ListeningInsightsService(session).get(days=7, zone=zone)
+        utc = ListeningInsightsService(session).get(days=7)
+
+    local_day = played.astimezone(zone).date().isoformat()
+    assert [day.date for day in local.daily if day.play_count] == [local_day]
+    assert [bucket.hour for bucket in local.hourly if bucket.play_count] == [1]
+    assert [bucket.hour for bucket in utc.hourly if bucket.play_count] == [20]

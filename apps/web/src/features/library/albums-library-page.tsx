@@ -17,6 +17,7 @@ import { BackButton } from "@/components/navigation/back-button";
 import { Button } from "@/components/ui/button";
 import { playAlbumById, playingAlbumKey } from "@/features/library/collection-playback";
 import { cn } from "@/lib/utils";
+import { serverTime } from "@/utils/dates";
 import { cachedArtworkUrl } from "@/services/api-client";
 import { listAllLibraryAlbums } from "@/services/music-api";
 import { musicKeys } from "@/services/music-keys";
@@ -42,7 +43,7 @@ export function AlbumsLibraryPage() {
     .filter((album) => (!offlineOnly || album.download_state === "downloaded") && `${album.title} ${album.artist_name || ""} ${album.year ?? ""}`.toLocaleLowerCase().includes(term))
     .sort((a, b) => {
       if (sort === "year") return (b.year ?? 0) - (a.year ?? 0) || collator.compare(a.title, b.title);
-      if (sort === "recent") return dateValue(b.added_at || b.created_at) - dateValue(a.added_at || a.created_at);
+      if (sort === "recent") return serverTime(b.added_at || b.created_at) - serverTime(a.added_at || a.created_at);
       if (sort === "artist") return collator.compare(a.artist_name || "", b.artist_name || "") || (a.year ?? 0) - (b.year ?? 0);
       return collator.compare(a.title, b.title);
     }), [albums, offlineOnly, sort, term]);
@@ -58,7 +59,7 @@ export function AlbumsLibraryPage() {
     ];
   }, [albums]);
 
-  const recent = useMemo(() => [...albums].sort((a, b) => dateValue(b.added_at || b.created_at) - dateValue(a.added_at || a.created_at)).slice(0, 12), [albums]);
+  const recent = useMemo(() => [...albums].sort((a, b) => serverTime(b.added_at || b.created_at) - serverTime(a.added_at || a.created_at)).slice(0, 12), [albums]);
   const showShelf = !term && !offlineOnly && albums.length >= 8;
   const covers = useMemo(() => recent.map((album) => cachedArtworkUrl(album.artwork_path || album.artwork_url)), [recent]);
 
@@ -147,9 +148,4 @@ function AlbumListRow({ album, isActive }: { album: LibraryAlbum; isActive: bool
       </button>
     </article>
   );
-}
-
-function dateValue(value: string | null | undefined) {
-  const time = value ? new Date(value).getTime() : 0;
-  return Number.isFinite(time) ? time : 0;
 }

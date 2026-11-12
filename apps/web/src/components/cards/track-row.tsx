@@ -34,6 +34,7 @@ interface TrackRowProps {
   /** Track number shown in list rows; hover swaps it for a play icon. */
   number?: number | string;
   explicit?: boolean;
+  hideAlbum?: boolean;
 }
 
 export function TrackRow({
@@ -55,6 +56,7 @@ export function TrackRow({
   variant = "card",
   number,
   explicit = false,
+  hideAlbum = false,
 }: TrackRowProps) {
   const { currentSong, isPlaying, playSong, setIsPlaying } = usePlayerStore(useShallow((state) => ({
     currentSong: state.currentSong,
@@ -120,7 +122,7 @@ export function TrackRow({
               <span className="truncate" title={track.title}>{track.title}</span>
               {explicit && <span aria-label="Explicit" title="Explicit" className="grid h-4 w-4 shrink-0 place-items-center rounded-[4px] bg-muted-foreground/25 text-[0.6rem] font-bold text-foreground/80">E</span>}
             </span>
-            <TrackMetadata track={track} fallbackArtist={subtitle} className="flex text-xs text-muted-foreground" linkClassName="pointer-events-auto" />
+            <TrackMetadata track={track} fallbackArtist={subtitle} hideAlbum={hideAlbum} className="flex text-xs text-muted-foreground" linkClassName="pointer-events-auto" />
           </span>
           {status && <span className="hidden shrink-0 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[0.65rem] font-semibold text-emerald-400 md:inline">{status}</span>}
           <TrackDuration trackId={track.id} seconds={track.durationSeconds} className="shrink-0 text-xs text-muted-foreground" />

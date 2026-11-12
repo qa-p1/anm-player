@@ -18,6 +18,7 @@ from app.schemas.ytmusic import (
 from app.services.ytmusic_service.client import YouTubeMusicClient
 from app.services.ytmusic_service.models import HomePage, PlaybackData, YTItem
 from app.services.ytmusic_service.parsing import (
+    runs_text,
     best_thumbnail,
     extract_explore_albums,
     extract_related_browse_id,
@@ -36,6 +37,8 @@ from app.services.ytmusic_service.presentation import (
     album_artist_from_items,
     album_artist_from_raw,
     album_title_from_raw,
+    artist_name_from_raw,
+    artist_release_shelves,
     album_year_from_raw,
     assemble_home,
     extract_lyrics_lines,
@@ -74,6 +77,8 @@ class YouTubeMusicService:
         self._home_cache: tuple[float, OnlineHomeResponse] | None = None
         self._related_cache: dict[str, tuple[float, OnlineRelatedResponse]] = {}
         self._duration_cache: dict[str, int] = {}
+        self._artist_cache: dict[str, tuple[float, dict[str, Any]]] = {}
+        self.artist_cache_ttl_seconds = 600.0
         self._home_refresh_lock = asyncio.Lock()
         self.search_cache_ttl_seconds = 120.0
         self.home_cache_ttl_seconds = 600.0
@@ -266,7 +271,15 @@ class YouTubeMusicService:
         return preview
 
     async def artist(self, browse_id: str) -> dict[str, Any]:
-        return await asyncio.to_thread(self._artist_sync, browse_id)
+        now = time.monotonic()
+        cached = self._artist_cache.get(browse_id)
+        if cached and cached[0] > now:
+            return cached[1]
+        result = await asyncio.to_thread(self._artist_sync, browse_id)
+        if len(self._artist_cache) >= 128:
+            self._artist_cache.pop(next(iter(self._artist_cache)))
+        self._artist_cache[browse_id] = (now + self.artist_cache_ttl_seconds, result)
+        return result
 
     def playback(self, video_id: str, *, quality: str = "high") -> PlaybackData:
         key = (video_id, quality)
@@ -594,8 +607,19 @@ class YouTubeMusicService:
             logger.exception("Innertube artist browse failed")
             raise AppError("YouTube Music artist failed. Please try again.") from exc
 
-        name = album_title_from_raw(raw) or "Artist"
+        name = artist_name_from_raw(raw)
         thumbnail = best_thumbnail(raw)
+        releases: list[OnlineMusicItem] = []
+        seen_releases: set[str] = set()
+        for shelf in artist_release_shelves(raw):
+            for renderer in walk_renderers(shelf, "musicTwoRowItemRenderer"):
+                item = item_from_renderer({"musicTwoRowItemRenderer": renderer})
+                if item and item.kind == "album" and item.id and item.id not in seen_releases:
+                    seen_releases.add(item.id)
+                    release = item_to_schema(item)
+                    # Release cards carry the year as their subtitle ("2013" or "Album • 2013").
+                    subtitle = runs_text(renderer.get("subtitle")).strip()
+                    releases.append(release.model_copy(update={"subtitle": subtitle}) if subtitle and not release.subtitle else release)
         items: list[OnlineMusicItem] = []
         seen: set[tuple[str, str]] = set()
         for key in (
@@ -619,7 +643,8 @@ class YouTubeMusicService:
             "name": name,
             "thumbnail_url": thumbnail,
             "tracks": [item for item in items if item.playable],
-            "albums": [item for item in items if item.kind == "album"],
+            # Older pages without titled release rows fall back to every album found.
+            "albums": releases or [item for item in items if item.kind == "album"],
         }
 
 

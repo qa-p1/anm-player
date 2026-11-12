@@ -183,7 +183,7 @@ export function ArtistDetailPage() {
                   href={album.href}
                   title={album.title}
                   subtitle={album.year ? String(album.year) : "Unknown year"}
-                  meta={pluralize(album.count, "song")}
+                  meta={album.count > 0 ? pluralize(album.count, "song") : undefined}
                   artworkUrl={cachedArtworkUrl(album.artwork)}
                   fallbackArtworkUrl={cachedArtworkUrl(album.fallback)}
                   placeholderIcon={Disc3}
@@ -223,7 +223,7 @@ function LatestRelease({ album, isActive }: { album: AlbumView; isActive: boolea
             <Link to={album.href} className="min-w-0 flex-1 outline-none after:absolute after:inset-0 after:rounded-[1.6rem] focus-visible:after:ring-2 focus-visible:after:ring-ring">
               <p className="text-xs font-bold uppercase tracking-wider text-primary">{album.year ?? "Album"}</p>
               <h3 className={cn("truncate text-lg font-black", isActive && "text-primary")} title={album.title}>{album.title}</h3>
-              <p className="text-sm text-muted-foreground">{pluralize(album.count, "song")}</p>
+              {album.count > 0 && <p className="text-sm text-muted-foreground">{pluralize(album.count, "song")}</p>}
             </Link>
             {album.publicId && (
               <button type="button" aria-label={`Play ${album.title}`} title={`Play ${album.title}`} onClick={() => void playAlbumById(album.publicId!)} className="relative z-10 grid h-12 w-12 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground shadow-glow transition hover:scale-105 active:scale-95">
