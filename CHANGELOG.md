@@ -6,6 +6,8 @@
 - **Half the data**: Streamed songs download once at full speed instead of twice, and replays come straight from the cache.
 - **Plays that really count**: A song counts as played after 30 seconds or half its length, and History shows one entry per listen.
 - **Roomier full-screen player**: On wide screens, lyrics or Up next stay open beside the artwork.
+- **Better-looking lyrics**: Lyrics without timing use the same big style as synced ones, and past lines dim properly again.
+- **Light theme polish**: Borders, cards and hover states are visible in light mode instead of disappearing.
 - **Instant Home**: Home appears immediately with your last picks and refreshes quietly in the background.
 - **Top results in Search**: Search opens on the best songs, artists, albums and playlists together, each with See all.
 - **Real artist pages**: Artists in your library show their photo, popular songs and every release, next to your own songs.

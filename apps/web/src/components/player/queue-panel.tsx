@@ -187,7 +187,7 @@ export function QueuePanel({ onClose }: { onClose: () => void }) {
           {queue.length > 0 && (
             <div className="relative mb-3 shrink-0">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/45" />
-              <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Find in queue" className="h-10 border-white/10 bg-white/8 pl-9 text-sm text-white placeholder:text-white/40" />
+              <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Find in queue" className="h-10 border-white/10 bg-white/[0.08] pl-9 text-sm text-white placeholder:text-white/40" />
             </div>
           )}
           <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto pb-4">
@@ -213,7 +213,7 @@ export function QueuePanel({ onClose }: { onClose: () => void }) {
           {queueHistory.length === 0 ? <EmptyQueue icon={History} title="No session history yet" description="Tracks played in this queue will collect here." /> : (
             <ul className="space-y-2">
               {[...queueHistory].map((song, index) => ({ song, index })).reverse().map(({ song, index }) => (
-                <li key={`${song.id}:${index}`} className="relative flex items-center gap-3 rounded-2xl bg-white/8 p-3">
+                <li key={`${song.id}:${index}`} className="relative flex items-center gap-3 rounded-2xl bg-white/[0.08] p-3">
                   <button type="button" onClick={() => replayHistory(index)} className="group relative h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-white/10" aria-label={`Replay ${song.title}`}><ArtworkImage src={song.artworkUrl} alt="" className="h-full w-full object-cover" /><span className="absolute inset-0 grid place-items-center bg-black/45 opacity-0 transition group-hover:opacity-100 group-focus-visible:opacity-100"><Play className="h-4 w-4 fill-current" /></span></button>
                   <button type="button" onClick={() => replayHistory(index)} className="min-w-0 flex-1 text-left after:absolute after:inset-0 after:rounded-2xl focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-white/70"><p className="truncate text-sm font-semibold">{song.title}</p><p className="truncate text-xs text-white/50">{song.artistName || "Unknown artist"}</p></button>
                   <span className="text-xs tabular-nums text-white/40">{formatTime(song.durationSeconds ?? 0)}</span>
@@ -224,7 +224,7 @@ export function QueuePanel({ onClose }: { onClose: () => void }) {
         </div>
       ) : (
         <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto pb-4">
-          <div className="mb-4 flex gap-2 rounded-2xl bg-white/8 p-3">
+          <div className="mb-4 flex gap-2 rounded-2xl bg-white/[0.08] p-3">
             <Input value={snapshotName} onChange={(event) => setSnapshotName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") saveSnapshot(); }} placeholder="Queue name" className="h-10 border-white/10 bg-black/10 text-sm text-white placeholder:text-white/40" />
             <Button onClick={saveSnapshot} disabled={queue.length === 0 && !currentSong}><Save className="h-4 w-4" />Save current</Button>
           </div>
@@ -232,7 +232,7 @@ export function QueuePanel({ onClose }: { onClose: () => void }) {
           {queueSnapshots.length === 0 ? <EmptyQueue icon={Save} title="No saved queues" description="Save a listening session and return to it any time on this device." /> : (
             <ul className="space-y-2">
               {queueSnapshots.map((snapshot) => (
-                <li key={snapshot.id} className="rounded-2xl bg-white/8 p-3">
+                <li key={snapshot.id} className="rounded-2xl bg-white/[0.08] p-3">
                   <div className="flex items-center gap-3"><button type="button" onClick={() => loadSnapshot(snapshot)} className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-white/10 hover:bg-white/15" aria-label={`Load ${snapshot.name}`}><Play className="h-5 w-5 fill-current" /></button><button type="button" onClick={() => loadSnapshot(snapshot)} className="min-w-0 flex-1 text-left"><p className="truncate text-sm font-semibold">{snapshot.name}</p><p className="text-xs text-white/50">{snapshot.tracks.length} tracks · {formatQueueDuration(snapshot.tracks.reduce((sum, track) => sum + (track.durationSeconds ?? 0), 0))} · {new Date(snapshot.updatedAt).toLocaleDateString()}</p></button><Button variant="ghost" size="icon" className="h-9 w-9 text-white/55 hover:text-white" onClick={() => exportTracks(snapshot.tracks, snapshot.name)} aria-label={`Export ${snapshot.name}`}><Download className="h-4 w-4" /></Button><Button variant="ghost" size="icon" className="h-9 w-9 text-white/55 hover:text-red-300" onClick={() => deleteQueueSnapshot(snapshot.id)} aria-label={`Delete ${snapshot.name}`}><Trash2 className="h-4 w-4" /></Button></div>
                 </li>
               ))}
@@ -295,7 +295,7 @@ function SortableQueueRow({ entry, lastQueueIndex, onPlay, onMoveNext, onMoveEnd
   const { song, queueIndex } = entry;
   const style: CSSProperties = { transform: CSS.Transform.toString(transform), transition: transition ?? "transform 220ms cubic-bezier(0.22, 1, 0.36, 1)", opacity: isDragging ? 0.28 : 1 };
   return (
-    <li ref={setNodeRef} style={style} className={cn("group relative flex items-center gap-2 rounded-2xl bg-white/8 p-2.5 backdrop-blur-xl will-change-transform hover:bg-white/12", isDragging && "ring-1 ring-white/20")}>
+    <li ref={setNodeRef} style={style} className={cn("group relative flex items-center gap-2 rounded-2xl bg-white/[0.08] p-2.5 backdrop-blur-xl will-change-transform hover:bg-white/[0.12]", isDragging && "ring-1 ring-white/20")}>
       <button ref={setActivatorNodeRef} type="button" {...attributes} {...listeners} aria-label={`Drag ${song.title} to reorder`} className="relative z-10 grid h-10 w-7 shrink-0 touch-none cursor-grab place-items-center rounded-lg text-white/35 transition hover:bg-white/10 hover:text-white/80 active:cursor-grabbing"><GripVertical className="h-5 w-5" /></button>
       <button type="button" onClick={() => onPlay(queueIndex)} className="min-w-0 flex flex-1 items-center gap-3 rounded-xl text-left after:absolute after:inset-0 after:rounded-2xl focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-white/70">
         <div className="group/art relative h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-white/10"><ArtworkImage src={song.artworkUrl} alt="" className="h-full w-full object-cover" /><span className="absolute inset-0 grid place-items-center bg-black/45 opacity-0 transition group-hover/art:opacity-100"><Play className="h-4 w-4 fill-current" /></span></div>

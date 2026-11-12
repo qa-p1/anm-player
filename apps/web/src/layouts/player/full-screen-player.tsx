@@ -161,7 +161,7 @@ export function FullScreenPlayer({ onClose }: FullScreenPlayerProps) {
 
   return (
     <motion.div
-      className="fixed inset-0 z-[200] h-[100dvh] overflow-hidden text-white transition-[background-color] duration-700 ease-out"
+      className="keep-dark fixed inset-0 z-[200] h-[100dvh] overflow-hidden text-white transition-[background-color] duration-700 ease-out"
       style={{ backgroundColor: palette.base }}
       initial={{ opacity: 0, y: 28 }}
       animate={{ opacity: 1, y: 0 }}
@@ -260,7 +260,7 @@ export function FullScreenPlayer({ onClose }: FullScreenPlayerProps) {
                   >
                     {displayedPlaybackStatus === "error" ? <WifiOff className="h-4 w-4 shrink-0" /> : <LoaderCircle className="h-4 w-4 shrink-0 animate-spin" />}
                     <span className="truncate">{playbackStatusLabel(displayedPlaybackStatus, playbackError, retryAttempt)}</span>
-                    {displayedPlaybackStatus === "error" && <button type="button" className="shrink-0 rounded-full bg-white/12 px-2 py-1 text-white hover:bg-white/20" onClick={() => retryCurrentSong()}>Retry</button>}
+                    {displayedPlaybackStatus === "error" && <button type="button" className="shrink-0 rounded-full bg-white/[0.12] px-2 py-1 text-white hover:bg-white/20" onClick={() => retryCurrentSong()}>Retry</button>}
                   </div>
                 )}
               </div>
@@ -377,6 +377,7 @@ export function FullScreenPlayer({ onClose }: FullScreenPlayerProps) {
                     artist={currentSong.artistName}
                     album={currentSong.albumTitle}
                     duration={currentSong.durationSeconds}
+                    side
                     onClose={() => setView("lyrics")}
                   />
                 ) : <QueuePanel onClose={() => setSide("lyrics")} />}

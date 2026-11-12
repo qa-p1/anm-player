@@ -232,3 +232,39 @@
   from { opacity: 0; }
   to { opacity: 1; }
 }
+
+/* Light theme: white tints that are invisible on a light background become dark tints.
+   Generated from the classes in use; `.keep-dark` areas (the full-screen player) stay as designed. */
+html.light .bg-white\/10:not(.keep-dark, .keep-dark *) { background-color: rgb(0 0 0 / 0.07); }
+html.light .bg-white\/15:not(.keep-dark, .keep-dark *) { background-color: rgb(0 0 0 / 0.105); }
+html.light .bg-white\/20:not(.keep-dark, .keep-dark *) { background-color: rgb(0 0 0 / 0.14); }
+html.light .bg-white\/\[0\.03\]:not(.keep-dark, .keep-dark *) { background-color: rgb(0 0 0 / 0.03); }
+html.light .bg-white\/\[0\.04\]:not(.keep-dark, .keep-dark *) { background-color: rgb(0 0 0 / 0.03); }
+html.light .bg-white\/\[0\.05\]:not(.keep-dark, .keep-dark *) { background-color: rgb(0 0 0 / 0.035); }
+html.light .bg-white\/\[0\.06\]:not(.keep-dark, .keep-dark *) { background-color: rgb(0 0 0 / 0.042); }
+html.light .bg-white\/\[0\.08\]:not(.keep-dark, .keep-dark *) { background-color: rgb(0 0 0 / 0.056); }
+html.light .bg-white\/\[0\.09\]:not(.keep-dark, .keep-dark *) { background-color: rgb(0 0 0 / 0.063); }
+html.light .bg-white\/\[0\.12\]:not(.keep-dark, .keep-dark *) { background-color: rgb(0 0 0 / 0.084); }
+html.light .border-white\/10:not(.keep-dark, .keep-dark *) { border-color: rgb(0 0 0 / 0.07); }
+html.light .border-white\/15:not(.keep-dark, .keep-dark *) { border-color: rgb(0 0 0 / 0.105); }
+html.light .border-white\/20:not(.keep-dark, .keep-dark *) { border-color: rgb(0 0 0 / 0.14); }
+html.light .border-white\/25:not(.keep-dark, .keep-dark *) { border-color: rgb(0 0 0 / 0.175); }
+html.light .border-white\/5:not(.keep-dark, .keep-dark *) { border-color: rgb(0 0 0 / 0.035); }
+html.light .border-white\/\[0\.06\]:not(.keep-dark, .keep-dark *) { border-color: rgb(0 0 0 / 0.042); }
+html.light .border-white\/\[0\.12\]:not(.keep-dark, .keep-dark *) { border-color: rgb(0 0 0 / 0.084); }
+html.light .divide-white\/\[0\.06\] > :not([hidden]) ~ :not([hidden]):not(.keep-dark, .keep-dark *) { border-color: rgb(0 0 0 / 0.042); }
+html.light .hover\:bg-white\/10:hover:not(.keep-dark, .keep-dark *) { background-color: rgb(0 0 0 / 0.07); }
+html.light .hover\:bg-white\/15:hover:not(.keep-dark, .keep-dark *) { background-color: rgb(0 0 0 / 0.105); }
+html.light .hover\:bg-white\/20:hover:not(.keep-dark, .keep-dark *) { background-color: rgb(0 0 0 / 0.14); }
+html.light .hover\:bg-white\/5:hover:not(.keep-dark, .keep-dark *) { background-color: rgb(0 0 0 / 0.035); }
+html.light .hover\:bg-white\/\[0\.04\]:hover:not(.keep-dark, .keep-dark *) { background-color: rgb(0 0 0 / 0.03); }
+html.light .hover\:bg-white\/\[0\.05\]:hover:not(.keep-dark, .keep-dark *) { background-color: rgb(0 0 0 / 0.035); }
+html.light .hover\:bg-white\/\[0\.06\]:hover:not(.keep-dark, .keep-dark *) { background-color: rgb(0 0 0 / 0.042); }
+html.light .hover\:bg-white\/\[0\.07\]:hover:not(.keep-dark, .keep-dark *) { background-color: rgb(0 0 0 / 0.049); }
+html.light .hover\:bg-white\/\[0\.08\]:hover:not(.keep-dark, .keep-dark *) { background-color: rgb(0 0 0 / 0.056); }
+html.light .hover\:bg-white\/\[0\.12\]:hover:not(.keep-dark, .keep-dark *) { background-color: rgb(0 0 0 / 0.084); }
+html.light .hover\:border-white\/15:hover:not(.keep-dark, .keep-dark *) { border-color: rgb(0 0 0 / 0.105); }
+html.light .hover\:border-white\/30:hover:not(.keep-dark, .keep-dark *) { border-color: rgb(0 0 0 / 0.21); }
+html.light .ring-white\/10:not(.keep-dark, .keep-dark *) { --tw-ring-color: rgb(0 0 0 / 0.07); }
+html.light .ring-white\/20:not(.keep-dark, .keep-dark *) { --tw-ring-color: rgb(0 0 0 / 0.14); }
+html.light .glass-panel { border-color: rgb(0 0 0 / 0.07); }

@@ -137,7 +137,7 @@ function PlaybackTools() {
         {outputs.length > 0 && (
           <div className="mt-3 space-y-2">
             {outputs.map((device, index) => (
-              <button key={device.deviceId} type="button" onClick={() => chooseOutput(device.deviceId)} className="flex w-full items-center gap-3 rounded-xl bg-white/8 p-3 text-left transition hover:bg-white/15">
+              <button key={device.deviceId} type="button" onClick={() => chooseOutput(device.deviceId)} className="flex w-full items-center gap-3 rounded-xl bg-white/[0.08] p-3 text-left transition hover:bg-white/15">
                 <Volume2 className="h-4 w-4 text-white/60" /><span className="min-w-0 flex-1 truncate text-sm font-medium">{device.label || `Audio output ${index + 1}`}</span>
                 {(preferences.outputDeviceId === device.deviceId || (!preferences.outputDeviceId && device.deviceId === "default")) && <Check className="h-4 w-4" />}
               </button>
@@ -270,7 +270,7 @@ function MarkerTools({ trackId, currentTime, duration }: { trackId: string; curr
         {markers.length > 0 && (
           <div className="mt-4 space-y-2">
             {markers.map((marker) => (
-              <div key={marker.id} className="flex items-center gap-3 rounded-xl bg-white/8 p-2">
+              <div key={marker.id} className="flex items-center gap-3 rounded-xl bg-white/[0.08] p-2">
                 <button type="button" onClick={() => audioService.seek(marker.positionSeconds)} className="min-w-0 flex-1 text-left"><p className="truncate text-sm font-semibold">{marker.label}</p><p className="text-xs tabular-nums text-white/50">{formatTime(marker.positionSeconds)}</p></button>
                 <Button variant="ghost" size="icon" className="h-8 w-8 text-white/55 hover:text-red-300" aria-label={`Delete ${marker.label}`} onClick={() => preferences.removeBookmark(marker.id)}><Trash2 className="h-4 w-4" /></Button>
               </div>
@@ -285,7 +285,7 @@ function MarkerTools({ trackId, currentTime, duration }: { trackId: string; curr
 
 function ToolCard({ title, description, icon: Icon, children }: { title: string; description: string; icon: typeof Gauge; children: React.ReactNode }) {
   return (
-    <section className="rounded-3xl border border-white/12 bg-white/9 p-4 backdrop-blur-xl sm:p-5">
+    <section className="rounded-3xl border border-white/[0.12] bg-white/[0.09] p-4 backdrop-blur-xl sm:p-5">
       <div className="mb-4 flex items-start gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-white/10"><Icon className="h-5 w-5" /></span><div><h3 className="font-bold">{title}</h3><p className="mt-0.5 text-xs leading-5 text-white/50">{description}</p></div></div>
       {children}
     </section>
@@ -294,7 +294,7 @@ function ToolCard({ title, description, icon: Icon, children }: { title: string;
 
 function ToggleRow({ label, description, checked, onChange }: { label: string; description: string; checked: boolean; onChange: (checked: boolean) => void }) {
   return (
-    <button type="button" role="switch" aria-checked={checked} onClick={() => onChange(!checked)} className="mt-3 flex w-full items-center gap-3 rounded-xl bg-white/6 p-3 text-left transition hover:bg-white/10">
+    <button type="button" role="switch" aria-checked={checked} onClick={() => onChange(!checked)} className="mt-3 flex w-full items-center gap-3 rounded-xl bg-white/[0.06] p-3 text-left transition hover:bg-white/10">
       <span className="min-w-0 flex-1"><span className="block text-sm font-semibold">{label}</span><span className="mt-0.5 block text-xs leading-5 text-white/45">{description}</span></span>
       <span className={cn("relative h-6 w-11 shrink-0 rounded-full transition", checked ? "bg-white" : "bg-white/20")}><span className={cn("absolute top-1 h-4 w-4 rounded-full transition", checked ? "left-6 bg-black" : "left-1 bg-white/65")} /></span>
     </button>
@@ -302,13 +302,13 @@ function ToggleRow({ label, description, checked, onChange }: { label: string; d
 }
 
 function ChoiceButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
-  return <button type="button" aria-pressed={active} onClick={onClick} className={cn("min-w-max rounded-xl bg-white/8 px-3 py-2 text-xs font-semibold text-white/65 transition hover:bg-white/15 hover:text-white", active && "bg-white text-black hover:bg-white/90 hover:text-black")}>{children}</button>;
+  return <button type="button" aria-pressed={active} onClick={onClick} className={cn("min-w-max rounded-xl bg-white/[0.08] px-3 py-2 text-xs font-semibold text-white/65 transition hover:bg-white/15 hover:text-white", active && "bg-white text-black hover:bg-white/90 hover:text-black")}>{children}</button>;
 }
 
 function RangeRow({ label, value, min, max, step, display, onChange }: { label: string; value: number; min: number; max: number; step: number; display: string; onChange: (value: number) => void }) {
   const progress = ((value - min) / (max - min)) * 100;
   return (
-    <div className="mt-4 block rounded-xl bg-white/6 p-3"><span className="mb-2 flex items-center justify-between text-xs font-semibold"><span>{label}</span><span className="tabular-nums text-white/55">{display}</span></span><input type="range" min={min} max={max} step={step} value={value} onChange={(event) => onChange(Number(event.target.value))} className="apple-player-range w-full" style={{ "--range-progress": `${progress}%` } as React.CSSProperties} aria-label={label} /></div>
+    <div className="mt-4 block rounded-xl bg-white/[0.06] p-3"><span className="mb-2 flex items-center justify-between text-xs font-semibold"><span>{label}</span><span className="tabular-nums text-white/55">{display}</span></span><input type="range" min={min} max={max} step={step} value={value} onChange={(event) => onChange(Number(event.target.value))} className="apple-player-range w-full" style={{ "--range-progress": `${progress}%` } as React.CSSProperties} aria-label={label} /></div>
   );
 }
 
