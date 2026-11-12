@@ -5,6 +5,7 @@ import { BigPlayButton, HeroIconButton } from "@/components/collection/collectio
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useCollectionPlayState } from "@/features/library/use-collection-play-state";
 import { CreatePlaylistDialog } from "@/features/playlists/create-playlist-dialog";
+import { knownTrackDuration } from "@/stores/track-duration-store";
 import type { PlayerTrack } from "@/types/player";
 import { formatListeningTime, pluralize } from "@/utils/format";
 import { exportTracks } from "@/utils/track-collection";
@@ -14,7 +15,9 @@ export function CollectionActions({ tracks, name, disabled = false }: { tracks: 
   const [createOpen, setCreateOpen] = useState(false);
   const playState = useCollectionPlayState(tracks);
   const unavailable = disabled || tracks.length === 0;
-  const seconds = tracks.reduce((total, track) => total + Math.max(0, track.durationSeconds ?? 0), 0);
+  // A total is only shown when every length is known; a partial sum would understate it badly.
+  const lengths = tracks.map((track) => knownTrackDuration(track.id, track.durationSeconds));
+  const seconds = lengths.every((length) => length !== null && length > 0) ? lengths.reduce<number>((total, length) => total + (length ?? 0), 0) : 0;
 
   return <>
     <div className="flex flex-wrap items-center gap-2 sm:gap-3">

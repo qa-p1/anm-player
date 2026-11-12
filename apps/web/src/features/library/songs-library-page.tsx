@@ -127,7 +127,7 @@ export function SongsLibraryPage() {
             <div key={`track-${entry.track.id}`} className="flex items-center gap-1 rounded-xl">
               {/* Selection acts on downloaded files; streamed songs keep their place without a box. */}
               {selectionMode && <span aria-hidden="true" className="w-8 shrink-0" />}
-              <TrackRow track={displayTracks[index]} context={displayTracks} leading={<span className="w-7 text-center text-sm tabular-nums text-muted-foreground">{index + 1}</span>} className="min-w-0 flex-1" />
+              <TrackRow variant="list" number={index + 1} track={displayTracks[index]} context={displayTracks} explicit={entry.track.explicit} isDownloaded={entry.track.is_downloaded} className="min-w-0 flex-1" />
             </div>
           ))}
         </section>
