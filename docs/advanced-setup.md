@@ -224,6 +224,7 @@ Runtime Python dependencies are in `apps/api/requirements.txt`; test, lint, cove
 
 - **Port already in use:** stop the stale process or use `.\start-anm-player.cmd --api-port 8010 --web-port 5180`. Docker's web port is controlled by `WEB_PORT`.
 - **FFmpeg not found:** install FFmpeg and confirm `ffmpeg -version` works in a new terminal.
+- **Windows setup cannot find Python:** download the latest Windows setup again; it checks the Python launcher, PATH and registered installations, reuses Python 3.13 or 3.14, and installs a supported runtime automatically when needed. Python 3.15 can stay installed alongside it.
 - **Wrong Python or Node version:** use Python 3.13 and Node 24 LTS. The launcher also accepts the tested adjacent Python 3.14 and Node 25/26 runtimes, but the release reference and CI versions are 3.13 and 24.
 - **Migration failed:** stop ANM Player, preserve the complete data root and state file, then run `apps/api/.venv/Scripts/python.exe -m alembic current` from `apps/api`. Do not delete a source root or migration state to force progress.
 - **Stale native processes:** close old launcher terminals and stop remaining `uvicorn`, `node`, or `npm` processes before restarting.

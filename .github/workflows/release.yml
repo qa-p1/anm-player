@@ -1,0 +1,81 @@
+name: Release
+
+on:
+  workflow_run:
+    workflows: [CI]
+    branches: [main]
+    types: [completed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - name: Check release version
+        id: version
+        shell: bash
+        run: |
+          version=$(cat VERSION)
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          if gh release view "v$version" --json tagName > /dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Package the tested installers and source
+        if: steps.version.outputs.exists != 'true'
+        shell: python
+        run: |
+          import hashlib
+          import json
+          import os
+          import subprocess
+          import zipfile
+          from pathlib import Path
+
+          version = Path('VERSION').read_text().strip()
+          for name in ('package.json', 'apps/web/package.json', 'package-lock.json'):
+              assert json.loads(Path(name).read_text())['version'] == version, name
+          dist = Path('dist-release')
+          dist.mkdir()
+          windows = Path('setup-anm-player.cmd').read_text().replace('\r\n', '\n')
+          (dist / 'ANM-Player-Windows.cmd').write_bytes(windows.replace('\n', '\r\n').encode())
+          (dist / 'ANM-Player-Linux.sh').write_bytes(Path('setup-anm-player.sh').read_bytes())
+          with zipfile.ZipFile(dist / 'ANM-Player-Mac.zip', 'w', zipfile.ZIP_DEFLATED) as archive:
+              entry = zipfile.ZipInfo('Start ANM Player.command')
+              entry.create_system = 3
+              entry.external_attr = 0o100755 << 16
+              archive.writestr(entry, Path('setup-anm-player.command').read_bytes())
+          subprocess.run(['git', 'archive', '--format=zip', '--prefix=ANM-Player/',
+                          '--output=' + str(dist / 'ANM-Player-Source.zip'), os.environ['RELEASE_SHA']], check=True)
+          checksums = ''.join(hashlib.sha256(path.read_bytes()).hexdigest() + '  ' + path.name + '\n'
+                              for path in sorted(dist.iterdir()))
+          (dist / 'SHA256SUMS').write_text(checksums)
+          section = Path('CHANGELOG.md').read_text().split('## ' + version + ' - ', 1)[1].split('\n## ', 1)[0]
+          changes = section.split('\n', 1)[1].strip()
+          Path('release-notes.md').write_text(
+              'Download **ANM-Player-Windows.cmd** and double-click it. Setup reuses a supported Python '
+              'or installs one automatically. Existing music and settings are kept.\n\n'
+              'Mac: unzip **ANM-Player-Mac.zip** and open **Start ANM Player.command**. '
+              'Linux: run `sh ANM-Player-Linux.sh`.\n\n' + changes + '\n')
+      - name: Publish after all CI checks pass
+        if: steps.version.outputs.exists != 'true'
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          gh release create "$TAG" dist-release/* --target "$RELEASE_SHA" \
+            --title "ANM Player ${TAG#v}" --notes-file release-notes.md --latest

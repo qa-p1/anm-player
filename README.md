@@ -4,7 +4,7 @@
   <p>Search, play, download. Keep your music in one place.</p>
 
   <a href="https://github.com/qa-p1/anm-player/actions/workflows/ci.yml"><img src="https://github.com/qa-p1/anm-player/actions/workflows/ci.yml/badge.svg" alt="Build" /></a>
-  <a href="https://github.com/qa-p1/anm-player/releases/latest"><img src="https://img.shields.io/badge/version-1.2.0-f43f5e" alt="Version 1.2.0" /></a>
+  <a href="https://github.com/qa-p1/anm-player/releases/latest"><img src="https://img.shields.io/badge/version-1.2.1-f43f5e" alt="Version 1.2.1" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-14b8a6" alt="MIT License" /></a>
 </div>
 

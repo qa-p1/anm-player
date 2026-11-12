@@ -334,6 +334,20 @@ def test_desktop_exec_argument_follows_the_desktop_entry_spec():
     assert bootstrap.desktop_exec_argument('/a b/"x"/$y/50%') == '"/a b/\\\\"x\\\\"/\\\\$y/50%%"'
 
 
+def test_windows_shortcuts_keep_the_verified_python_when_newer_python_is_default(tmp_path, monkeypatch):
+    python = tmp_path / "Python 3.13" / "python.exe"
+    root = tmp_path / "ANM Player"
+    root.mkdir()
+    monkeypatch.setattr(bootstrap.sys, "executable", str(python))
+    monkeypatch.setattr(bootstrap.shutil, "which", lambda name: {"pyw": "pyw.exe", "powershell.exe": "powershell.exe"}.get(name))
+    calls = []
+    monkeypatch.setattr(bootstrap.subprocess, "run", lambda *args, **kwargs: calls.append(kwargs))
+    bootstrap.write_windows_shortcuts(root)
+    environment = calls[0]["env"]
+    assert environment["ANM_SHORTCUT_TARGET"] == str(python.with_name("pythonw.exe"))
+    assert environment["ANM_SHORTCUT_ARGUMENTS"] == subprocess.list2cmdline([str(root / "bootstrap.py"), "--root", str(root)])
+
+
 def test_setup_lock_is_exclusive_and_reusable_after_failure(tmp_path):
     with pytest.raises(RuntimeError, match="interrupted"):
         with bootstrap.setup_lock(tmp_path):
