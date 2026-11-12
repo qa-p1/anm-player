@@ -15,7 +15,7 @@ import {
   VolumeX,
   WifiOff,
 } from "lucide-react";
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useState, useSyncExternalStore, type CSSProperties } from "react";
 import { useNavigate } from "react-router";
 import { useShallow } from "zustand/react/shallow";
 
@@ -38,6 +38,19 @@ type PlayerView = "player" | "lyrics" | "queue" | "tools";
 
 interface FullScreenPlayerProps {
   onClose: () => void;
+}
+
+const WIDE_QUERY = "(min-width: 1100px)";
+
+function isWideScreen() {
+  return typeof window.matchMedia === "function" && window.matchMedia(WIDE_QUERY).matches;
+}
+
+function subscribeWide(onChange: () => void) {
+  if (typeof window.matchMedia !== "function") return () => undefined;
+  const query = window.matchMedia(WIDE_QUERY);
+  query.addEventListener("change", onChange);
+  return () => query.removeEventListener("change", onChange);
 }
 
 export function FullScreenPlayer({ onClose }: FullScreenPlayerProps) {
@@ -77,6 +90,10 @@ export function FullScreenPlayer({ onClose }: FullScreenPlayerProps) {
     retryCurrentSong: state.retryCurrentSong,
   })));
   const [view, setView] = useState<PlayerView>("player");
+  // Wide screens keep lyrics or the queue open beside the artwork instead of swapping views.
+  const isWide = useSyncExternalStore(subscribeWide, isWideScreen, () => false);
+  const [side, setSide] = useState<"lyrics" | "queue">("lyrics");
+  const openSide = (panel: "lyrics" | "queue") => (isWide ? setSide(panel) : setView(panel));
   const requestedPlayerView = useUiStore((state) => state.requestedPlayerView);
   const consumePlayerViewRequest = useUiStore((state) => state.consumePlayerViewRequest);
   const { isFavorited, toggleFavorite: handleToggleFavorite } = usePlayerFavorite(currentSong);
@@ -205,8 +222,9 @@ export function FullScreenPlayer({ onClose }: FullScreenPlayerProps) {
             <QueuePanel onClose={() => setView("player")} />
           </motion.div>
         ) : (
+          <div key="player" className="relative flex h-full">
+          <div className="flex h-full min-w-0 flex-1 justify-center">
           <motion.main
-            key="player"
             className="relative mx-auto flex h-full w-full max-w-[32rem] touch-pan-x flex-col px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-[max(0.5rem,env(safe-area-inset-top))] sm:px-8"
             initial={{ opacity: 0, x: -18 }}
             animate={{ opacity: 1, x: 0 }}
@@ -333,13 +351,39 @@ export function FullScreenPlayer({ onClose }: FullScreenPlayerProps) {
               </div>
 
               <div className="mt-4 grid grid-cols-4 items-center sm:mt-6">
-                <PlayerFooterButton label="Open lyrics full screen" active={false} onClick={() => setView("lyrics")}><MessageSquareText className="h-[1.35rem] w-[1.35rem]" /></PlayerFooterButton>
+                <PlayerFooterButton label={isWide ? "Show lyrics" : "Open lyrics full screen"} active={isWide && side === "lyrics"} onClick={() => openSide("lyrics")}><MessageSquareText className="h-[1.35rem] w-[1.35rem]" /></PlayerFooterButton>
                 <PlayerFooterButton label={shuffle ? "Disable shuffle" : "Enable shuffle"} active={shuffle} onClick={toggleShuffle}><Shuffle className="h-[1.35rem] w-[1.35rem]" /></PlayerFooterButton>
-                <PlayerFooterButton label="Show queue" active={false} onClick={() => setView("queue")}><ListMusic className="h-[1.35rem] w-[1.35rem]" /></PlayerFooterButton>
+                <PlayerFooterButton label="Show queue" active={isWide && side === "queue"} onClick={() => openSide("queue")}><ListMusic className="h-[1.35rem] w-[1.35rem]" /></PlayerFooterButton>
                 <PlayerFooterButton label="Open playback studio" active={false} onClick={() => setView("tools")}><Settings2 className="h-[1.35rem] w-[1.35rem]" /></PlayerFooterButton>
               </div>
             </section>
           </motion.main>
+          </div>
+          {isWide && (
+            <aside aria-label={side === "lyrics" ? "Lyrics" : "Up next"} className="relative flex h-full w-[min(46vw,42rem)] shrink-0 flex-col border-l border-white/10 bg-black/[0.12] px-6 pb-6 pt-5">
+              <div role="tablist" aria-label="Beside the player" className="mb-4 flex w-fit gap-1 rounded-full bg-white/10 p-1">
+                {(["lyrics", "queue"] as const).map((panel) => (
+                  <button key={panel} type="button" role="tab" aria-selected={side === panel} onClick={() => setSide(panel)} className={cn("h-8 rounded-full px-4 text-sm font-semibold transition", side === panel ? "bg-white text-black" : "text-white/70 hover:text-white")}>
+                    {panel === "lyrics" ? "Lyrics" : "Up next"}
+                  </button>
+                ))}
+              </div>
+              <div className="min-h-0 flex-1">
+                {side === "lyrics" ? (
+                  <LyricsPanel
+                    songId={currentSong.source === "local" ? currentSong.localKind === "song" ? currentSong.songId : currentSong.rawLibraryTrack?.song_id ?? null : null}
+                    videoId={currentSong.source === "youtube" ? currentSong.videoId : null}
+                    title={currentSong.title}
+                    artist={currentSong.artistName}
+                    album={currentSong.albumTitle}
+                    duration={currentSong.durationSeconds}
+                    onClose={() => setView("lyrics")}
+                  />
+                ) : <QueuePanel onClose={() => setSide("lyrics")} />}
+              </div>
+            </aside>
+          )}
+          </div>
         )}
       </AnimatePresence>
     </motion.div>
