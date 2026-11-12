@@ -67,3 +67,32 @@ def test_artist_page_opens_from_saved_data_when_offline(monkeypatch) -> None:
         result = asyncio.run(LibraryAlbumService(session).get_online_artist("UCy"))
         assert result.name == "Unknown artist"
         assert result.albums == [] and result.top_tracks == []
+
+
+def test_artist_releases_come_from_the_full_discography_page(monkeypatch) -> None:
+    from app.services.ytmusic_service import YouTubeMusicService
+    import app.services.ytmusic_service.service as service_module
+    from types import SimpleNamespace
+
+    first_row = shelf("Albums", ["first"])
+    first_row["musicCarouselShelfRenderer"]["header"]["musicCarouselShelfBasicHeaderRenderer"]["title"]["runs"][0]["navigationEndpoint"] = {"browseEndpoint": {"browseId": "MPADUCx", "params": "abc%3D"}}
+    no_link = shelf("Singles & EPs", ["single"])
+    artist_page = {"header": {"musicImmersiveHeaderRenderer": {"title": {"runs": [{"text": "Band"}]}}}, "contents": [first_row, no_link]}
+    full_page = {"contents": [{"musicTwoRowItemRenderer": {"title": {"runs": [{"text": name}]}}} for name in ("first", "second", "third")]}
+    calls = []
+
+    class Session:
+        def web_remix_client(self):
+            return None
+
+        def browse(self, *, client, browse_id, params=None):
+            calls.append((browse_id, params))
+            return full_page if browse_id == "MPADUCx" else artist_page
+
+    service = YouTubeMusicService()
+    service.client = SimpleNamespace(session=Session())
+    monkeypatch.setattr(service_module, "item_from_renderer", lambda value: SimpleNamespace(kind="album", id=value["musicTwoRowItemRenderer"]["title"]["runs"][0]["text"], title=value["musicTwoRowItemRenderer"]["title"]["runs"][0]["text"]))
+    monkeypatch.setattr(service_module, "item_to_schema", lambda item: album(item.id, item.title, "2020"))
+    data = service._artist_sync("UCx")
+    assert [release.id for release in data["albums"]] == ["first", "second", "third", "single"]
+    assert ("MPADUCx", "abc%3D") in calls

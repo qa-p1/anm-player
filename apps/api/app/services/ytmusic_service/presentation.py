@@ -145,7 +145,7 @@ def subtitle(item: YTItem) -> str | None:
     if item.duration_seconds:
         minutes, seconds = divmod(item.duration_seconds, 60)
         parts.append(f"{minutes}:{seconds:02d}")
-    return " - ".join(part for part in parts if part) or None
+    return " • ".join(part for part in parts if part) or None
 
 
 def looks_like_video(item: YTItem) -> bool:

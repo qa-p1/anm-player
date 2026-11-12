@@ -349,3 +349,13 @@ raise SystemExit(code)
                 launcher.os.kill(int(pid_path.read_text()), signal.SIGTERM)
             except ProcessLookupError:
                 pass
+
+
+def test_large_launcher_logs_are_rotated(tmp_path) -> None:
+    log = tmp_path / "launcher.log"
+    log.write_text("x" * 20)
+    launcher.rotate_log(log, limit=10)
+    assert not log.exists() and (tmp_path / "launcher.previous.log").read_text() == "x" * 20
+    log.write_text("small")
+    launcher.rotate_log(log, limit=10)
+    assert log.read_text() == "small"

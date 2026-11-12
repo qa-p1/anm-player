@@ -158,7 +158,8 @@ class LyricsService:
                             song_id=song_id,
                         )
 
-                lyrics = self._fetch_lrclib(
+                lyrics = await asyncio.to_thread(
+                    self._fetch_lrclib,
                     title=song.title,
                     artist=song.artist.name if song.artist else None,
                     album=song.album.title if song.album else None,
@@ -207,7 +208,7 @@ class LyricsService:
                 if lyrics and self._has_lrc_timestamps(lyrics):
                     return self.cache.save_cached("youtube", video_id, lyrics, provider="ytmusic")
 
-                lrclib_lyrics = self._fetch_lrclib(title=title, artist=artist, album=album, duration=duration)
+                lrclib_lyrics = await asyncio.to_thread(self._fetch_lrclib, title=title, artist=artist, album=album, duration=duration)
                 if lrclib_lyrics:
                     return self.cache.save_cached("youtube", video_id, lrclib_lyrics, provider="lrclib")
                 if lyrics:
@@ -233,39 +234,54 @@ class LyricsService:
         album: str | None,
         duration: int | None,
     ) -> str | None:
+        """Exact match first, then without the album (YouTube album names rarely
+        match), then LRCLIB's search, preferring synced lyrics of the same length."""
         if not title or not artist:
             return None
-
-        params: dict[str, str] = {
-            "track_name": self._clean_title(title),
-            "artist_name": artist,
-        }
-        if album:
-            params["album_name"] = album
+        track = self._clean_title(title)
+        exact: dict[str, str] = {"track_name": track, "artist_name": artist}
         if duration:
-            params["duration"] = str(int(duration))
+            exact["duration"] = str(int(duration))
+        attempts = [{**exact, "album_name": album}] if album else []
+        attempts.append(exact)
+        for params in attempts:
+            payload = self._lrclib_request("get", params)
+            lyrics = self._lyrics_from(payload) if isinstance(payload, dict) else None
+            if lyrics:
+                return lyrics
+        results = self._lrclib_request("search", {"track_name": track, "artist_name": artist})
+        if not isinstance(results, list):
+            return None
 
+        def rank(item: dict) -> tuple[bool, bool, float]:
+            length = item.get("duration")
+            gap = abs(float(length) - duration) if duration and isinstance(length, (int, float)) else 0.0
+            return (gap <= 3, bool(item.get("syncedLyrics")), -gap)
+
+        candidates = [item for item in results if isinstance(item, dict) and self._lyrics_from(item)]
+        if duration:
+            candidates = [item for item in candidates if not isinstance(item.get("duration"), (int, float)) or abs(item["duration"] - duration) <= 10]
+        return self._lyrics_from(max(candidates, key=rank)) if candidates else None
+
+    def _lrclib_request(self, endpoint: str, params: dict[str, str]) -> object:
         request = Request(
-            f"https://lrclib.net/api/get?{urlencode(params)}",
-            headers={
-                "Accept": "application/json",
-                "User-Agent": "ANMPlayer/0.1 (local music app)",
-            },
+            f"https://lrclib.net/api/{endpoint}?{urlencode(params)}",
+            headers={"Accept": "application/json", "User-Agent": "ANMPlayer/1.1 (local music app)"},
             method="GET",
         )
         try:
             with urlopen(request, timeout=15) as response:
-                payload = json.loads(response.read().decode("utf-8"))
+                return json.loads(response.read().decode("utf-8"))
         except Exception as exc:
-            logger.info("LRCLIB lyrics lookup failed", extra={"title": title, "artist": artist, "error": str(exc)})
+            logger.info("LRCLIB lyrics lookup failed", extra={"endpoint": endpoint, "error": str(exc)})
             return None
 
-        synced = payload.get("syncedLyrics")
-        if isinstance(synced, str) and synced.strip():
-            return synced.strip()
-        plain = payload.get("plainLyrics")
-        if isinstance(plain, str) and plain.strip():
-            return plain.strip()
+    @staticmethod
+    def _lyrics_from(payload: dict) -> str | None:
+        for key in ("syncedLyrics", "plainLyrics"):
+            value = payload.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
         return None
 
     def _video_id_from_url(self, source_url: str | None) -> str | None:

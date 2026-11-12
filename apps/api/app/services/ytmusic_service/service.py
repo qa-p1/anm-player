@@ -631,6 +631,22 @@ class YouTubeMusicService:
             tracks=tracks,
         )
 
+    def _full_discography(self, shelf: dict[str, Any]) -> dict[str, Any] | None:
+        header = (shelf.get("header") or {}).get("musicCarouselShelfBasicHeaderRenderer", {})
+        runs = (header.get("title") or {}).get("runs") or [{}]
+        endpoint = (runs[0].get("navigationEndpoint") or {}).get("browseEndpoint") or {}
+        if not endpoint.get("browseId"):
+            return None
+        try:
+            return self.client.session.browse(
+                client=self.client.session.web_remix_client(),
+                browse_id=endpoint["browseId"],
+                params=endpoint.get("params"),
+            )
+        except Exception:
+            logger.info("Artist discography page failed; using the artist page's first releases", exc_info=True)
+            return None
+
     def _artist_sync(self, browse_id: str) -> dict[str, Any]:
         try:
             raw = self.client.session.browse(
@@ -644,8 +660,12 @@ class YouTubeMusicService:
         thumbnail = best_thumbnail(raw)
         releases: list[OnlineMusicItem] = []
         seen_releases: set[str] = set()
-        for shelf in artist_release_shelves(raw):
-            for renderer in walk_renderers(shelf, "musicTwoRowItemRenderer"):
+        shelves = artist_release_shelves(raw)
+        # A shelf holds only the first ~10 releases; its "More" page holds them all.
+        with ThreadPoolExecutor(max_workers=max(1, len(shelves))) as pool:
+            discographies = list(pool.map(self._full_discography, shelves))
+        for shelf, full in zip(shelves, discographies, strict=True):
+            for renderer in walk_renderers(full or shelf, "musicTwoRowItemRenderer"):
                 item = item_from_renderer({"musicTwoRowItemRenderer": renderer})
                 if item and item.kind == "album" and item.id and item.id not in seen_releases:
                     seen_releases.add(item.id)

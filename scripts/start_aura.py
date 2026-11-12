@@ -468,6 +468,7 @@ def serve(
             env = {**env, "ANM_UPDATE_RESTART": "1"}
             command = [sys.executable, "-u", str(candidate / "scripts/start_aura.py"), "--background-worker", "--ready-file", str(ready), "--api-port", str(api_port), "--web-port", str(web_port)]
             options = {"start_new_session": True} if os.name != "nt" else {"creationflags": subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP}
+            rotate_log(installation_home() / "launcher.log")
             with (installation_home() / "launcher.log").open("a", encoding="utf-8") as log:
                 replacement = subprocess.Popen(command, cwd=candidate, env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, **options)
             deadline = time.monotonic() + 180
@@ -560,6 +561,15 @@ def spawn_uninstaller(*, keep_data: bool) -> None:
     options = {"start_new_session": True} if os.name != "nt" else {"creationflags": subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP}
     with (staging / "uninstall.log").open("w", encoding="utf-8") as log:
         subprocess.Popen(command, cwd=staging, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, env={key: value for key, value in os.environ.items() if not key.startswith(("ANM_", "AURA_"))}, **options)
+
+
+def rotate_log(path: Path, limit: int = 5 * 1024 * 1024) -> None:
+    """Keep one previous log instead of letting a log grow for months."""
+    try:
+        if path.stat().st_size > limit:
+            path.replace(path.with_suffix(".previous.log"))
+    except OSError:
+        pass
 
 
 def read_runtime() -> dict[str, object] | None:
@@ -902,6 +912,7 @@ def launch_background(args: argparse.Namespace) -> int:
         options: dict[str, object] = {"start_new_session": True} if os.name != "nt" else {
             "creationflags": subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
         }
+        rotate_log(LOG_FILE)
         with LOG_FILE.open("a", encoding="utf-8") as log:
             process = subprocess.Popen(
                 command, cwd=REPOSITORY_ROOT, stdin=subprocess.DEVNULL,

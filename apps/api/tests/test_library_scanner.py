@@ -1,3 +1,5 @@
+import os
+import time
 from pathlib import Path
 
 from sqlalchemy import create_engine, select
@@ -77,6 +79,8 @@ def test_scan_applies_changed_artist_and_album_tags(music_directory) -> None:
         )
         session.add(song)
         session.commit()
+        later = time.time() + 60
+        os.utime(audio_file, (later, later))  # The tags were edited after the last scan.
 
         result = MetadataScanner(
             session,
@@ -145,3 +149,19 @@ def test_background_reconcile_does_not_rewrite_settled_albums(music_directory) -
             (1, "Song 2"),
             (2, "Song 3"),
         ]
+
+
+def test_scan_skips_files_unchanged_since_they_were_last_read(music_directory) -> None:
+    audio_file = music_directory / "song.mp3"
+    audio_file.write_bytes(b"audio")
+    earlier = time.time() - 3600
+    os.utime(audio_file, (earlier, earlier))
+
+    with make_session() as session:
+        session.add(Song(title="Kept Title", file_path="song.mp3", is_downloaded=True))
+        session.commit()
+        scanner = MetadataScanner(session, {"title": "Should not be read"})
+        result = scanner.scan_directory(music_directory)
+
+        assert session.query(Song).one().title == "Kept Title"
+        assert result.updated == 0

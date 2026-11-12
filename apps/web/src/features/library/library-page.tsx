@@ -101,7 +101,7 @@ export function LibraryPage() {
                 <Link key={item.path} to={item.path} className={cn("group relative overflow-hidden rounded-[1.4rem] border border-white/[0.06] bg-gradient-to-br to-transparent p-4 transition hover:border-white/15 sm:p-5", item.tint)}>
                   <item.icon aria-hidden="true" className="h-5 w-5 text-foreground/70" />
                   <p className="mt-6 text-3xl font-black tabular-nums tracking-tight">{item.count === undefined ? <span className="inline-block h-8 w-12 animate-pulse rounded-lg bg-white/[0.08] align-middle" /> : item.count.toLocaleString()}</p>
-                  <p className="text-sm font-semibold text-muted-foreground transition group-hover:text-foreground">{item.label}</p>
+                  <p className="text-sm font-semibold text-muted-foreground transition group-hover:text-foreground">{item.count === 1 ? item.label.slice(0, -1) : item.label}</p>
                 </Link>
               ))}
             </div>

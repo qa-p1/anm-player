@@ -145,11 +145,11 @@ export function HomePage() {
         <div className="min-w-0">
           <h1 className="truncate text-3xl font-black tracking-normal sm:text-5xl">Listen now</h1>
         </div>
-        <Button asChild variant="glass" className="shrink-0">
+        {/* Phones already have the floating search button in this corner. */}
+        <Button asChild variant="glass" className="hidden shrink-0 lg:inline-flex">
           <Link to="/search">
             <Search className="h-4 w-4" />
-            <span className="hidden sm:inline">Search YouTube Music</span>
-            <span className="sm:hidden">Search</span>
+            Search YouTube Music
           </Link>
         </Button>
       </section>

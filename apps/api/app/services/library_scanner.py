@@ -8,6 +8,7 @@ import logging
 import os
 import re
 import threading
+from datetime import UTC, datetime
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Generator, Iterator
@@ -442,6 +443,9 @@ class LibraryScannerService:
             existing_song.is_downloaded = True
             return "updated"
 
+        if existing_song and existing_song.is_downloaded and self._unchanged_since(file_path, existing_song.updated_at):
+            return "unchanged"  # Re-reading tags of every file on every launch is slow on big libraries.
+
         metadata = self._extract_metadata(file_path)
         
         if existing_song:
@@ -450,6 +454,17 @@ class LibraryScannerService:
             self._create_song_from_metadata(file_str, metadata)
             return "added"
     
+    @staticmethod
+    def _unchanged_since(file_path: Path, updated_at: datetime | None) -> bool:
+        if updated_at is None:
+            return False
+        try:
+            modified = datetime.fromtimestamp(file_path.stat().st_mtime, UTC)
+        except OSError:
+            return False
+        recorded = updated_at if updated_at.tzinfo else updated_at.replace(tzinfo=UTC)
+        return modified <= recorded
+
     def _extract_metadata(self, file_path: Path) -> dict:
         """Extract metadata from audio file."""
         try:

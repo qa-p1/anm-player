@@ -22,6 +22,8 @@ LYRICS_STATUS_NOT_FOUND = "not_found"
 LYRICS_STATUS_OFFLINE = "offline"
 LYRICS_STATUS_ERROR = "error"
 
+NOT_FOUND_RETRY_DAYS = 7
+
 _lyrics_locks = tuple(threading.Lock() for _ in range(64))
 
 
@@ -46,11 +48,21 @@ class LyricsCacheService:
         self.cache_dir = Path(cache_dir or storage_manager.paths.lyrics_cache)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
+    @staticmethod
+    def _stale(fetched_at: datetime | None) -> bool:
+        if fetched_at is None:
+            return True
+        aware = fetched_at if fetched_at.tzinfo else fetched_at.replace(tzinfo=UTC)
+        return (datetime.now(UTC) - aware).days >= NOT_FOUND_RETRY_DAYS
+
     def get(self, source: str, external_id: str) -> LyricsCacheResult:
         entry = self._entry(source, external_id)
         if not entry:
             return LyricsCacheResult(lyrics=None, status=LYRICS_STATUS_MISSING)
 
+        if entry.status == LYRICS_STATUS_NOT_FOUND and self._stale(entry.last_fetched_at):
+            # Lyrics get published after release; look again now and then.
+            return LyricsCacheResult(lyrics=None, status=LYRICS_STATUS_MISSING)
         if entry.status == LYRICS_STATUS_NOT_FOUND:
             self._touch(entry)
             return LyricsCacheResult(

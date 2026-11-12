@@ -27,6 +27,8 @@ export function TrackMetadata({ track, fallbackArtist, className, linkClassName,
     "min-w-0 truncate transition hover:text-primary hover:underline hover:underline-offset-2",
     linkClassName,
   );
+  // The artist matters more than the album: keep it readable and let the album truncate first.
+  const artistClasses = cn(linkClasses, album && "max-w-[70%] shrink-0");
   function handleLinkClick(event: MouseEvent<HTMLAnchorElement>) {
     event.stopPropagation();
     onNavigate?.();
@@ -34,9 +36,9 @@ export function TrackMetadata({ track, fallbackArtist, className, linkClassName,
 
   return (
     <span className={cn("inline-flex min-w-0 max-w-full items-center gap-1.5", className)}>
-      {artistHref ? <Link to={artistHref} className={linkClasses} onClick={handleLinkClick}>{artist}</Link>
-        : track.artistName ? <ResolvingLink label={artist} className={linkClasses} resolve={() => resolveArtistPage(track.artistName!)} onNavigate={onNavigate} />
-          : <span className="min-w-0 truncate">{artist}</span>}
+      {artistHref ? <Link to={artistHref} className={artistClasses} onClick={handleLinkClick}>{artist}</Link>
+        : track.artistName ? <ResolvingLink label={artist} className={artistClasses} resolve={() => resolveArtistPage(track.artistName!)} onNavigate={onNavigate} />
+          : <span className={cn("min-w-0 truncate", album && "max-w-[70%] shrink-0")}>{artist}</span>}
       {album && (
         <>
           <span aria-hidden="true" className="shrink-0">•</span>

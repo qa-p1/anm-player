@@ -212,3 +212,25 @@ def test_lrclib_request_and_url_helpers(music_directory, monkeypatch) -> None:
         assert service._clean_title("Song (Official Video)") == "Song"
         assert service._has_lrc_timestamps("[01:02.34]Line") is True
         assert service._has_lrc_timestamps("Plain line") is False
+
+
+def test_lrclib_falls_back_to_search_and_picks_synced_lyrics_of_the_same_length(music_directory, monkeypatch) -> None:
+    Session = make_session_factory()
+    urls = []
+
+    def respond(request, timeout):
+        urls.append(request.full_url)
+        if "/api/get" in request.full_url:
+            raise OSError("404")
+        return JsonResponse([
+            {"duration": 300, "syncedLyrics": "[00:01.00]Wrong length"},
+            {"duration": 181, "plainLyrics": "Plain only"},
+            {"duration": 182, "syncedLyrics": "[00:01.00]Right one"},
+        ])
+
+    monkeypatch.setattr(lyrics_module, "urlopen", respond)
+    with Session() as session:
+        lyrics = LyricsService(session)._fetch_lrclib(title="Song", artist="Artist", album="Album OKNOTOK 1997 2017", duration=180)
+    assert lyrics == "[00:01.00]Right one"
+    assert [url.split("?")[0] for url in urls] == ["https://lrclib.net/api/get", "https://lrclib.net/api/get", "https://lrclib.net/api/search"]
+    assert "album_name" in urls[0] and "album_name" not in urls[1]

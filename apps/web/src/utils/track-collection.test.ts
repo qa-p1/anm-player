@@ -29,7 +29,9 @@ describe("collection utilities", () => {
   });
   it("rounds long durations across the hour boundary", () => {
     expect(formatListeningTime(3599)).toBe("1h");
-    expect(formatListeningTime(3601)).toBe("1h 1m");
+    expect(formatListeningTime(3601)).toBe("1h");
+    expect(formatListeningTime(3631)).toBe("1h 1m");
+    expect(formatListeningTime(369)).toBe("6m");
     expect(formatListeningTime(Number.NaN)).toBe("unknown length");
   });
 });

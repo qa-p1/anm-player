@@ -15,7 +15,7 @@ export function formatDuration(seconds: number | null | undefined): string {
 
 export function formatListeningTime(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds <= 0) return "unknown length";
-  const totalMinutes = Math.ceil(seconds / 60);
+  const totalMinutes = Math.max(1, Math.round(seconds / 60));
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;
   return hours ? `${hours}h${minutes ? ` ${minutes}m` : ""}` : `${minutes}m`;

@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- **No more freezes on lyrics**: Looking up lyrics no longer stalls playback, pages and search while it waits.
+- **More lyrics found**: Lyrics are found even when album names differ, and missing ones are looked for again after a week.
+- **Complete artist pages**: Artists show every album, single and EP, not just the first row.
+- **Faster startup on big libraries**: Unchanged music files are no longer re-read on every launch.
+- **Quicker Settings**: The storage overview opens instantly instead of re-measuring every file each time.
+- **Small fixes**: Album lengths round correctly, counts say "1 Song", artist names no longer get squeezed on phones, and logs stop growing forever.
+
 ## 1.1.0 - 2026-11-12
 
 - **Downloads page**: One progress bar, Queue/Downloaded/Failed tabs, and pause, resume, cancel or retry for any song, album or playlist.

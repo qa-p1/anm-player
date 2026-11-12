@@ -2,6 +2,7 @@ import logging
 import os
 import shutil
 import sqlite3
+import time
 from pathlib import Path
 from typing import Annotated
 
@@ -207,6 +208,7 @@ def current_storage_migration() -> dict[str, object]:
 
 @router.post("/cache/clear", response_model=CacheClearResponse, dependencies=[Depends(require_operator)])
 def clear_cache(request: CacheClearRequest, session: DbSession) -> CacheClearResponse:
+    _usage_cache.clear()
     categories = {"artwork", "streams", "lyrics"} if request.category == "all" else {request.category}
     files_removed = bytes_removed = 0
     directories = {
@@ -244,7 +246,21 @@ def clear_cache(request: CacheClearRequest, session: DbSession) -> CacheClearRes
     return CacheClearResponse(files_removed=files_removed, bytes_removed=bytes_removed)
 
 
+USAGE_TTL_SECONDS = 30.0
+_usage_cache: dict[Path, tuple[float, StorageCategoryUsage]] = {}
+
+
 def _storage_usage(root: Path) -> StorageCategoryUsage:
+    """Walking a large music folder takes a while; reuse a recent total."""
+    cached = _usage_cache.get(root)
+    if cached and time.monotonic() - cached[0] < USAGE_TTL_SECONDS:
+        return cached[1]
+    usage = _measure_storage(root)
+    _usage_cache[root] = (time.monotonic(), usage)
+    return usage
+
+
+def _measure_storage(root: Path) -> StorageCategoryUsage:
     buckets = StorageCategoryUsage()
     mapping = {
         "aura.db": "database",

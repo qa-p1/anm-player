@@ -54,3 +54,20 @@ def test_lyrics_cache_negative_result_is_reused(tmp_path) -> None:
 
     assert cached.status == "not_found"
     assert cached.lyrics is None
+
+
+def test_not_found_lyrics_are_looked_up_again_after_a_week(tmp_path) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
+
+    with Session() as session:
+        service = LyricsCacheService(session, cache_dir=tmp_path)
+        service.save_not_found("youtube", "video-id", provider="provider")
+        assert service.get("youtube", "video-id").status == "not_found"
+        entry = service._entry("youtube", "video-id")
+        entry.last_fetched_at = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=8)
+        session.commit()
+        assert service.get("youtube", "video-id").status == "missing"
