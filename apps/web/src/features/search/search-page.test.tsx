@@ -58,7 +58,7 @@ it("searches once typing pauses, not on every key", async () => {
   for (const value of ["c", "co", "col", "cold", "coldplay"]) fireEvent.change(input(), { target: { value } });
   expect(screen.getByTestId("location")).toHaveTextContent(/^$/);
   await act(async () => { await vi.advanceTimersByTimeAsync(350); });
-  expect(await screen.findByText("coldplay songs")).toBeInTheDocument();
+  expect(await screen.findByText("coldplay all")).toBeInTheDocument();
   expect(vi.mocked(api.searchYouTubeMusic).mock.calls.map(([query]) => query)).toEqual(["coldplay"]);
   expect(screen.getByTestId("location")).toHaveTextContent("q=coldplay");
 });
@@ -66,10 +66,10 @@ it("searches once typing pauses, not on every key", async () => {
 it("never shows one result type's items under another type", async () => {
   let resolveAlbums!: (value: OnlineSearchResponse) => void;
   setup();
-  await screen.findByText("Alpha songs");
+  await screen.findByText("Alpha all");
   vi.mocked(api.searchYouTubeMusic).mockImplementation(() => new Promise((resolve) => { resolveAlbums = resolve; }));
   fireEvent.click(screen.getByRole("button", { name: /^Albums$/ }));
-  expect(screen.queryByText("Alpha songs")).not.toBeInTheDocument();
+  expect(screen.queryByText("Alpha all")).not.toBeInTheDocument();
   expect(screen.getByLabelText("Loading results")).toBeInTheDocument();
   await act(async () => resolveAlbums(respond("Alpha", "albums", [item("Alpha album", "album")])));
   expect(await screen.findByText("Alpha album")).toBeInTheDocument();
@@ -77,7 +77,7 @@ it("never shows one result type's items under another type", async () => {
 
 it("shows earlier results instantly when coming back", async () => {
   setup();
-  await screen.findByText("Alpha songs");
+  await screen.findByText("Alpha all");
   fireEvent.click(screen.getByRole("button", { name: "Leave" }));
   await screen.findByText("Elsewhere");
   cleanup();
@@ -86,7 +86,7 @@ it("shows earlier results instantly when coming back", async () => {
       <MemoryRouter initialEntries={["/search?q=Alpha"]}><Routes><Route path="/search" element={<SearchPage />} /></Routes></MemoryRouter>
     </QueryClientProvider>,
   );
-  expect(screen.getByText("Alpha songs")).toBeInTheDocument();
+  expect(screen.getByText("Alpha all")).toBeInTheDocument();
   expect(api.searchYouTubeMusic).toHaveBeenCalledTimes(1);
 });
 
@@ -96,13 +96,23 @@ it("offers a retry when the search fails", async () => {
   expect(await screen.findByRole("alert", {}, { timeout: 2000 })).toHaveTextContent("YouTube Music search failed.");
   expect(screen.queryByText("No results found")).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Try again" }));
-  expect(await screen.findByText("Alpha songs")).toBeInTheDocument();
+  expect(await screen.findByText("Alpha all")).toBeInTheDocument();
 });
 
 it("remembers a search only when it's used", async () => {
   setup();
-  await screen.findByText("Alpha songs");
+  await screen.findByText("Alpha all");
   expect(useSearchHistoryStore.getState().entries).toEqual([]);
-  fireEvent.click(screen.getByRole("button", { name: "Alpha songs" }));
+  fireEvent.click(screen.getByRole("button", { name: "Alpha all" }));
   expect(useSearchHistoryStore.getState().entries.map((entry) => entry.query)).toEqual(["Alpha"]);
+});
+
+it("starts on Top results, grouped by type, with a way to see all of one type", async () => {
+  vi.mocked(api.searchYouTubeMusic).mockImplementation(async (query, filter = "all") => respond(query, filter, filter === "all" ? [item("Top artist", "artist"), item("Hit song"), item("Big album", "album")] : [item(`${query} ${filter}`)]));
+  setup();
+  expect(await screen.findByRole("heading", { name: "Artists" })).toBeInTheDocument();
+  const headings = screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent);
+  expect(headings.slice(0, 3)).toEqual(["Artists", "Songs", "Albums"]);
+  fireEvent.click(screen.getAllByRole("button", { name: /See all/ })[1]);
+  expect(await screen.findByText("Alpha songs")).toBeInTheDocument();
 });

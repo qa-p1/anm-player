@@ -1,6 +1,6 @@
 import { keepPreviousData, useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { Album, Clock3, LoaderCircle, Mic2, Music2, Pin, PinOff, Search, Video, X } from "lucide-react";
+import { Album, ChevronRight, Clock3, LoaderCircle, Mic2, Music2, Pin, PinOff, Search, Sparkles, Video, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 
@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils";
 import { useSearchHistoryStore } from "@/stores/search-history-store";
 
 const filters = [
+  { id: "all", label: "Top results", icon: Sparkles },
   { id: "songs", label: "Songs", icon: Music2 },
   { id: "videos", label: "Videos", icon: Video },
   { id: "albums", label: "Albums", icon: Album },
@@ -31,7 +32,7 @@ const ROW_KINDS = new Set(["song", "video", "episode"]);
 export function SearchPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const urlQuery = (searchParams.get("q") ?? "").trim();
-  const activeFilter: SearchFilter = filters.find((filter) => filter.id === searchParams.get("filter"))?.id ?? "songs";
+  const activeFilter: SearchFilter = filters.find((filter) => filter.id === searchParams.get("filter"))?.id ?? "all";
   // What's typed stays local; the URL and the search follow once typing pauses.
   const [text, setText] = useState(urlQuery);
   const [query, setQuery] = useState(urlQuery);
@@ -213,7 +214,9 @@ export function SearchPage() {
             <EmptyState icon={Search} title="No results found" description="Try a different title, artist, album, playlist, or mood." />
           ) : (
             <div className={cn("transition-opacity", refreshing && "opacity-50")} aria-busy={refreshing}>
-              <ResultGroup title={filters.find((filter) => filter.id === activeFilter)?.label ?? "Songs"} items={items} albumStatuses={albumStatuses} downloadedTracks={downloadedTracks} />
+              {activeFilter === "all"
+                ? <TopResults items={items} albumStatuses={albumStatuses} downloadedTracks={downloadedTracks} onSeeAll={setActiveFilter} />
+                : <ResultGroup title={filters.find((filter) => filter.id === activeFilter)?.label ?? "Songs"} items={items} albumStatuses={albumStatuses} downloadedTracks={downloadedTracks} />}
             </div>
           )}
 
@@ -241,6 +244,36 @@ function ResultsSkeleton() {
           <div className="flex-1 space-y-2"><div className="h-3.5 w-1/3 animate-pulse rounded bg-white/[0.06]" /><div className="h-3 w-1/4 animate-pulse rounded bg-white/[0.04]" /></div>
         </div>
       ))}
+    </div>
+  );
+}
+
+const TOP_GROUPS = [
+  { title: "Songs", kinds: ["song", "video"], limit: 6, filter: "songs" },
+  { title: "Artists", kinds: ["artist"], limit: 5, filter: "artists" },
+  { title: "Albums", kinds: ["album"], limit: 5, filter: "albums" },
+  { title: "Playlists", kinds: ["playlist"], limit: 5, filter: null },
+] as const;
+
+/** A bit of everything, led by whatever YouTube Music ranked first. */
+function TopResults({ items, albumStatuses, downloadedTracks, onSeeAll }: { items: OnlineMusicItem[]; albumStatuses: Record<string, AlbumStatusItem>; downloadedTracks: Record<string, boolean>; onSeeAll: (filter: SearchFilter) => void }) {
+  const leading = items.find((item) => TOP_GROUPS.some((group) => (group.kinds as readonly string[]).includes(item.kind)));
+  const groups = [...TOP_GROUPS].sort((a, b) => Number((b.kinds as readonly string[]).includes(leading?.kind ?? "")) - Number((a.kinds as readonly string[]).includes(leading?.kind ?? "")));
+  return (
+    <div className="space-y-8">
+      {groups.map((group) => {
+        const groupItems = items.filter((item) => (group.kinds as readonly string[]).includes(item.kind)).slice(0, group.limit);
+        if (groupItems.length === 0) return null;
+        return (
+          <section key={group.title} className="space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-xl font-bold tracking-tight">{group.title}</h2>
+              {group.filter && <Button size="sm" variant="quiet" onClick={() => onSeeAll(group.filter)}>See all<ChevronRight className="h-4 w-4" /></Button>}
+            </div>
+            <ResultGroup title={group.title} items={groupItems} albumStatuses={albumStatuses} downloadedTracks={downloadedTracks} />
+          </section>
+        );
+      })}
     </div>
   );
 }

@@ -16,6 +16,7 @@ import { useDownloads, useRecentlyPlayedHistory } from "@/hooks/use-music-querie
 import { useSettings } from "@/hooks/use-settings";
 import { resolveRegion } from "@/utils/region";
 import { cachedArtworkUrl, isRequestCancelled } from "@/services/api-client";
+import { readHomeCache, writeHomeCache } from "@/features/home/home-cache";
 import { getLibraryAlbumStatuses, getLibraryTrackStatuses, getYouTubeHome, getYouTubeRelated } from "@/services/music-api";
 import { usePlayerStore } from "@/stores/player-store";
 import type { AlbumStatusItem, HistoryEntry, OnlineHomeSection, OnlineMusicItem } from "@/types/api";
@@ -27,11 +28,19 @@ const emptyHomeSections: OnlineHomeSection[] = [];
 
 export function HomePage() {
   const { data: settings, isLoading: settingsLoading } = useSettings();
-  const region = resolveRegion(settings?.home_region);
+  const [cachedHome] = useState(readHomeCache);
+  // While settings load, the last Home's region shows its saved picks straight away.
+  const region = settingsLoading && cachedHome ? cachedHome.region : resolveRegion(settings?.home_region);
   const { data: home, isLoading } = useQuery({
     queryKey: ["ytmusic", "home", region],
-    queryFn: ({ signal }) => getYouTubeHome(region, signal),
-    enabled: !settingsLoading,
+    queryFn: async ({ signal }) => {
+      const fresh = await getYouTubeHome(region, signal);
+      writeHomeCache(region, fresh);
+      return fresh;
+    },
+    initialData: () => (cachedHome?.region === region ? cachedHome.data : undefined),
+    initialDataUpdatedAt: cachedHome?.savedAt,
+    enabled: !settingsLoading || Boolean(cachedHome),
     staleTime: 5 * 60 * 1000,
     gcTime: 30 * 60 * 1000,
     refetchInterval: 10 * 60 * 1000,

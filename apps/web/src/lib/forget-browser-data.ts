@@ -8,6 +8,7 @@ const BROWSER_STATE_KEYS = [
   "anm-search-history",
   "anm-library-preferences",
   "anm-track-durations",
+  "anm-home-cache",
   "aura-theme",
   "aura-accent",
 ];
