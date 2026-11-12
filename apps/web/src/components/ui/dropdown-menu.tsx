@@ -19,7 +19,7 @@ const DropdownMenuSubTrigger = React.forwardRef<
   <DropdownMenuPrimitive.SubTrigger
     ref={ref}
     className={cn(
-      "flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm font-semibold outline-none focus:bg-accent focus:text-accent-foreground data-[state=open]:bg-accent data-[state=open]:text-accent-foreground",
+      "flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm font-semibold outline-none focus:bg-foreground/[0.08] focus:text-foreground data-[state=open]:bg-foreground/[0.08] data-[state=open]:text-foreground",
       inset && "pl-8",
       className,
     )}
@@ -78,7 +78,7 @@ const DropdownMenuItem = React.forwardRef<
   <DropdownMenuPrimitive.Item
     ref={ref}
     className={cn(
-      "relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm font-semibold outline-none transition-colors focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&.text-destructive]:text-red-500 [&.text-destructive]:focus:bg-red-500/15 [&.text-destructive]:focus:text-red-500",
+      "relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm font-semibold outline-none transition-colors focus:bg-foreground/[0.08] focus:text-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&.text-destructive]:text-red-500 [&.text-destructive]:focus:bg-red-500/15 [&.text-destructive]:focus:text-red-500",
       inset && "pl-8",
       className,
     )}

@@ -21,7 +21,6 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import {
   ArrowDownToLine,
-  ChevronDown,
   CopyX,
   Download,
   GripVertical,
@@ -57,7 +56,7 @@ interface QueueEntry {
   queueIndex: number;
 }
 
-export function QueuePanel({ onClose, embedded = false }: { onClose: () => void; embedded?: boolean }) {
+export function QueuePanel() {
   const {
     currentSong,
     queue,
@@ -117,7 +116,6 @@ export function QueuePanel({ onClose, embedded = false }: { onClose: () => void;
       .filter(({ song }) => !normalizedQuery || [song.title, song.artistName, song.albumTitle].some((value) => value?.toLocaleLowerCase().includes(normalizedQuery))),
     [normalizedQuery, queue],
   );
-  const queueSeconds = queue.reduce((total, song) => total + (song.durationSeconds ?? 0), 0);
 
   function playIndex(index: number) {
     const track = playQueueIndex(index);
@@ -161,12 +159,7 @@ export function QueuePanel({ onClose, embedded = false }: { onClose: () => void;
   }
 
   return (
-    <section className={cn("relative mx-auto flex h-full w-full flex-col", embedded ? "" : "max-w-3xl px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-[max(0.75rem,env(safe-area-inset-top))] sm:px-8")}>
-      <header className={cn("mb-3 grid shrink-0 grid-cols-[2.75rem_1fr_2.75rem] items-center", embedded && "hidden")}>
-        <button type="button" aria-label="Return to player" onClick={onClose} className="flex h-11 w-11 items-center justify-center rounded-full text-white/80 hover:bg-white/10 hover:text-white"><ChevronDown className="h-6 w-6" /></button>
-        <div className="text-center"><h2 className="text-base font-bold">Play queue</h2><p className="text-[0.68rem] text-white/50">{queue.length} upcoming · {formatQueueDuration(queueSeconds)}</p></div>
-        <span />
-      </header>
+    <section className="relative mx-auto flex h-full w-full flex-col">
 
       <div className="mb-3 grid shrink-0 grid-cols-3 rounded-2xl bg-black/15 p-1.5">
         <QueueTabButton active={tab === "up-next"} onClick={() => setTab("up-next")} icon={ListMusic} label="Up next" count={queue.length} />

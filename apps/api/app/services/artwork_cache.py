@@ -219,11 +219,6 @@ class ArtworkCacheService:
             for temp in temporary:
                 temp.unlink(missing_ok=True)
 
-    async def _create_sizes(self, source_path: Path, original_url: str) -> None:
-        """Compatibility helper used by characterization tests."""
-        content = await asyncio.to_thread(source_path.read_bytes)
-        await _run_thread_cancel_safe(self._publish_validated_image, content, original_url, True)
-
     def get_cached_artwork(self, url: str, size: str = "medium") -> Path | None:
         cache_path = self.get_cache_path(url, size)
         if not cache_path.is_file():

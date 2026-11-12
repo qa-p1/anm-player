@@ -202,15 +202,6 @@ class LibraryScannerService:
                 result.errors += 1
                 logger.warning("Could not remove a pending download tombstone", exc_info=True)
 
-    def reconcile_download_state(self) -> int:
-        """Make downloaded flags and linked paths reflect the managed filesystem."""
-        with _library_sync_lock:
-            changed = self._reconcile_download_state()
-            self._sync_canonical_albums()
-            changed += self._repair_local_history()
-            self.session.commit()
-            return changed
-
     def _reconcile_download_state(self) -> int:
         songs = {song.id: song for song in self.session.scalars(select(Song)).all()}
         tracks = self.session.scalars(select(LibraryTrack)).all()

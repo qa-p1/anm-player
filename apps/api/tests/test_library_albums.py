@@ -109,7 +109,7 @@ def test_remove_album_hides_it_without_deleting_download_state() -> None:
         session.commit()
 
         service.remove_album(album.id, delete_downloads=False)
-        albums = service.list_albums()
+        albums = asyncio.run(service.list_albums_refreshed())
         refreshed_track = session.get(LibraryTrack, track.id)
 
     assert albums == []

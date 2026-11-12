@@ -19,7 +19,6 @@ logger = logging.getLogger(__name__)
 LYRICS_STATUS_CACHED = "cached"
 LYRICS_STATUS_MISSING = "missing"
 LYRICS_STATUS_NOT_FOUND = "not_found"
-LYRICS_STATUS_OFFLINE = "offline"
 LYRICS_STATUS_ERROR = "error"
 
 NOT_FOUND_RETRY_DAYS = 7

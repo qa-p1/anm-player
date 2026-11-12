@@ -1,7 +1,7 @@
 {
   "name": "anm-player",
   "private": true,
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "A single-user music library and player.",
   "scripts": {
     "dev": "npm --workspace apps/web run dev",

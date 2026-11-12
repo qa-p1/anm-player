@@ -3,7 +3,6 @@ import {
   AudioLines,
   Bookmark,
   Check,
-  ChevronDown,
   Clock3,
   Gauge,
   Headphones,
@@ -34,7 +33,6 @@ interface PlayerToolsPanelProps {
   trackId: string;
   currentTime: number;
   duration: number;
-  onClose: () => void;
 }
 
 const tabs: Array<{ id: ToolTab; label: string; icon: typeof Gauge }> = [
@@ -44,18 +42,11 @@ const tabs: Array<{ id: ToolTab; label: string; icon: typeof Gauge }> = [
   { id: "markers", label: "Markers", icon: Bookmark },
 ];
 
-export function PlayerToolsPanel({ trackId, currentTime, duration, onClose, embedded = false }: PlayerToolsPanelProps & { embedded?: boolean }) {
+export function PlayerToolsPanel({ trackId, currentTime, duration }: PlayerToolsPanelProps) {
   const [tab, setTab] = useState<ToolTab>("playback");
 
   return (
-    <section className={cn("relative mx-auto flex h-full w-full flex-col", embedded ? "" : "max-w-3xl px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-[max(0.75rem,env(safe-area-inset-top))] sm:px-8")}>
-      <header className={cn("mb-3 grid shrink-0 grid-cols-[2.75rem_1fr_2.75rem] items-center", embedded && "hidden")}>
-        <button type="button" aria-label="Return to player" onClick={onClose} className="flex h-11 w-11 items-center justify-center rounded-full text-white/80 hover:bg-white/10 hover:text-white">
-          <ChevronDown className="h-6 w-6" />
-        </button>
-        <div className="text-center"><h2 className="text-base font-bold">Playback studio</h2><p className="text-[0.68rem] text-white/50">Tune this device</p></div>
-        <span />
-      </header>
+    <section className="relative mx-auto flex h-full w-full flex-col">
 
       <div role="tablist" aria-label="Studio sections" className="no-scrollbar mb-4 flex shrink-0 gap-1 overflow-x-auto rounded-full border border-white/10 bg-white/[0.06] p-1">
         {tabs.map(({ id, label, icon: Icon }) => (

@@ -1,4 +1,4 @@
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { AnimatePresence, motion, useReducedMotion, type PanInfo } from "framer-motion";
 import {
   ChevronDown,
   Heart,
@@ -142,7 +142,16 @@ export function FullScreenPlayer({ onClose }: FullScreenPlayerProps) {
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
           >
-            <section aria-label="Now playing" className="relative flex min-h-0 flex-1 flex-col">
+            <motion.section
+              aria-label="Now playing"
+              className="relative flex min-h-0 flex-1 touch-pan-x flex-col min-[1100px]:touch-auto"
+              // Phones close the player with a swipe down, like before.
+              drag={isWide ? false : "y"}
+              dragConstraints={{ top: 0, bottom: 0 }}
+              dragElastic={{ top: 0, bottom: 0.58 }}
+              dragMomentum={false}
+              onDragEnd={(_, info: PanInfo) => { if (info.offset.y > 72 || info.velocity.y > 650) onClose(); }}
+            >
               <RoundButton label="Close full-screen player" onClick={onClose} className="absolute left-0 top-0 z-10"><ChevronDown className="h-5 w-5" /></RoundButton>
               <div className="no-scrollbar flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto pt-12 min-[1100px]:overflow-visible min-[1100px]:pt-0">
                 <div className="flex w-full max-w-[min(30rem,44vh)] flex-col min-[1100px]:max-w-[min(32rem,58vh)]">
@@ -160,7 +169,7 @@ export function FullScreenPlayer({ onClose }: FullScreenPlayerProps) {
                   </button>
                 ))}
               </nav>
-            </section>
+            </motion.section>
 
             <section
               aria-label="Beside the song"
@@ -184,8 +193,8 @@ export function FullScreenPlayer({ onClose }: FullScreenPlayerProps) {
               {/* Mounted only when visible, so lyrics can scroll to the current line. */}
               {(isWide || sheetOpen) && <div className="min-h-0 flex-1">
                 {panel === "lyrics" ? <SongLyrics song={song} layout="side" />
-                  : panel === "queue" ? <QueuePanel embedded onClose={() => setPanel("lyrics")} />
-                    : <PlayerToolsPanel embedded trackId={song.id} currentTime={player.currentTime} duration={player.duration} onClose={() => setPanel("lyrics")} />}
+                  : panel === "queue" ? <QueuePanel />
+                    : <PlayerToolsPanel trackId={song.id} currentTime={player.currentTime} duration={player.duration} />}
               </div>}
             </section>
           </motion.div>
@@ -333,8 +342,7 @@ function SongLyrics({ song, layout }: { song: PlayerTrack; layout: "side" | "sta
       artist={song.artistName}
       album={song.albumTitle}
       duration={song.durationSeconds}
-      side={layout === "side"}
-      stage={layout === "stage"}
+      layout={layout}
     />
   );
 }

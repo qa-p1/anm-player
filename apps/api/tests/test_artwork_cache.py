@@ -14,7 +14,7 @@ def test_each_artwork_size_is_generated_from_the_original(tmp_path) -> None:
     Image.new("RGB", (1200, 1200), "red").save(source)
     service = ArtworkCacheService(tmp_path / "cache")
 
-    asyncio.run(service._create_sizes(source, "https://i.ytimg.com/image.jpg"))
+    service._publish_validated_image(source.read_bytes(), "https://i.ytimg.com/image.jpg", True)
 
     with Image.open(service.get_cache_path("https://i.ytimg.com/image.jpg", "thumb")) as thumb:
         assert thumb.width == 150

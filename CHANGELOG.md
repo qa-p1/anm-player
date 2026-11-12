@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.2.0 - 2026-11-12
 
 - **Redesigned full-screen player**: One player for every screen, with lyrics, Up next and the studio beside the song or in a sheet on phones.
 - **Apple Music style lyrics**: A full-screen lyrics view, a glowing current line kept at the top, and readable text on bright covers.

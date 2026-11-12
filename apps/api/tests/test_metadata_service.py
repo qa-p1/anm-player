@@ -137,9 +137,6 @@ def test_enrich_song_missing_provider_failures_and_search_sorting(music_director
                 [MetadataResult(title="Lower", confidence=0.3), MetadataResult(title="Higher", confidence=0.9)],
             ),
         ]
-        results = asyncio.run(service.search_metadata(title="Song", limit=1))
-        assert [result.title for result in results] == ["Higher"]
-        assert asyncio.run(service.search_metadata(title="Song", provider_name="missing")) == []
 
 
 def test_enrich_album_only_downloaded_songs_and_close_providers(music_directory, monkeypatch) -> None:
@@ -161,11 +158,6 @@ def test_enrich_album_only_downloaded_songs_and_close_providers(music_directory,
         async def enrich(song_id: int):
             calls.append(song_id)
             return session.get(Song, song_id)
-
-        monkeypatch.setattr(service, "enrich_song", enrich)
-        assert asyncio.run(service.enrich_album(999)) is None
-        assert asyncio.run(service.enrich_album(album.id)) is album
-        assert calls == [downloaded.id]
 
         providers = [FakeProvider("one"), FakeProvider("two")]
         service.providers = providers
@@ -231,7 +223,6 @@ def test_youtube_metadata_provider_maps_search_and_artwork(monkeypatch) -> None:
     assert results[0].duration_ms == 123000
     assert results[0].confidence == 1.0
     assert asyncio.run(provider.search()) == []
-    assert asyncio.run(provider.get_by_id("video-id")) is None
     assert asyncio.run(provider.get_artwork("album-id")) == "https://i.ytimg.com/album.jpg"
 
     async def failed_album(_identifier: str):

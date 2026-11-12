@@ -1,4 +1,4 @@
-import { ChevronDown, Copy, FileText, LocateFixed, Loader2, Maximize2, Minus, Pencil, Plus, RefreshCw, RotateCcw, Save, Type, X } from "lucide-react";
+import { Copy, FileText, LocateFixed, Loader2, Minus, Pencil, Plus, RefreshCw, RotateCcw, Save, Type, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 
 import { EmptyState } from "@/components/empty-states/empty-state";
@@ -18,13 +18,8 @@ interface LyricsPanelProps {
   artist?: string | null;
   album?: string | null;
   duration?: number | null;
-  immersive?: boolean;
-  /** Beside the artwork in the wide full-screen player: big lyrics, no header of its own. */
-  side?: boolean;
-  /** Full-screen lyrics on wide screens: the biggest text, no header of its own. */
-  stage?: boolean;
-  onClose?: () => void;
-  onExpand?: () => void;
+  /** "side" sits in the player's panel; "stage" is full-screen lyrics with the biggest text. */
+  layout: LyricsLayout;
 }
 
 export function LyricsPanel({
@@ -34,11 +29,7 @@ export function LyricsPanel({
   artist,
   album,
   duration,
-  immersive = false,
-  side = false,
-  stage = false,
-  onClose,
-  onExpand,
+  layout,
 }: LyricsPanelProps) {
   const target = useMemo(() => {
     if (songId) return { kind: "local" as const, songId, title, artist, album, duration };
@@ -46,7 +37,6 @@ export function LyricsPanel({
     return null;
   }, [album, artist, duration, songId, title, videoId]);
   const lyricsState = useLyrics(target);
-  const floatingTools = side || stage;
   const currentTime = usePlayerStore((state) => state.currentTime);
   const [isEditing, setIsEditing] = useState(false);
   const [draftLyrics, setDraftLyrics] = useState("");
@@ -96,66 +86,27 @@ export function LyricsPanel({
   }
 
   return (
-    <section className={cn("group/lyrics relative flex h-full min-h-0 flex-col", immersive && "px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-[max(0.5rem,env(safe-area-inset-top))] sm:px-8")}>
-      {/* Beside the player and on the lyrics stage, refresh/edit float in the corner on hover instead of taking a row. */}
-      <header className={cn(
-        "flex shrink-0 items-center gap-3",
-        immersive ? "min-h-14" : "mb-3 justify-end",
-        floatingTools && "absolute right-0 top-0 z-10 mb-0 rounded-full bg-black/30 opacity-0 backdrop-blur-md transition-opacity focus-within:opacity-100 group-hover/lyrics:opacity-100 [@media(hover:none)]:hidden",
-      )}>
-        {immersive && (
-          <button
-            type="button"
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-white/75 transition hover:bg-white/10 hover:text-white"
-            aria-label="Return to player"
-            onClick={onClose}
-          >
-            <ChevronDown className="h-6 w-6" />
-          </button>
+    <section className="group/lyrics relative flex h-full min-h-0 flex-col">
+      {/* Lyric tools float over the faded bottom edge on hover, never over a line being read. */}
+      <div role="toolbar" aria-label="Lyrics tools" className="absolute bottom-2 right-0 z-10 flex items-center gap-0.5 rounded-full bg-black/35 p-1 opacity-0 backdrop-blur-md transition-opacity focus-within:opacity-100 group-hover/lyrics:opacity-100 [@media(hover:none)]:hidden">
+        <LyricsTool label="Refetch lyrics" onClick={() => void lyricsState.refresh()}><RefreshCw className="h-4 w-4" /></LyricsTool>
+        {songId && <LyricsTool label="Edit lyrics" onClick={beginEditing}><Pencil className="h-4 w-4" /></LyricsTool>}
+        {lyricsState.lyrics && !isEditing && (
+          <>
+            <LyricsTool active={lyricsPreferences.autoScroll} label={lyricsPreferences.autoScroll ? "Auto-scroll on" : "Auto-scroll off"} onClick={() => lyricsPreferences.setAutoScroll(!lyricsPreferences.autoScroll)}><LocateFixed className="h-4 w-4" /></LyricsTool>
+            <LyricsTool label={`Text: ${lyricsPreferences.fontSize}`} onClick={lyricsPreferences.cycleFontSize}><Type className="h-4 w-4" /></LyricsTool>
+            {lrcLines.length > 0 && (
+              <>
+                <LyricsTool label="Lyrics 0.5 seconds earlier" onClick={() => lyricsPreferences.adjustOffset(targetKey, -0.5)}><Minus className="h-4 w-4" /></LyricsTool>
+                <span className="min-w-max px-1 text-[0.68rem] font-semibold tabular-nums text-white/65">{timeOffset > 0 ? "+" : ""}{timeOffset.toFixed(1)}s</span>
+                <LyricsTool label="Lyrics 0.5 seconds later" onClick={() => lyricsPreferences.adjustOffset(targetKey, 0.5)}><Plus className="h-4 w-4" /></LyricsTool>
+                {timeOffset !== 0 && <LyricsTool label="Reset lyrics timing" onClick={() => lyricsPreferences.resetOffset(targetKey)}><RotateCcw className="h-4 w-4" /></LyricsTool>}
+              </>
+            )}
+            <LyricsTool label="Copy lyrics" onClick={copyLyrics}><Copy className="h-4 w-4" /></LyricsTool>
+          </>
         )}
-        {immersive && (
-          <div className="min-w-0 flex-1 text-center">
-            <h2 className="truncate text-sm font-bold text-white">{title || "Lyrics"}</h2>
-            <p className="truncate text-xs font-medium text-white/55">{artist || "Unknown Artist"}</p>
-          </div>
-        )}
-        <Button
-          type="button"
-          variant="quiet"
-          size="icon"
-          className={cn("text-white/65 hover:text-white", immersive ? "h-11 w-11" : "h-9 w-9")}
-          aria-label="Refetch lyrics"
-          onClick={() => void lyricsState.refresh()}
-        >
-          <RefreshCw className="h-4 w-4" />
-        </Button>
-        {songId && (
-          <Button type="button" variant="quiet" size="icon" className={cn("text-white/65 hover:text-white", immersive ? "h-11 w-11" : "h-9 w-9")} aria-label="Edit lyrics" onClick={beginEditing}>
-            <Pencil className="h-4 w-4" />
-          </Button>
-        )}
-        {!immersive && onExpand && (
-          <Button type="button" variant="quiet" size="icon" className="h-9 w-9" aria-label="Open lyrics full screen" onClick={onExpand}>
-            <Maximize2 className="h-4 w-4" />
-          </Button>
-        )}
-      </header>
-
-      {immersive && lyricsState.lyrics && !isEditing && (
-        <div className="no-scrollbar mb-2 flex shrink-0 items-center gap-1.5 overflow-x-auto rounded-2xl bg-black/15 p-1.5 text-white">
-          <LyricsTool active={lyricsPreferences.autoScroll} label={lyricsPreferences.autoScroll ? "Auto-scroll on" : "Auto-scroll off"} onClick={() => lyricsPreferences.setAutoScroll(!lyricsPreferences.autoScroll)}><LocateFixed className="h-4 w-4" /></LyricsTool>
-          <LyricsTool label={`Text: ${lyricsPreferences.fontSize}`} onClick={lyricsPreferences.cycleFontSize}><Type className="h-4 w-4" /></LyricsTool>
-          {lrcLines.length > 0 && (
-            <>
-              <LyricsTool label="Lyrics 0.5 seconds earlier" onClick={() => lyricsPreferences.adjustOffset(targetKey, -0.5)}><Minus className="h-4 w-4" /></LyricsTool>
-              <span className="min-w-max px-1 text-[0.68rem] font-semibold tabular-nums text-white/65">Offset {timeOffset > 0 ? "+" : ""}{timeOffset.toFixed(1)}s</span>
-              <LyricsTool label="Lyrics 0.5 seconds later" onClick={() => lyricsPreferences.adjustOffset(targetKey, 0.5)}><Plus className="h-4 w-4" /></LyricsTool>
-              {timeOffset !== 0 && <LyricsTool label="Reset lyrics timing" onClick={() => lyricsPreferences.resetOffset(targetKey)}><RotateCcw className="h-4 w-4" /></LyricsTool>}
-            </>
-          )}
-          <LyricsTool label="Copy lyrics" onClick={copyLyrics}><Copy className="h-4 w-4" /></LyricsTool>
-        </div>
-      )}
+      </div>
 
       <div className="min-h-0 flex-1" aria-live="polite">
         {isEditing ? (
@@ -175,7 +126,7 @@ export function LyricsPanel({
             lines={lrcLines.length > 0 ? lrcLines : plainLines(lyricsState.lyrics)}
             timed={lrcLines.length > 0}
             activeLine={activeLine}
-            layout={immersive ? "immersive" : stage ? "stage" : side ? "side" : "panel"}
+            layout={layout}
             autoScroll={lyricsPreferences.autoScroll}
             timeOffset={timeOffset}
             fontSize={lyricsPreferences.fontSize}
@@ -203,7 +154,7 @@ function LyricsEmptyState({ status, onRefetch }: { status: string; onRefetch: ()
   );
 }
 
-type LyricsLayout = "panel" | "side" | "stage" | "immersive";
+type LyricsLayout = "side" | "stage";
 
 /** Plain lyrics are the same lines, just without timestamps. */
 function plainLines(lyrics: string): LrcLine[] {
@@ -215,10 +166,8 @@ function plainLines(lyrics: string): LrcLine[] {
  * click; untimed lyrics are evenly lit, since we can't know where the song is.
  */
 function LyricsLines({ lines, timed, activeLine, layout, autoScroll, timeOffset, fontSize }: { lines: LrcLine[]; timed: boolean; activeLine: number; layout: LyricsLayout; autoScroll: boolean; timeOffset: number; fontSize: LyricsFontSize }) {
-  const immersive = layout === "immersive";
-  const onArtwork = layout !== "panel";
   const centered = layout === "stage";
-  const focusBlur = timed && activeLine >= 0 && (layout === "stage" || layout === "side");
+  const focusBlur = timed && activeLine >= 0;
   const containerRef = useRef<HTMLDivElement | null>(null);
   const lineRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const manualScrollUntil = useRef(0);
@@ -243,14 +192,14 @@ function LyricsLines({ lines, timed, activeLine, layout, autoScroll, timeOffset,
     <ScrollArea
       ref={containerRef}
       // The scroll area clips at its edges, so the lines sit inset far enough for their glow.
-      className={cn("no-scrollbar h-full [mask-image:linear-gradient(to_bottom,transparent,black_5%,black_85%,transparent)]", onArtwork ? "-mx-6 px-6" : "px-1")}
+      className="no-scrollbar -mx-6 h-full px-6 [mask-image:linear-gradient(to_bottom,black_85%,transparent)]"
       onScroll={() => {
         manualScrollUntil.current = Date.now() + 2500;
       }}
     >
-      <div className={cn("mx-auto max-w-3xl space-y-4 py-8", immersive && "max-w-5xl space-y-5 pb-[70vh] pt-4 sm:space-y-7 sm:pt-6", layout === "side" && "space-y-3 pb-[40vh] pt-6", layout === "stage" && "max-w-5xl space-y-6 pb-[45vh] pt-[18vh]")}>
+      <div className={cn("mx-auto", centered ? "max-w-5xl space-y-6 pb-[45vh] pt-[18vh]" : "max-w-3xl space-y-3 pb-[40vh] pt-6")}>
         {!timed && (
-          <p className={cn(centered ? "mx-auto flex w-fit" : "inline-flex", "items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold", onArtwork ? "bg-white/10 text-white/70" : "bg-muted text-muted-foreground")}>
+          <p className={cn(centered ? "mx-auto flex w-fit" : "inline-flex", "items-center gap-1.5 rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white/70")}>
             <FileText className="h-3.5 w-3.5" />Not synced to the song
           </p>
         )}
@@ -262,7 +211,7 @@ function LyricsLines({ lines, timed, activeLine, layout, autoScroll, timeOffset,
                 "break-words font-black leading-[1.08] tracking-[-0.035em] [overflow-wrap:anywhere]",
                 centered && "text-center",
                 lyricsSize(layout, fontSize),
-                onArtwork ? "text-white/85" : "text-foreground/85",
+                "text-white/85",
               )}
             >
               {line.text}
@@ -281,15 +230,15 @@ function LyricsLines({ lines, timed, activeLine, layout, autoScroll, timeOffset,
                 "lyric-line block w-full break-words font-black leading-[1.08] tracking-[-0.035em] [overflow-wrap:anywhere]",
                 centered ? "text-center" : "text-left",
                 lyricsSize(layout, fontSize),
-                onArtwork ? "text-white/35 hover:text-white/75" : "text-muted-foreground/45 hover:text-foreground",
-                index === activeLine && (onArtwork ? "lyric-line-active text-white" : "text-foreground"),
-                index < activeLine && (onArtwork ? "text-white/25" : "text-muted-foreground/30"),
+                "text-white/35 hover:text-white/75",
+                index === activeLine && "lyric-line-active text-white",
+                index < activeLine && "text-white/25",
               )}
             >
               {line.text}
             </button>
           ) : (
-            <div key={`${line.time}-${index}`} className={immersive ? "h-6" : "h-4"} />
+            <div key={`${line.time}-${index}`} className="h-4" />
           ),
         )}
       </div>
@@ -327,21 +276,11 @@ function parseLrc(lyrics: string | null): LrcLine[] {
 }
 
 function LyricsTool({ active = false, label, onClick, children }: { active?: boolean; label: string; onClick: () => void; children: React.ReactNode }) {
-  return <button type="button" aria-label={label} title={label} aria-pressed={active || undefined} onClick={onClick} className={cn("grid h-8 w-8 shrink-0 place-items-center rounded-lg text-white/55 transition hover:bg-white/10 hover:text-white", active && "bg-white text-black hover:bg-white/90 hover:text-black")}>{children}</button>;
+  return <button type="button" aria-label={label} title={label} aria-pressed={active || undefined} onClick={onClick} className={cn("grid h-8 w-8 shrink-0 place-items-center rounded-full text-white/65 outline-none transition hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-white/50", active && "bg-white text-black hover:bg-white/90 hover:text-black")}>{children}</button>;
 }
 
 function lyricsSize(layout: LyricsLayout, size: LyricsFontSize) {
-  if (layout === "immersive") return immersiveLyricsSize(size);
   if (layout === "side") return size === "compact" ? "text-xl" : size === "large" ? "text-3xl" : "text-2xl";
-  if (layout === "stage") return size === "compact" ? "text-[clamp(1.75rem,2.6vw,2.75rem)]" : size === "large" ? "text-[clamp(2.5rem,4vw,4.25rem)]" : "text-[clamp(2.1rem,3.3vw,3.5rem)]";
-  return compactLyricsSize(size);
-}
-
-function immersiveLyricsSize(size: LyricsFontSize) {
-  return size === "compact" ? "text-[clamp(1.5rem,5vw,3.5rem)]" : size === "large" ? "text-[clamp(2.4rem,8.5vw,5.6rem)]" : "text-[clamp(2rem,7vw,4.75rem)]";
-}
-
-function compactLyricsSize(size: LyricsFontSize) {
-  return size === "compact" ? "text-xl sm:text-2xl" : size === "large" ? "text-3xl sm:text-4xl" : "text-2xl sm:text-3xl";
+  return size === "compact" ? "text-[clamp(1.75rem,2.6vw,2.75rem)]" : size === "large" ? "text-[clamp(2.5rem,4vw,4.25rem)]" : "text-[clamp(2.1rem,3.3vw,3.5rem)]";
 }
 

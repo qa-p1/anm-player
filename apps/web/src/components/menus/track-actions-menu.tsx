@@ -301,13 +301,13 @@ export function TrackActionsMenu({
 
           {(onRemoveDownload || onRemoveFromPlaylist) && <DropdownMenuSeparator />}
           {resolvedDownloaded && onRemoveDownload && (
-            <DropdownMenuItem className="text-destructive" onClick={onRemoveDownload}>
+            <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={onRemoveDownload}>
               <Trash2 className="mr-2 h-4 w-4" />
               Remove download
             </DropdownMenuItem>
           )}
           {onRemoveFromPlaylist && (
-            <DropdownMenuItem className="text-destructive" onClick={onRemoveFromPlaylist}>
+            <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={onRemoveFromPlaylist}>
               <Trash2 className="mr-2 h-4 w-4" />
               Remove from playlist
             </DropdownMenuItem>

@@ -74,12 +74,6 @@ class LibraryAlbumService:
         self.session = session
         self.responses = LibraryPresenter(session)
 
-    def list_albums(
-        self, *, query: str | None = None, limit: int = 50, offset: int = 0
-    ) -> list[LibraryAlbumResponse]:
-        albums = self._list_album_models(query=query, limit=limit, offset=offset)
-        return self.responses.albums_to_response(albums)
-
     async def list_albums_refreshed(
         self, *, query: str | None = None, limit: int = 50, offset: int = 0
     ) -> list[LibraryAlbumResponse]:

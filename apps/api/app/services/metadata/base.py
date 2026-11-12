@@ -88,19 +88,6 @@ class MetadataProvider(ABC):
         pass
     
     @abstractmethod
-    async def get_by_id(self, identifier: str) -> MetadataResult | None:
-        """
-        Fetch metadata by provider-specific identifier.
-        
-        Args:
-            identifier: Provider-specific ID
-            
-        Returns:
-            Metadata result or None if not found
-        """
-        pass
-    
-    @abstractmethod
     async def get_artwork(self, identifier: str) -> str | None:
         """
         Fetch artwork URL for a given identifier.

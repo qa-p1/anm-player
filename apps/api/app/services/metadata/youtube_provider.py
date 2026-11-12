@@ -35,9 +35,6 @@ class YouTubeMusicMetadataProvider(MetadataProvider):
             )
         return results
 
-    async def get_by_id(self, identifier: str) -> MetadataResult | None:
-        return None
-
     async def get_artwork(self, identifier: str) -> str | None:
         try:
             return (await ytmusic_service.album(identifier)).artwork_url
