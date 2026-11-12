@@ -13,6 +13,8 @@ import { EmptyState } from "@/components/empty-states/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useDownloads, useRecentlyPlayedHistory } from "@/hooks/use-music-queries";
+import { useSettings } from "@/hooks/use-settings";
+import { resolveRegion } from "@/utils/region";
 import { cachedArtworkUrl, isRequestCancelled } from "@/services/api-client";
 import { getLibraryAlbumStatuses, getLibraryTrackStatuses, getYouTubeHome, getYouTubeRelated } from "@/services/music-api";
 import { usePlayerStore } from "@/stores/player-store";
@@ -24,9 +26,12 @@ import { useQuery } from "@tanstack/react-query";
 const emptyHomeSections: OnlineHomeSection[] = [];
 
 export function HomePage() {
+  const { data: settings, isLoading: settingsLoading } = useSettings();
+  const region = resolveRegion(settings?.home_region);
   const { data: home, isLoading } = useQuery({
-    queryKey: ["ytmusic", "home"],
-    queryFn: ({ signal }) => getYouTubeHome(signal),
+    queryKey: ["ytmusic", "home", region],
+    queryFn: ({ signal }) => getYouTubeHome(region, signal),
+    enabled: !settingsLoading,
     staleTime: 5 * 60 * 1000,
     gcTime: 30 * 60 * 1000,
     refetchInterval: 10 * 60 * 1000,
@@ -46,7 +51,7 @@ export function HomePage() {
   const apiQuickPicks = findById(sections, "quick-picks");
   const globalTrending = findById(sections, "global-trending");
   const trendingAlbums = findById(sections, "trending-albums");
-  const indiaPulse = findById(sections, "india-pulse");
+  const regionPulse = findById(sections, "region-pulse");
   const seedVideoId = recentHistory.find((entry) => entry.source === "youtube" && entry.external_id)?.external_id ?? null;
   const { data: related, isLoading: isRelatedLoading } = useQuery({
     queryKey: ["ytmusic", "related", seedVideoId],
@@ -65,8 +70,8 @@ export function HomePage() {
   }, [apiQuickPicks, related, globalTrending, todayIds]);
   const recentlyPlayed = recentHistory.slice(0, 5);
   const displayedPlayable = useMemo(
-    () => uniqueItems([heroItems, quickPicks?.items ?? [], globalTrending?.items ?? [], indiaPulse?.items ?? []].flat()),
-    [heroItems, quickPicks, globalTrending, indiaPulse],
+    () => uniqueItems([heroItems, quickPicks?.items ?? [], globalTrending?.items ?? [], regionPulse?.items ?? []].flat()),
+    [heroItems, quickPicks, globalTrending, regionPulse],
   );
   const downloadJobsKey = downloadJobs.map((job) => `${job.id}:${job.status}:${job.progress}`).join(",");
 
@@ -170,10 +175,10 @@ export function HomePage() {
       {quickPicks && <SongSection section={quickPicks} title="Quick Picks" limit={8} downloadedTracks={downloadedTracks} />}
       {globalTrending && <SongSection section={globalTrending} title="Trending Globally" icon={TrendingUp} ranked downloadedTracks={downloadedTracks} />}
       {trendingAlbums && <AlbumSection section={trendingAlbums} albumStatuses={albumStatuses} />}
-      {indiaPulse && <SongSection section={indiaPulse} title="India Pulse" downloadedTracks={downloadedTracks} />}
+      {regionPulse && <SongSection section={regionPulse} title={regionPulse.title} downloadedTracks={downloadedTracks} />}
 
       {recentlyPlayed.length > 0 && (
-        <Section title="Continue Listening" eyebrow="From your playback history" icon={Music}>
+        <Section title="Continue Listening" icon={Music}>
           <div className="space-y-2">
             <HistoryRows entries={recentlyPlayed} />
           </div>

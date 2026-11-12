@@ -31,6 +31,8 @@ export interface SettingsSummary {
   artwork_cache_limit_mb: number;
   theme_mode: ThemeMode;
   accent_theme: AccentTheme;
+  /** "auto" or a country code for Home's regional rows. */
+  home_region: string;
   version: string;
   environment: string;
   database_backend: "SQLite";

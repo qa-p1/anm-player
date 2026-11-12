@@ -13,6 +13,10 @@ These arrive through the in-app update button.
 - Songs downloaded from a playlist, the song menu or search now show as offline everywhere they're saved, not only in the album they came from.
 - Download progress no longer jumps backwards as songs finish, and the queue uses one light poll instead of a live connection per song.
 - The Playlists page uses the same header as Albums and Artists.
+- **Settings, rebuilt**: every change saves instantly (no Save button), grouped sections with a section list, switches, steppers and segmented choices, a storage breakdown with per-cache clearing, and update/close controls under About.
+- **Region for Home**: "Trending Albums" and the regional chart follow your country, worked out from your computer's time zone without any network lookup, and changeable in Settings. Trending albums are the newest releases from that country's top artists. Times and Insights always follow your own clock.
+- Artist pages show the real artist name, their albums and singles with years, and refresh from YouTube Music instead of keeping a stale copy forever.
+- Times are shown in your time zone everywhere (new playlists no longer say "Updated 6 hours ago"), and Insights counts days, hours and streaks by your clock.
 - Artwork caching: covers are kept by the browser for 30 days instead of being re-requested, a network blip is retried once instead of leaving a blank cover, failures are never cached, and cache clean-up runs at most once a minute instead of scanning the folder after every image.
 
 ## 1.0.0 - 2026-11-11

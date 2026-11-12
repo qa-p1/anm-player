@@ -4,8 +4,8 @@ import { Navigate, Route, Routes } from "react-router";
 import { useAudioPlayer } from "@/hooks/use-audio-player";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { AppLayout } from "@/layouts/app-layout";
-import { apiGet } from "@/services/api-client";
-import { applyAccent, initializeTheme, useThemeStore, type AccentTheme, type ThemeMode } from "@/stores/theme-store";
+import { useSettings } from "@/hooks/use-settings";
+import { applyAccent, initializeTheme, useThemeStore } from "@/stores/theme-store";
 import { useAppLifecycleStore } from "@/stores/app-lifecycle-store";
 
 const HomePage = lazy(() => import("@/features/home/home-page").then((module) => ({ default: module.HomePage })));
@@ -44,15 +44,14 @@ export function App() {
 
 function RunningApp() {
   const setMode = useThemeStore((state) => state.setMode);
+  const { data: settings } = useSettings();
+  useEffect(() => initializeTheme(), []);
+  // Saved settings win over the browser's cached theme once they load.
   useEffect(() => {
-    initializeTheme();
-    apiGet<{ theme_mode: ThemeMode; accent_theme: AccentTheme }>("/settings")
-      .then((settings) => {
-        setMode(settings.theme_mode);
-        applyAccent(settings.accent_theme);
-      })
-      .catch(() => undefined);
-  }, [setMode]);
+    if (!settings) return;
+    setMode(settings.theme_mode);
+    applyAccent(settings.accent_theme);
+  }, [settings, setMode]);
 
   useAudioPlayer();
   useKeyboardShortcuts();

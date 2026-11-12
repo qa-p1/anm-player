@@ -1,28 +1,49 @@
-import type { AudioFormat, StreamQuality, SettingsSummary, StorageSummary, DirectoryEntry, DirectoryListing } from "@/types/settings";
-import { queryClient } from "@/lib/query-client";
-import { invalidateLibrary } from "@/services/music-invalidation";
+import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { Bomb, Database, Download, Folder, FolderPlus, HardDrive, Info, Palette, RefreshCw, Trash2 } from "lucide-react";
-import { useEffect, useId, useMemo, useState } from "react";
+import { AlertCircle, Bomb, Check, Download, Folder, FolderPlus, Globe2, HardDrive, Info, LoaderCircle, Music2, Palette, RefreshCw, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { pageTransition } from "@/animations/page-motion";
 import { CloseAppButton } from "@/components/navigation/close-app-button";
-import { AppUpdateControls } from "@/features/updates/app-update-controls";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/components/ui/toast";
-import { apiGet, apiPatch, apiPost } from "@/services/api-client";
-import { getDatabaseBackupUrl } from "@/services/music-api";
-import { applyAccent, accentValues, useThemeStore, type AccentTheme, type ThemeMode } from "@/stores/theme-store";
+import { Segmented, SelectControl, SettingRow, SettingsGroup, Stepper, Switch } from "@/features/settings/settings-controls";
+import { AppUpdateControls } from "@/features/updates/app-update-controls";
+import { useSaveSetting, useSettings, type WritableSettings } from "@/hooks/use-settings";
+import { queryClient } from "@/lib/query-client";
+import { cn } from "@/lib/utils";
+import { apiGet, apiPost } from "@/services/api-client";
+import { getChartRegions, getDatabaseBackupUrl } from "@/services/music-api";
+import { invalidateLibrary } from "@/services/music-invalidation";
+import { accentValues, applyAccent, useThemeStore, type AccentTheme, type ThemeMode } from "@/stores/theme-store";
+import type { AudioFormat, DirectoryEntry, DirectoryListing, StorageSummary, StreamQuality } from "@/types/settings";
+import { detectRegion } from "@/utils/region";
 
 type BrowserPurpose = "migration" | "reset";
+type SaveState = "idle" | "saving" | "saved" | "error";
+
+const SECTIONS = [
+  { id: "playback", label: "Playback", icon: <Music2 /> },
+  { id: "home", label: "Home & region", icon: <Globe2 /> },
+  { id: "downloads", label: "Downloads", icon: <Download /> },
+  { id: "storage", label: "Storage", icon: <HardDrive /> },
+  { id: "appearance", label: "Appearance", icon: <Palette /> },
+  { id: "about", label: "About", icon: <Info /> },
+  { id: "danger", label: "Danger zone", icon: <Bomb /> },
+] as const;
+
+const storageKey = ["settings", "storage"] as const;
 
 export function SettingsPage() {
-  const [settings, setSettings] = useState<SettingsSummary | null>(null);
-  const [storage, setStorage] = useState<StorageSummary | null>(null);
-  const [saving, setSaving] = useState(false);
+  const { data: settings, error: settingsError, refetch: refetchSettings } = useSettings();
+  const saveSetting = useSaveSetting();
+  const { data: storage, refetch: refetchStorage } = useQuery({ queryKey: storageKey, queryFn: ({ signal }) => apiGet<StorageSummary>("/settings/storage", { signal }) });
+  const { data: regions = [] } = useQuery({ queryKey: ["ytmusic", "regions"], queryFn: ({ signal }) => getChartRegions(signal), staleTime: Infinity });
+  const [saveState, setSaveState] = useState<SaveState>("idle");
+  const [activeSection, setActiveSection] = useState<string>(SECTIONS[0].id);
   const [browserOpen, setBrowserOpen] = useState(false);
   const [listing, setListing] = useState<DirectoryListing | null>(null);
   const [browserBusy, setBrowserBusy] = useState(false);
@@ -34,57 +55,44 @@ export function SettingsPage() {
   const [resetting, setResetting] = useState(false);
   const [browserPurpose, setBrowserPurpose] = useState<BrowserPurpose>("migration");
   const [syncingLibrary, setSyncingLibrary] = useState(false);
-  const { setMode } = useThemeStore();
-
-  async function refresh() {
-    const [nextSettings, nextStorage] = await Promise.all([
-      apiGet<SettingsSummary>("/settings"),
-      apiGet<StorageSummary>("/settings/storage"),
-    ]);
-    setSettings(nextSettings);
-    setStorage(nextStorage);
-  }
+  const [clearing, setClearing] = useState<string | null>(null);
+  const setMode = useThemeStore((state) => state.setMode);
 
   useEffect(() => {
-    void refresh().catch(() => toast("Could not load settings", "error"));
-    const handleStorageReady = () => void refresh().catch(() => undefined);
+    const handleStorageReady = () => void refetchStorage();
     window.addEventListener("aura-storage-ready", handleStorageReady);
     return () => window.removeEventListener("aura-storage-ready", handleStorageReady);
-  }, []);
+  }, [refetchStorage]);
 
-  async function save() {
-    if (!settings) return;
-    setSaving(true);
-    try {
-      const writableSettings = {
-        startup_scan_enabled: settings.startup_scan_enabled,
-        download_audio_format: settings.download_audio_format,
-        download_overwrite_existing: settings.download_overwrite_existing,
-        max_concurrent_downloads: settings.max_concurrent_downloads,
-        album_download_max_parallel: settings.album_download_max_parallel,
-        auto_enrich_downloads: settings.auto_enrich_downloads,
-        download_artwork: settings.download_artwork,
-        auto_fetch_lyrics: settings.auto_fetch_lyrics,
-        stream_quality: settings.stream_quality,
-        stream_cache_retention_days: settings.stream_cache_retention_days,
-        artwork_cache_limit_mb: settings.artwork_cache_limit_mb,
-        theme_mode: settings.theme_mode,
-        accent_theme: settings.accent_theme,
-      };
-      const updated = await apiPatch<SettingsSummary, typeof writableSettings>("/settings", writableSettings);
-      setSettings(updated);
-      setMode(updated.theme_mode);
-      applyAccent(updated.accent_theme);
-      toast("Settings saved", "success");
-    } catch (error) {
-      toast(error instanceof Error ? error.message : "Could not save settings", "error");
-    } finally {
-      setSaving(false);
+  useEffect(() => {
+    if (saveState !== "saved") return;
+    const timer = window.setTimeout(() => setSaveState("idle"), 2000);
+    return () => window.clearTimeout(timer);
+  }, [saveState]);
+
+  // Highlight the section currently on screen in the section list.
+  useEffect(() => {
+    if (typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver((entries) => {
+      const visible = entries.filter((entry) => entry.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
+      if (visible) setActiveSection(visible.target.id);
+    }, { rootMargin: "-10% 0px -70% 0px" });
+    for (const section of SECTIONS) {
+      const element = document.getElementById(section.id);
+      if (element) observer.observe(element);
     }
-  }
+    return () => observer.disconnect();
+  }, [settings]);
 
-  function update<K extends keyof SettingsSummary>(key: K, value: SettingsSummary[K]) {
-    setSettings((current) => current ? { ...current, [key]: value } : current);
+  function save(changes: WritableSettings) {
+    setSaveState("saving");
+    saveSetting.mutate(changes, {
+      onSuccess: () => setSaveState("saved"),
+      onError: (error) => {
+        setSaveState("error");
+        toast(error instanceof Error ? error.message : "Could not save that setting", "error");
+      },
+    });
   }
 
   async function browse(parentId?: string | null) {
@@ -137,9 +145,9 @@ export function SettingsPage() {
       await apiPost<{ operation_id: string }, { directory_id: string }>("/settings/storage/migrations", { directory_id: selected.directory_id });
       setConfirmOpen(false);
       window.dispatchEvent(new Event("aura-storage-migration-started"));
-      toast("Storage migration started", "success");
+      toast("Moving your data", "success");
     } catch (error) {
-      toast(error instanceof Error ? error.message : "Could not start migration", "error");
+      toast(error instanceof Error ? error.message : "Could not start the move", "error");
     }
   }
 
@@ -147,17 +155,12 @@ export function SettingsPage() {
     if (!selected?.directory_id || resetConfirmation !== "RESET ANM PLAYER") return;
     setResetting(true);
     try {
-      await apiPost<
-        { operation_id: string },
-        { directory_id: string; confirmation: string }
-      >("/settings/storage/reset", {
+      await apiPost<{ operation_id: string }, { directory_id: string; confirmation: string }>("/settings/storage/reset", {
         directory_id: selected.directory_id,
         confirmation: resetConfirmation,
       });
       setResetConfirmOpen(false);
-      window.dispatchEvent(new CustomEvent("aura-storage-migration-started", {
-        detail: { operation_kind: "reset" },
-      }));
+      window.dispatchEvent(new CustomEvent("aura-storage-migration-started", { detail: { operation_kind: "reset" } }));
     } catch (error) {
       toast(error instanceof Error ? error.message : "Could not start fresh", "error");
       setResetting(false);
@@ -165,36 +168,31 @@ export function SettingsPage() {
   }
 
   async function clearCache(category: "artwork" | "streams" | "lyrics" | "all") {
+    setClearing(category);
     try {
       const result = await apiPost<{ files_removed: number; bytes_removed: number }, { category: typeof category }>("/settings/cache/clear", { category });
-      toast(`Removed ${result.files_removed.toLocaleString()} cached files`, "success");
-      await refresh();
+      toast(`Freed ${formatBytes(result.bytes_removed)}`, "success");
+      await refetchStorage();
     } catch (error) {
-      toast(error instanceof Error ? error.message : "Could not clear cache", "error");
+      toast(error instanceof Error ? error.message : "Could not clear the cache", "error");
+    } finally {
+      setClearing(null);
     }
   }
 
   async function syncLibrary() {
     setSyncingLibrary(true);
     try {
-      const result = await apiPost<{
-        added: number;
-        updated: number;
-        removed: number;
-        reconciled: number;
-        errors: number;
-      }, undefined>("/library/sync");
+      const result = await apiPost<{ added: number; updated: number; removed: number; reconciled: number; errors: number }, undefined>("/library/sync");
       await invalidateLibrary(queryClient);
       const changed = result.added + result.updated + result.removed + result.reconciled;
       toast(
         result.errors
           ? `Library synced with ${result.errors} file error${result.errors === 1 ? "" : "s"}`
-          : changed
-            ? `Library synced: ${changed} change${changed === 1 ? "" : "s"}`
-            : "Library is already in sync",
+          : changed ? `Library synced: ${changed} change${changed === 1 ? "" : "s"}` : "Library is already in sync",
         result.errors ? "error" : "success",
       );
-      await refresh();
+      await refetchStorage();
     } catch (error) {
       toast(error instanceof Error ? error.message : "Could not sync the library", "error");
     } finally {
@@ -202,119 +200,178 @@ export function SettingsPage() {
     }
   }
 
-  const cacheTotal = useMemo(() => storage ? storage.categories.artwork + storage.categories.lyrics + storage.categories.streams : 0, [storage]);
+  const detected = useMemo(() => detectRegion(), []);
+  const regionOptions = useMemo(() => {
+    const names = new Map(regions.map((region) => [region.code, region.name]));
+    const automatic = detected && names.has(detected) ? names.get(detected) : "United States";
+    return [{ value: "auto", label: `Automatic (${automatic})` }, ...regions.map((region) => ({ value: region.code, label: region.name }))];
+  }, [detected, regions]);
+
+  const categories = storage?.categories;
+  const cacheTotal = categories ? categories.artwork + categories.lyrics + categories.streams : 0;
+  const usageParts = categories ? [
+    { label: "Music", value: categories.music + categories.downloads, color: "bg-primary" },
+    { label: "Caches", value: cacheTotal, color: "bg-accent" },
+    { label: "Library", value: categories.database + categories.config + categories.thumbnails + categories.logs + categories.other, color: "bg-amber-400" },
+  ] : [];
+  // The bar shows what the used space is made of; free space is stated beside it.
+  const capacity = Math.max(usageParts.reduce((total, part) => total + part.value, 0), 1);
+
+  if (settingsError && !settings) {
+    return (
+      <div className="grid min-h-[50vh] place-content-center gap-3 text-center text-muted-foreground">
+        <p role="alert">{settingsError.message}</p>
+        <Button variant="glass" onClick={() => void refetchSettings()}>Retry</Button>
+      </div>
+    );
+  }
 
   return (
-    <motion.div {...pageTransition} className="mx-auto max-w-5xl space-y-8 px-4 py-5 sm:px-6 lg:px-8 lg:py-8">
-      <section><p className="mb-2 text-sm font-semibold text-primary">Settings</p><h1 className="text-4xl font-black tracking-normal sm:text-5xl">ANM Player, your way</h1></section>
-      <div className="flex items-center gap-2 lg:hidden"><AppUpdateControls /><CloseAppButton compact /></div>
+    <motion.div {...pageTransition} className="mx-auto max-w-6xl space-y-6 px-3 py-4 sm:px-6 lg:px-8 lg:py-7">
+      <header className="flex items-end justify-between gap-4">
+        <h1 className="text-4xl font-black tracking-tight sm:text-6xl">Settings</h1>
+        <SaveIndicator state={saveState} />
+      </header>
 
       {storage?.migration.cleanup_warning && <Notice tone="warning">{storage.migration.cleanup_warning}</Notice>}
       {storage?.migration.error && <Notice tone="error">{storage.migration.error}</Notice>}
 
-      <SettingsSection icon={<HardDrive />} title="Storage">
-        <div className="rounded-2xl bg-muted/40 p-4">
-          <p className="text-sm font-medium">The directory where your data should be stored</p>
-          <p className="mt-2 break-all font-mono text-sm">{storage?.data_root ?? "Loading…"}</p>
-          <div className="mt-4 h-2 overflow-hidden rounded-full bg-muted"><div className="h-full bg-primary" style={{ width: storage ? `${Math.min(100, storage.used_bytes * 100 / Math.max(storage.used_bytes + storage.free_bytes, 1))}%` : "0%" }} /></div>
-          <p className="mt-2 text-sm text-muted-foreground">{storage ? `${formatBytes(storage.used_bytes)} used · ${formatBytes(storage.free_bytes)} free` : "Calculating usage…"}</p>
-        </div>
-        <div className="grid gap-3 sm:grid-cols-3">
-          <Usage label="Music" value={storage?.categories.music} />
-          <Usage label="Database" value={storage?.categories.database} />
-          <Usage label="Downloads" value={storage?.categories.downloads} />
-        </div>
-        <div className="flex flex-wrap gap-3">
-          <Button onClick={() => void openBrowser("migration")}><Folder className="h-4 w-4" />Change Data Location</Button>
-          <Button asChild variant="glass">
-            <a href={getDatabaseBackupUrl()} download>
-              <Download className="h-4 w-4" />Download Database Backup
+      <div className="grid gap-6 lg:grid-cols-[13rem_minmax(0,1fr)] lg:gap-10">
+        <nav aria-label="Settings sections" className="no-scrollbar -mx-3 flex gap-1.5 overflow-x-auto px-3 lg:sticky lg:top-6 lg:mx-0 lg:flex-col lg:self-start lg:overflow-visible lg:px-0">
+          {SECTIONS.map((section) => (
+            <a
+              key={section.id}
+              href={`#${section.id}`}
+              onClick={(event) => {
+                event.preventDefault();
+                document.getElementById(section.id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+              }}
+              aria-current={activeSection === section.id ? "true" : undefined}
+              className={cn(
+                "flex h-9 shrink-0 items-center gap-2.5 rounded-xl px-3 text-sm font-medium transition [&>svg]:h-4 [&>svg]:w-4",
+                activeSection === section.id ? "bg-white/[0.08] text-foreground" : "text-muted-foreground hover:bg-white/[0.05] hover:text-foreground",
+                section.id === "danger" && "text-red-400/80 hover:text-red-300",
+              )}
+            >
+              {section.icon}{section.label}
             </a>
-          </Button>
+          ))}
+        </nav>
+
+        <div className="min-w-0 space-y-8">
+          <SettingsGroup id="playback" title="Playback" icon={<Music2 />}>
+            <SettingRow label="Streaming quality" description="Higher quality uses more data while streaming." control={
+              <Segmented label="Streaming quality" value={settings?.stream_quality ?? "high"} onChange={(value: StreamQuality) => save({ stream_quality: value })} options={[{ value: "low", label: "Low" }, { value: "auto", label: "Auto" }, { value: "high", label: "High" }]} />
+            } />
+            <SettingRow label="Keep streamed songs for" description="Recently streamed songs replay instantly without downloading again." control={
+              <SelectControl label="Keep streamed songs for" value={String(settings?.stream_cache_retention_days ?? 30)} onChange={(value) => save({ stream_cache_retention_days: Number(value) })} options={[7, 14, 30, 60, 90, 180, 365].map((days) => ({ value: String(days), label: days === 365 ? "1 year" : `${days} days` }))} />
+            } />
+          </SettingsGroup>
+
+          <SettingsGroup id="home" title="Home & region" icon={<Globe2 />}>
+            <SettingRow label="Region" description="Picks the country for Home's regional chart and trending albums. Automatic uses your computer's time zone." control={
+              <SelectControl label="Region" value={settings?.home_region ?? "auto"} onChange={(value) => save({ home_region: value })} options={regionOptions} />
+            } />
+          </SettingsGroup>
+
+          <SettingsGroup id="downloads" title="Downloads" icon={<Download />}>
+            <SettingRow label="Audio format" control={
+              <Segmented label="Audio format" value={settings?.download_audio_format ?? "mp3"} onChange={(value: AudioFormat) => save({ download_audio_format: value })} options={(["mp3", "m4a", "opus", "flac", "ogg"] as const).map((format) => ({ value: format, label: format.toUpperCase() }))} />
+            } />
+            <SettingRow label="Songs at once" description="How many songs download at the same time." control={
+              <Stepper label="Songs at once" value={settings?.max_concurrent_downloads ?? 8} min={1} max={8} onChange={(value) => save({ max_concurrent_downloads: value })} />
+            } />
+            <SettingRow label="Songs at once per album" control={
+              <Stepper label="Songs at once per album" value={settings?.album_download_max_parallel ?? 5} min={1} max={8} onChange={(value) => save({ album_download_max_parallel: value })} />
+            } />
+            <SettingRow label="Save artwork" description="Keep cover art with downloaded songs." control={<Switch label="Save artwork" checked={settings?.download_artwork ?? true} onChange={(value) => save({ download_artwork: value })} />} />
+            <SettingRow label="Fetch lyrics" description="Get lyrics automatically after a song downloads." control={<Switch label="Fetch lyrics" checked={settings?.auto_fetch_lyrics ?? true} onChange={(value) => save({ auto_fetch_lyrics: value })} />} />
+            <SettingRow label="Improve song details" description="Look up richer titles, albums and years after downloading." control={<Switch label="Improve song details" checked={settings?.auto_enrich_downloads ?? true} onChange={(value) => save({ auto_enrich_downloads: value })} />} />
+            <SettingRow label="Replace existing files" description="Download again over a song that's already saved." control={<Switch label="Replace existing files" checked={settings?.download_overwrite_existing ?? false} onChange={(value) => save({ download_overwrite_existing: value })} />} />
+          </SettingsGroup>
+
+          <SettingsGroup id="storage" title="Storage" icon={<HardDrive />}>
+            <div className="space-y-3 px-4 py-4 sm:px-5">
+              <div className="flex items-baseline justify-between gap-3">
+                <p className="text-sm font-semibold">{storage ? `${formatBytes(storage.used_bytes)} used` : "Calculating…"}</p>
+                {storage && <p className="text-xs text-muted-foreground">{formatBytes(storage.free_bytes)} free</p>}
+              </div>
+              <div className="flex h-2.5 overflow-hidden rounded-full bg-white/10" role="img" aria-label="Storage use by type">
+                {usageParts.map((part) => <div key={part.label} className={part.color} style={{ width: `${(part.value / capacity) * 100}%` }} />)}
+              </div>
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                {usageParts.map((part) => <span key={part.label} className="inline-flex items-center gap-1.5"><span className={cn("h-2 w-2 rounded-full", part.color)} />{part.label} {formatBytes(part.value)}</span>)}
+              </div>
+              <p className="break-all font-mono text-xs text-muted-foreground">{storage?.data_root ?? ""}</p>
+            </div>
+            <SettingRow label="Library folder" description="Move your music and library to another folder or drive." control={<Button variant="glass" size="sm" onClick={() => void openBrowser("migration")}><Folder className="h-4 w-4" />Change</Button>} />
+            <SettingRow label="Backup" description="Save a copy of your playlists, favorites and history. Music files aren't included." control={<Button asChild variant="glass" size="sm"><a href={getDatabaseBackupUrl()} download><Download className="h-4 w-4" />Download</a></Button>} />
+            <SettingRow label="Scan for new music on start" description="Pick up songs added to the music folder outside the app." control={<Switch label="Scan for new music on start" checked={settings?.startup_scan_enabled ?? true} onChange={(value) => save({ startup_scan_enabled: value })} />} />
+            <SettingRow label="Sync library now" control={<Button variant="glass" size="sm" disabled={syncingLibrary} onClick={() => void syncLibrary()}><RefreshCw className={cn("h-4 w-4", syncingLibrary && "animate-spin")} />{syncingLibrary ? "Syncing…" : "Sync"}</Button>} />
+            {(["artwork", "streams", "lyrics"] as const).map((category) => (
+              <SettingRow
+                key={category}
+                label={{ artwork: "Artwork cache", streams: "Streamed songs", lyrics: "Lyrics cache" }[category]}
+                description={formatBytes(categories?.[category] ?? 0)}
+                control={<Button variant="ghost" size="sm" disabled={clearing !== null || !categories?.[category]} onClick={() => void clearCache(category)}>{clearing === category ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}Clear</Button>}
+              />
+            ))}
+            <SettingRow label="Artwork cache limit" control={
+              <SelectControl label="Artwork cache limit" value={String(settings?.artwork_cache_limit_mb ?? 512)} onChange={(value) => save({ artwork_cache_limit_mb: Number(value) })} options={[128, 256, 512, 1024, 2048].map((size) => ({ value: String(size), label: size >= 1024 ? `${size / 1024} GB` : `${size} MB` }))} />
+            } />
+          </SettingsGroup>
+
+          <SettingsGroup id="appearance" title="Appearance" icon={<Palette />}>
+            <SettingRow label="Theme" control={
+              <Segmented label="Theme" value={settings?.theme_mode ?? "dark"} onChange={(value: ThemeMode) => { setMode(value); save({ theme_mode: value }); }} options={[{ value: "dark", label: "Dark" }, { value: "light", label: "Light" }, { value: "system", label: "System" }]} />
+            } />
+            <SettingRow label="Accent colour" control={
+              <div role="radiogroup" aria-label="Accent colour" className="flex gap-2.5">
+                {(Object.keys(accentValues) as AccentTheme[]).map((accent) => (
+                  <button key={accent} type="button" role="radio" aria-checked={settings?.accent_theme === accent} aria-label={accent[0].toUpperCase() + accent.slice(1)} title={accent[0].toUpperCase() + accent.slice(1)} onClick={() => { applyAccent(accent); save({ accent_theme: accent }); }} className={cn("grid h-8 w-8 place-items-center rounded-full ring-offset-2 ring-offset-background transition hover:scale-110", settings?.accent_theme === accent && "ring-2 ring-foreground")} style={{ backgroundColor: `hsl(${accentValues[accent]})` }}>
+                    {settings?.accent_theme === accent && <Check className="h-4 w-4 text-white" />}
+                  </button>
+                ))}
+              </div>
+            } />
+          </SettingsGroup>
+
+          <SettingsGroup id="about" title="About" icon={<Info />}>
+            <SettingRow label="ANM Player" description={`Version ${settings?.version ?? "…"} · ${(settings?.song_count ?? 0).toLocaleString()} songs in your library`} control={<div className="flex items-center gap-1"><AppUpdateControls /><CloseAppButton compact /></div>} />
+          </SettingsGroup>
+
+          <SettingsGroup id="danger" title="Danger zone" icon={<Bomb />} tone="danger">
+            <SettingRow
+              label="Erase everything and start fresh"
+              description="Deletes the library database, downloaded music, artwork, lyrics, caches, playlists, favorites, history and settings. You'll pick a new empty folder first."
+              control={<Button variant="outline" size="sm" className="border-red-500/50 text-red-300 hover:bg-red-500/15 hover:text-red-200" onClick={() => void openBrowser("reset")}><Bomb className="h-4 w-4" />Erase</Button>}
+            />
+          </SettingsGroup>
         </div>
-        <p className="text-xs text-muted-foreground">The backup is a consistent copy of your library database, taken without stopping ANM Player. Music files are not included.</p>
-      </SettingsSection>
-
-      <SettingsSection icon={<RefreshCw />} title="Library">
-        <Toggle label="Scan library on startup" description="Scan the managed music folder in the background whenever ANM Player starts." checked={settings?.startup_scan_enabled ?? true} onChange={(value) => update("startup_scan_enabled", value)} />
-        <Button variant="glass" disabled={syncingLibrary} onClick={() => void syncLibrary()}>
-          <RefreshCw className={`h-4 w-4 ${syncingLibrary ? "animate-spin" : ""}`} />
-          {syncingLibrary ? "Syncing library…" : "Sync library now"}
-        </Button>
-      </SettingsSection>
-
-      <SettingsSection icon={<Download />} title="Downloads and metadata">
-        <div className="grid gap-4 sm:grid-cols-2">
-          <NumberSetting label="Album download parallelism" value={settings?.album_download_max_parallel ?? 5} min={1} max={8} onChange={(value) => update("album_download_max_parallel", value)} />
-          <NumberSetting label="Maximum concurrent downloads" value={settings?.max_concurrent_downloads ?? 8} min={1} max={8} onChange={(value) => update("max_concurrent_downloads", value)} />
-          <SelectSetting label="Downloaded audio format" value={settings?.download_audio_format ?? "mp3"} onChange={(value) => update("download_audio_format", value as AudioFormat)} options={["mp3", "m4a", "flac", "opus", "ogg"]} />
-        </div>
-        <Toggle label="Overwrite existing downloads" description="Use the selected format and replace a matching destination file." checked={settings?.download_overwrite_existing ?? false} onChange={(value) => update("download_overwrite_existing", value)} />
-        <Toggle label="Auto-enrich downloads" description="Fetch and apply richer metadata after a download completes." checked={settings?.auto_enrich_downloads ?? true} onChange={(value) => update("auto_enrich_downloads", value)} />
-        <Toggle label="Download artwork" description="Cache provider artwork locally while retaining its remote source URL." checked={settings?.download_artwork ?? true} onChange={(value) => update("download_artwork", value)} />
-        <Toggle label="Automatically fetch lyrics after download" description="Manual lyrics fetching remains available when this is off." checked={settings?.auto_fetch_lyrics ?? true} onChange={(value) => update("auto_fetch_lyrics", value)} />
-      </SettingsSection>
-
-      <SettingsSection icon={<Database />} title="Playback and cache">
-        <div className="grid gap-4 sm:grid-cols-3">
-          <SelectSetting label="Streaming quality" value={settings?.stream_quality ?? "high"} onChange={(value) => update("stream_quality", value as StreamQuality)} options={["low", "auto", "high"]} />
-          <NumberSetting label="Stream-cache retention (days)" value={settings?.stream_cache_retention_days ?? 30} min={1} max={365} onChange={(value) => update("stream_cache_retention_days", value)} />
-          <NumberSetting label="Artwork cache limit (MiB)" value={settings?.artwork_cache_limit_mb ?? 512} min={64} max={2048} onChange={(value) => update("artwork_cache_limit_mb", value)} />
-        </div>
-        <p className="text-sm text-muted-foreground">Cache usage: {formatBytes(cacheTotal)} · artwork {formatBytes(storage?.categories.artwork ?? 0)}, lyrics {formatBytes(storage?.categories.lyrics ?? 0)}, streams {formatBytes(storage?.categories.streams ?? 0)}</p>
-        <div className="flex flex-wrap gap-2">
-          {(["artwork", "lyrics", "streams", "all"] as const).map((category) => <Button key={category} variant="glass" onClick={() => void clearCache(category)}><Trash2 className="h-4 w-4" />Clear {category}</Button>)}
-        </div>
-      </SettingsSection>
-
-      <SettingsSection icon={<Palette />} title="Appearance">
-        <SelectSetting label="Theme" value={settings?.theme_mode ?? "dark"} onChange={(value) => { update("theme_mode", value as ThemeMode); setMode(value as ThemeMode); }} options={["dark", "light", "system"]} />
-        <fieldset><legend className="text-sm font-medium">Accent</legend><div className="mt-2 flex gap-3">{(Object.keys(accentValues) as AccentTheme[]).map((accent) => <button type="button" key={accent} aria-label={`Use ${accent} accent`} onClick={() => { update("accent_theme", accent); applyAccent(accent); }} className={`h-10 w-10 rounded-full border-2 transition ${settings?.accent_theme === accent ? "scale-110 border-foreground" : "border-transparent"}`} style={{ backgroundColor: `hsl(${accentValues[accent]})` }} />)}</div></fieldset>
-      </SettingsSection>
-
-      <Button size="lg" disabled={!settings || saving} onClick={() => void save()}>{saving ? "Saving…" : "Save settings"}</Button>
-
-      <SettingsSection icon={<Info />} title="About">
-        <div className="grid gap-2 text-sm text-muted-foreground sm:grid-cols-2">
-          <p><strong className="text-foreground">Version:</strong> {settings?.version ?? "…"}</p>
-          <p><strong className="text-foreground">Database:</strong> {settings?.database_backend ?? "SQLite"}</p>
-          <p><strong className="text-foreground">Songs:</strong> {settings?.song_count.toLocaleString() ?? "…"}</p>
-          <p><strong className="text-foreground">Environment:</strong> {settings?.environment ?? "…"}</p>
-        </div>
-      </SettingsSection>
-
-      <section className="space-y-5 rounded-3xl border border-red-500/35 bg-red-500/[0.07] p-6">
-        <div className="flex items-center gap-3 text-red-400"><Bomb className="h-6 w-6" /><h2 className="text-xl font-bold">Danger zone</h2></div>
-        <div>
-          <p className="font-semibold">Start ANM Player completely fresh</p>
-          <p className="mt-1 text-sm text-muted-foreground">Deletes the current ANM Player database, downloaded music, artwork, lyrics, caches, playlists, favorites, history, and settings. You will choose a new empty data folder before anything is removed.</p>
-        </div>
-        <Button
-          variant="outline"
-          className="border-red-500/50 text-red-300 hover:bg-red-500/15 hover:text-red-200"
-          onClick={() => void openBrowser("reset")}
-        >
-          <Bomb className="h-4 w-4" />Erase all ANM Player data and start fresh
-        </Button>
-      </section>
+      </div>
 
       <Dialog open={browserOpen} onOpenChange={setBrowserOpen}>
-        <DialogContent className="max-w-2xl"><DialogHeader><DialogTitle>Choose an empty server folder</DialogTitle><DialogDescription>{browserPurpose === "reset" ? "This will become a completely new ANM Player data root. It must be empty and cannot overlap the current location." : "ANM Player can see directories mounted on the API host. Only the exact empty folder you choose becomes the data root."}</DialogDescription></DialogHeader>
-          <div className="rounded-xl bg-muted/50 p-3 font-mono text-xs">{listing?.current?.display_path ?? "Filesystem roots"}</div>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Choose an empty folder</DialogTitle>
+            <DialogDescription>{browserPurpose === "reset" ? "This becomes a brand-new library folder. It must be empty and separate from the current one." : "Your music and library move into the exact empty folder you pick."}</DialogDescription>
+          </DialogHeader>
+          <div className="rounded-xl bg-muted/50 p-3 font-mono text-xs">{listing?.current?.display_path ?? "Drives"}</div>
           <div className="max-h-72 space-y-1 overflow-y-auto">
             {listing?.parent?.directory_id && <FolderRow entry={{ ...listing.parent, name: ".." }} onOpen={() => void browse(listing.parent?.directory_id)} />}
             {listing?.directories.map((entry) => <FolderRow key={entry.display_path} entry={entry} onOpen={() => void browse(entry.directory_id)} />)}
-            {!browserBusy && listing?.directories.length === 0 && <p className="py-8 text-center text-sm text-muted-foreground">This folder has no child directories.</p>}
+            {!browserBusy && listing?.directories.length === 0 && <p className="py-8 text-center text-sm text-muted-foreground">No folders here.</p>}
           </div>
-          {listing?.current && <div className="flex gap-2"><Input value={newFolder} onChange={(event) => setNewFolder(event.target.value)} placeholder="New folder name" /><Button variant="glass" disabled={!newFolder.trim() || browserBusy} onClick={() => void createFolder()}><FolderPlus className="h-4 w-4" />Create</Button></div>}
-          <DialogFooter><Button variant="ghost" onClick={() => setBrowserOpen(false)}>Cancel</Button><Button disabled={!listing?.current?.empty || browserBusy} onClick={chooseCurrent}>{browserPurpose === "reset" ? "Use for fresh start" : "Select this empty folder"}</Button></DialogFooter>
+          {listing?.current && <div className="flex gap-2"><Input value={newFolder} onChange={(event) => setNewFolder(event.target.value)} placeholder="New folder name" aria-label="New folder name" /><Button variant="glass" disabled={!newFolder.trim() || browserBusy} onClick={() => void createFolder()}><FolderPlus className="h-4 w-4" />Create</Button></div>}
+          <DialogFooter><Button variant="ghost" onClick={() => setBrowserOpen(false)}>Cancel</Button><Button disabled={!listing?.current?.empty || browserBusy} onClick={chooseCurrent}>{browserPurpose === "reset" ? "Use for fresh start" : "Use this folder"}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
 
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <DialogContent><DialogHeader><DialogTitle>Move ANM Player data?</DialogTitle><DialogDescription>This operation pauses playback and downloads until the managed root is verified.</DialogDescription></DialogHeader>
-          <div className="space-y-3 rounded-xl bg-muted/40 p-4 text-sm"><p><strong>Source:</strong> <span className="break-all">{storage?.data_root}</span></p><p><strong>Target:</strong> <span className="break-all">{selected?.display_path}</span></p><p><strong>Data:</strong> {formatBytes(storage?.used_bytes ?? 0)}</p><p><strong>Method:</strong> {selected?.same_device ? "Same-drive atomic move" : "Copy, hash, verify, then switch"}</p></div>
-          <DialogFooter><Button variant="ghost" onClick={() => setConfirmOpen(false)}>Cancel</Button><Button onClick={() => void migrate()}>Move and verify</Button></DialogFooter>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Move your library?</DialogTitle><DialogDescription>Playback and downloads pause until the move is checked.</DialogDescription></DialogHeader>
+          <div className="space-y-3 rounded-xl bg-muted/40 p-4 text-sm"><p><strong>From:</strong> <span className="break-all">{storage?.data_root}</span></p><p><strong>To:</strong> <span className="break-all">{selected?.display_path}</span></p><p><strong>Size:</strong> {formatBytes(storage?.used_bytes ?? 0)}</p><p><strong>How:</strong> {selected?.same_device ? "Moved in place on the same drive" : "Copied, verified, then switched"}</p></div>
+          <DialogFooter><Button variant="ghost" onClick={() => setConfirmOpen(false)}>Cancel</Button><Button onClick={() => void migrate()}>Move</Button></DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -322,33 +379,22 @@ export function SettingsPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Erase all ANM Player data?</DialogTitle>
-            <DialogDescription>This cannot be undone. ANM Player will verify the new empty location before deleting all ANM Player-managed data from the current location.</DialogDescription>
+            <DialogDescription>This can't be undone. The new empty folder is checked before anything is deleted.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm">
               <p><strong>Delete:</strong> <span className="break-all">{storage?.data_root}</span></p>
-              <p><strong>Fresh location:</strong> <span className="break-all">{selected?.display_path}</span></p>
-              <p><strong>Managed data:</strong> {formatBytes(storage?.used_bytes ?? 0)}</p>
+              <p><strong>New folder:</strong> <span className="break-all">{selected?.display_path}</span></p>
+              <p><strong>Size:</strong> {formatBytes(storage?.used_bytes ?? 0)}</p>
             </div>
             <div className="space-y-2">
               <Label htmlFor="reset-anm-player-confirmation">Type <strong>RESET ANM PLAYER</strong> to continue</Label>
-              <Input
-                id="reset-anm-player-confirmation"
-                autoComplete="off"
-                value={resetConfirmation}
-                onChange={(event) => setResetConfirmation(event.target.value)}
-                placeholder="RESET ANM PLAYER"
-              />
+              <Input id="reset-anm-player-confirmation" autoComplete="off" value={resetConfirmation} onChange={(event) => setResetConfirmation(event.target.value)} placeholder="RESET ANM PLAYER" />
             </div>
           </div>
           <DialogFooter>
             <Button variant="ghost" disabled={resetting} onClick={() => setResetConfirmOpen(false)}>Cancel</Button>
-            <Button
-              variant="outline"
-              className="border-red-500/50 text-red-300 hover:bg-red-500/15 hover:text-red-200"
-              disabled={resetConfirmation !== "RESET ANM PLAYER" || resetting}
-              onClick={() => void resetAnmPlayer()}
-            >
+            <Button variant="outline" className="border-red-500/50 text-red-300 hover:bg-red-500/15 hover:text-red-200" disabled={resetConfirmation !== "RESET ANM PLAYER" || resetting} onClick={() => void resetAnmPlayer()}>
               <Bomb className="h-4 w-4" />{resetting ? "Starting…" : "Erase everything"}
             </Button>
           </DialogFooter>
@@ -358,36 +404,29 @@ export function SettingsPage() {
   );
 }
 
-function SettingsSection({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
-  return <section className="glass-panel space-y-5 rounded-3xl p-6"><div className="flex items-center gap-3 text-primary">{icon}<h2 className="text-xl font-bold text-foreground">{title}</h2></div>{children}</section>;
+function SaveIndicator({ state }: { state: SaveState }) {
+  if (state === "idle") return <span aria-live="polite" className="sr-only" />;
+  return (
+    <span role="status" aria-live="polite" className={cn("inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-semibold", state === "error" ? "border-red-400/30 text-red-400" : "border-white/10 text-muted-foreground")}>
+      {state === "saving" ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : state === "saved" ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <AlertCircle className="h-3.5 w-3.5" />}
+      {state === "saving" ? "Saving" : state === "saved" ? "Saved" : "Not saved"}
+    </span>
+  );
 }
 
-function Toggle({ label, description, checked, onChange }: { label: string; description: string; checked: boolean; onChange: (checked: boolean) => void }) {
-  const id = useId();
-  return <div className="flex items-center justify-between gap-4 rounded-2xl bg-muted/30 p-4"><span><Label htmlFor={id} className="font-semibold">{label}</Label><span className="mt-1 block text-sm text-muted-foreground">{description}</span></span><input id={id} className="h-5 w-5 accent-[hsl(var(--primary))]" type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} /></div>;
+function FolderRow({ entry, onOpen }: { entry: DirectoryEntry; onOpen: () => void }) {
+  return <button type="button" disabled={entry.disabled || !entry.directory_id} onClick={onOpen} className="flex w-full items-center gap-3 rounded-xl p-3 text-left hover:bg-muted disabled:opacity-40"><Folder className="h-4 w-4 text-primary" /><span className="min-w-0 flex-1 truncate">{entry.name}</span>{entry.empty && <span className="text-xs text-emerald-400">Empty</span>}</button>;
 }
 
-function NumberSetting({ label, value, min, max, onChange }: { label: string; value: number; min: number; max: number; onChange: (value: number) => void }) {
-  const id = useId();
-  return <div className="space-y-2"><Label htmlFor={id}>{label}</Label><Input id={id} type="number" value={value} min={min} max={max} onChange={(event) => onChange(Math.max(min, Math.min(max, Number(event.target.value))))} /></div>;
+function Notice({ tone, children }: { tone: "warning" | "error"; children: ReactNode }) {
+  return <div role="alert" className={cn("rounded-2xl border p-4 text-sm", tone === "error" ? "border-red-500/40 bg-red-500/10 text-red-300" : "border-amber-500/40 bg-amber-500/10 text-amber-200")}>{children}</div>;
 }
-
-function SelectSetting({ label, value, options, onChange }: { label: string; value: string; options: string[]; onChange: (value: string) => void }) {
-  const id = useId();
-  return <div className="space-y-2"><Label htmlFor={id}>{label}</Label><select id={id} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={value} onChange={(event) => onChange(event.target.value)}>{options.map((option) => <option key={option} value={option}>{option[0].toUpperCase() + option.slice(1)}</option>)}</select></div>;
-}
-
-function Usage({ label, value = 0 }: { label: string; value?: number }) { return <div className="rounded-2xl bg-muted/30 p-4"><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1 font-semibold">{formatBytes(value)}</p></div>; }
-
-function FolderRow({ entry, onOpen }: { entry: DirectoryEntry; onOpen: () => void }) { return <button disabled={entry.disabled || !entry.directory_id} onClick={onOpen} className="flex w-full items-center gap-3 rounded-xl p-3 text-left hover:bg-muted disabled:opacity-40"><Folder className="h-4 w-4 text-primary" /><span className="min-w-0 flex-1 truncate">{entry.name}</span>{entry.empty && <span className="text-xs text-emerald-400">Empty</span>}</button>; }
-
-function Notice({ tone, children }: { tone: "warning" | "error"; children: React.ReactNode }) { return <div className={`rounded-2xl border p-4 text-sm ${tone === "error" ? "border-red-500/40 bg-red-500/10 text-red-300" : "border-amber-500/40 bg-amber-500/10 text-amber-200"}`}>{children}</div>; }
 
 function formatBytes(value: number) {
   if (value < 1024) return `${value} B`;
-  const units = ["KiB", "MiB", "GiB", "TiB"];
+  const units = ["KB", "MB", "GB", "TB"];
   let size = value / 1024;
   let index = 0;
   while (size >= 1024 && index < units.length - 1) { size /= 1024; index += 1; }
-  return `${size.toFixed(size >= 10 ? 1 : 2)} ${units[index]}`;
+  return `${size.toFixed(size >= 10 ? 0 : 1)} ${units[index]}`;
 }

@@ -1,4 +1,7 @@
 import asyncio
+from types import SimpleNamespace
+
+import app.services.ytmusic_service.service as service_module
 
 from app.schemas.ytmusic import OnlineHomeResponse, OnlineHomeSection
 from app.services.ytmusic_service import YouTubeMusicService
@@ -192,7 +195,7 @@ def test_home_assembly_returns_only_approved_ids_in_order() -> None:
         "quick-picks",
         "global-trending",
         "trending-albums",
-        "india-pulse",
+        "region-pulse",
     ]
     assert response.chips == []
 
@@ -332,8 +335,8 @@ def test_duration_hydration_populates_quick_pick_rows() -> None:
 def configure_home_sources(service: YouTubeMusicService) -> None:
     service._provider_home_sync = lambda: None
     service._global_chart_sync = lambda: ("Global", "VLglobal", [song("global")])
-    service._india_chart_sync = lambda: ("India", "VLindia", [song("india")])
-    service._india_explore_sync = lambda: []
+    service._region_chart_sync = lambda _region: ("India", "VLindia", [song("india")])
+    service._region_explore_sync = lambda _region: []
 
 
 def test_repeated_home_calls_within_ten_minutes_use_cache() -> None:
@@ -357,13 +360,13 @@ def test_failed_chart_refresh_returns_previous_complete_response() -> None:
         region="GLOBAL",
         sections=[
             OnlineHomeSection(id="global-trending", title="Global", layout="song_list"),
-            OnlineHomeSection(id="india-pulse", title="India", layout="song_list"),
+            OnlineHomeSection(id="region-pulse", title="India", layout="song_list"),
         ],
     )
-    service._home_cache = (0, previous)
+    service._home_cache = {"US": (0, previous)}
     service._provider_home_sync = lambda: None
-    service._india_chart_sync = lambda: ("India", "VLindia", [song("india")])
-    service._india_explore_sync = lambda: []
+    service._region_chart_sync = lambda _region: ("India", "VLindia", [song("india")])
+    service._region_explore_sync = lambda _region: []
 
     def fail_global():
         raise RuntimeError("chart unavailable")
@@ -378,10 +381,10 @@ def test_cold_start_partial_failure_returns_successful_sections() -> None:
         RuntimeError("provider unavailable")
     )
     service._global_chart_sync = lambda: ("Global", "VLglobal", [song("global")])
-    service._india_chart_sync = lambda: (_ for _ in ()).throw(
+    service._region_chart_sync = lambda _region: (_ for _ in ()).throw(
         RuntimeError("india unavailable")
     )
-    service._india_explore_sync = lambda: [album("MPREbAlbum")]
+    service._region_explore_sync = lambda _region: [album("MPREbAlbum")]
     response = asyncio.run(service.home())
     assert [section.id for section in response.sections] == [
         "today-picks",
@@ -414,3 +417,55 @@ def test_duration_hydration_covers_every_item_and_reuses_known_lengths() -> None
     service._hydrate_missing_durations(FakeClient(), again, limit=len(again))
     assert [item.duration_seconds for item in again] == [200, 200]
     assert len(lookups) == 12
+
+
+def test_home_uses_the_requested_region_and_caches_each_region_separately() -> None:
+    service = YouTubeMusicService()
+    calls = []
+    service._provider_home_sync = lambda: None
+    service._global_chart_sync = lambda: ("Global", "VLglobal", [song("global")])
+    service._region_chart_sync = lambda region: calls.append(region) or ("Top", f"VL{region}", [song(f"chart-{region}")])
+    service._region_explore_sync = lambda region: [album(f"MPREb{region}")]
+
+    india = asyncio.run(service.home("in"))
+    usa = asyncio.run(service.home("US"))
+    asyncio.run(service.home("IN"))
+    unknown = asyncio.run(service.home("XX"))
+
+    assert calls == ["IN", "US"]
+    assert india.region == "IN" and usa.region == "US" and unknown.region == "US"
+    pulse = {section.id: section for section in india.sections}["region-pulse"]
+    assert pulse.title == "India Pulse" and pulse.items[0].id == "chart-IN"
+    albums = {section.id: section for section in usa.sections}["trending-albums"]
+    assert albums.subtitle == "New albums & singles in United States"
+
+
+def test_newest_release_picks_the_latest_year() -> None:
+    from app.services.ytmusic_service.regions import newest_release
+
+    assert newest_release([("old", "Album • 2013"), ("new", "2023"), ("unknown", "Single")]) == "new"
+    assert newest_release([]) is None
+
+
+def test_regional_albums_use_each_top_artists_newest_release_and_fall_back_to_explore(monkeypatch) -> None:
+    service = YouTubeMusicService()
+    charts = {"contents": [{"musicCarouselShelfRenderer": {
+        "header": {"musicCarouselShelfBasicHeaderRenderer": {"title": {"runs": [{"text": "Top artists"}]}}},
+        "contents": [{"musicResponsiveListItemRenderer": {"id": aid}} for aid in ("UCa", "UCb")],
+    }}]}
+
+    class Session:
+        def web_remix_client(self):
+            return WEB
+
+        def browse(self, *, client, browse_id, form_data=None):
+            return charts if browse_id == "FEmusic_charts" else {"explore": True}
+
+    service._region_clients["GB"] = type("Client", (), {"session": Session()})()
+    monkeypatch.setattr(service_module, "item_from_renderer", lambda value: SimpleNamespace(kind="artist", id=value["musicResponsiveListItemRenderer"]["id"]))
+    service._artist_page_or_none = lambda artist_id: {"raw_albums": [(album(f"{artist_id}-old"), "2019"), (album(f"{artist_id}-new"), "2025")]}
+    assert [item.id for item in service._region_explore_sync("GB")] == ["UCa-new", "UCb-new"]
+
+    service._artist_page_or_none = lambda artist_id: None
+    monkeypatch.setattr(service_module, "extract_explore_albums", lambda raw: [album("explore")] if raw.get("explore") else [])
+    assert [item.id for item in service._region_explore_sync("GB")] == ["explore"]

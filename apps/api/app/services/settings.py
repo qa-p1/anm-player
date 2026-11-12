@@ -23,6 +23,7 @@ DEFAULTS: dict[str, Any] = {
     "artwork_cache_limit_mb": 512,
     "theme_mode": "dark",
     "accent_theme": "rose",
+    "home_region": "auto",
 }
 
 

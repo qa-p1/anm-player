@@ -274,8 +274,17 @@ export function getYouTubeStreamUrl(videoId: string): string {
   return `/api/v1/ytmusic/stream/${encodeURIComponent(videoId)}`;
 }
 
-export function getYouTubeHome(signal?: AbortSignal) {
-  return apiGet<OnlineHomeResponse>("/ytmusic/home", { signal });
+export function getYouTubeHome(region: string | null, signal?: AbortSignal) {
+  return apiGet<OnlineHomeResponse>(region ? `/ytmusic/home?region=${encodeURIComponent(region)}` : "/ytmusic/home", { signal });
+}
+
+export interface ChartRegion {
+  code: string;
+  name: string;
+}
+
+export function getChartRegions(signal?: AbortSignal) {
+  return apiGet<ChartRegion[]>("/ytmusic/regions", { signal });
 }
 
 export function getYouTubeRelated(videoId: string, signal?: AbortSignal) {

@@ -33,6 +33,7 @@ from app.services.ytmusic_service.parsing import (
     select_related_song_items,
     walk_renderers,
 )
+from app.services.ytmusic_service.regions import CHART_REGIONS, DEFAULT_REGION, chart_region, newest_release
 from app.services.ytmusic_service.presentation import (
     album_artist_from_items,
     album_artist_from_raw,
@@ -49,6 +50,8 @@ from app.services.ytmusic_service.presentation import (
 from app.services.ytmusic_service.transport import SEARCH_FILTERS, InnerTubeSession
 
 logger = logging.getLogger(__name__)
+# How many of a country's top artists feed its "Trending Albums" row.
+TRENDING_ARTISTS = 12
 
 
 class YouTubeMusicService:
@@ -58,15 +61,9 @@ class YouTubeMusicService:
         self.global_chart_client = YouTubeMusicClient(
             InnerTubeSession(gl="US", hl="en-US")
         )
-        self.india_chart_client = YouTubeMusicClient(
-            InnerTubeSession(gl="IN", hl="en-IN")
-        )
-        self.india_explore_client = YouTubeMusicClient(
-            InnerTubeSession(gl="IN", hl="en-IN")
-        )
+        self._region_clients: dict[str, YouTubeMusicClient] = {}
         self.related_client = YouTubeMusicClient(InnerTubeSession(gl="US", hl="en-US"))
         # Kept as a compatibility alias for callers that previously replaced this client.
-        self.india_client = self.india_chart_client
         self._search_cache: dict[
             tuple[str, str, str | None], tuple[float, OnlineSearchResponse]
         ] = {}
@@ -74,7 +71,7 @@ class YouTubeMusicService:
         self._album_inflight: dict[str, asyncio.Task[OnlineAlbumPreview]] = {}
         self.album_cache_ttl_seconds = 120.0
         self.album_cache_max_entries = 128
-        self._home_cache: tuple[float, OnlineHomeResponse] | None = None
+        self._home_cache: dict[str, tuple[float, OnlineHomeResponse]] = {}
         self._related_cache: dict[str, tuple[float, OnlineRelatedResponse]] = {}
         self._duration_cache: dict[str, int] = {}
         self._artist_cache: dict[str, tuple[float, dict[str, Any]]] = {}
@@ -91,60 +88,46 @@ class YouTubeMusicService:
         self.playback_cache_ttl_seconds = 1800.0
         self.playback_cache_max_entries = 64
 
-    async def home(self) -> OnlineHomeResponse:
+    async def home(self, region: str = DEFAULT_REGION) -> OnlineHomeResponse:
+        """Home with global sections plus the region's chart and new releases (cached per region)."""
+        region = chart_region(region)
         now = time.monotonic()
-        if self._home_cache and self._home_cache[0] > now:
-            logger.info(
-                "YouTube Music home cache hit",
-                extra={"source": "home", "cache_state": "hit"},
-            )
-            return self._home_cache[1]
+        cached = self._home_cache.get(region)
+        if cached and cached[0] > now:
+            return cached[1]
         async with self._home_refresh_lock:
             now = time.monotonic()
-            if self._home_cache and self._home_cache[0] > now:
-                logger.info(
-                    "YouTube Music home cache hit after lock",
-                    extra={"source": "home", "cache_state": "hit"},
-                )
-                return self._home_cache[1]
-
-            previous = self._home_cache[1] if self._home_cache else None
-            logger.info(
-                "Refreshing YouTube Music home",
-                extra={"source": "home", "cache_state": "refresh"},
-            )
-            (
-                provider_result,
-                global_result,
-                india_result,
-                albums_result,
-            ) = await asyncio.gather(
+            cached = self._home_cache.get(region)
+            if cached and cached[0] > now:
+                return cached[1]
+            previous = cached[1] if cached else None
+            logger.info("Refreshing YouTube Music home", extra={"source": "home", "country": region, "cache_state": "refresh"})
+            provider_result, global_result, region_result, albums_result = await asyncio.gather(
                 self._load_home_source("provider home", "US", self._provider_home_sync),
                 self._load_home_source("Global chart", "ZZ", self._global_chart_sync),
-                self._load_home_source("India chart", "IN", self._india_chart_sync),
-                self._load_home_source("India Explore", "IN", self._india_explore_sync),
+                self._load_home_source("Region chart", region, lambda: self._region_chart_sync(region)),
+                self._load_home_source("Region explore", region, lambda: self._region_explore_sync(region)),
             )
-
-            if (
-                (global_result[1] or india_result[1])
-                and previous
-                and has_complete_charts(previous)
-            ):
+            if (global_result[1] or region_result[1]) and previous and has_complete_charts(previous):
                 logger.warning(
                     "YouTube Music chart refresh failed; returning stale complete home",
-                    extra={"source": "home", "cache_state": "stale_fallback"},
+                    extra={"source": "home", "country": region, "cache_state": "stale_fallback"},
                 )
-                self._home_cache = (now + self.home_cache_ttl_seconds, previous)
+                self._home_cache[region] = (now + self.home_cache_ttl_seconds, previous)
                 return previous
-
             response = assemble_home(
-                provider_result[0],
-                global_result[0],
-                india_result[0],
-                albums_result[0],
+                provider_result[0], global_result[0], region_result[0], albums_result[0],
+                region=region, region_name=CHART_REGIONS[region],
             )
-            self._home_cache = (now + self.home_cache_ttl_seconds, response)
+            self._home_cache[region] = (now + self.home_cache_ttl_seconds, response)
             return response
+
+    def _region_client(self, region: str) -> YouTubeMusicClient:
+        client = self._region_clients.get(region)
+        if client is None:
+            client = YouTubeMusicClient(InnerTubeSession(gl=region, hl="en"))
+            self._region_clients[region] = client
+        return client
 
     async def related(self, video_id: str) -> OnlineRelatedResponse:
         now = time.monotonic()
@@ -381,16 +364,19 @@ class YouTubeMusicService:
             source="Global chart",
         )
 
-    def _india_chart_sync(self) -> tuple[str, str, list[YTItem]]:
+    def _region_chart_sync(self, region: str) -> tuple[str, str, list[YTItem]]:
+        name = CHART_REGIONS[region].casefold()
         return self._chart_sync(
-            self.india_chart_client,
-            country="IN",
+            self._region_client(region),
+            country=region,
             preferences=(
-                ("trending 20", "india"),
-                ("daily top music videos", "india"),
-                ("top 100 music videos", "india"),
+                ("trending 20", name),
+                ("daily top music videos", name),
+                ("top 100 music videos", name),
+                ("trending 20",),
+                ("daily top music videos",),
             ),
-            source="India chart",
+            source="Region chart",
         )
 
     def _chart_sync(
@@ -437,21 +423,63 @@ class YouTubeMusicService:
         )
         return selected.title, playlist_id, items
 
-    def _india_explore_sync(self) -> list[YTItem]:
-        client = self.india_explore_client
+    def _region_explore_sync(self, region: str) -> list[YTItem]:
+        """The newest release from each of the region's top artists.
+
+        YouTube Music has no per-country album chart, and its Explore page is
+        personalised by IP rather than the requested country, so the country's
+        top-artists chart is the reliable regional signal.
+        """
+        client = self._region_client(region)
+        try:
+            raw_charts = client.session.browse(
+                client=client.session.web_remix_client(),
+                browse_id="FEmusic_charts",
+                form_data={"selectedValues": [region]},
+            )
+            artist_ids: list[str] = []
+            for shelf in walk_renderers(raw_charts, "musicCarouselShelfRenderer"):
+                title = runs_text((shelf.get("header") or {}).get("musicCarouselShelfBasicHeaderRenderer", {}).get("title"))
+                if not title.strip().casefold().startswith("top artists"):
+                    continue
+                for renderer in walk_renderers(shelf, "musicResponsiveListItemRenderer"):
+                    item = item_from_renderer({"musicResponsiveListItemRenderer": renderer})
+                    if item and item.kind == "artist" and item.id and item.id not in artist_ids:
+                        artist_ids.append(item.id)
+            artist_ids = artist_ids[:TRENDING_ARTISTS]
+            with ThreadPoolExecutor(max_workers=min(6, len(artist_ids) or 1)) as pool:
+                pages = list(pool.map(self._artist_page_or_none, artist_ids))
+            albums: list[YTItem] = []
+            for page in pages:
+                newest = newest_release(page["raw_albums"]) if page else None
+                if newest is not None:
+                    albums.append(newest)
+            if albums:
+                logger.info("Built regional trending albums", extra={"source": "Region albums", "country": region, "item_count": len(albums)})
+                return albums[:12]
+        except Exception:
+            logger.warning("Regional trending albums failed; using Explore", extra={"country": region}, exc_info=True)
         raw_explore = client.session.browse(
             client=client.session.web_remix_client(), browse_id="FEmusic_explore"
         )
-        items = extract_explore_albums(raw_explore)[:12]
-        logger.info(
-            "Parsed YouTube Music India Explore albums",
-            extra={
-                "source": "India Explore",
-                "country": "IN",
-                "item_count": len(items),
-            },
-        )
-        return items
+        return extract_explore_albums(raw_explore)[:12]
+
+    def _artist_page_or_none(self, browse_id: str) -> dict[str, Any] | None:
+        try:
+            return self._artist_releases_sync(browse_id)
+        except Exception:
+            logger.debug("Artist releases lookup failed", extra={"artist": browse_id}, exc_info=True)
+            return None
+
+    def _artist_releases_sync(self, browse_id: str) -> dict[str, Any]:
+        raw = self.client.session.browse(client=self.client.session.web_remix_client(), browse_id=browse_id)
+        releases: list[tuple[YTItem, str]] = []
+        for shelf in artist_release_shelves(raw):
+            for renderer in walk_renderers(shelf, "musicTwoRowItemRenderer"):
+                item = item_from_renderer({"musicTwoRowItemRenderer": renderer})
+                if item and item.kind == "album" and item.id:
+                    releases.append((item, runs_text(renderer.get("subtitle"))))
+        return {"raw_albums": releases}
 
     def _related_sync(self, video_id: str) -> list[YTItem]:
         client = self.related_client

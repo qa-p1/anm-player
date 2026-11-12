@@ -19,6 +19,7 @@ from app.schemas.ytmusic import OnlineHomeResponse, OnlineRelatedResponse, Onlin
 from app.services.playback_sources import PlaybackSourceService
 from app.services.ytmusic_service.playback import PlaybackData
 from app.services.stream_cache import StreamCacheService
+from app.services.ytmusic_service.regions import CHART_REGIONS, chart_region
 from app.services.ytmusic_service import ytmusic_service
 
 router = APIRouter()
@@ -36,8 +37,15 @@ async def _limited_upstream(awaitable):
 
 
 @router.get("/home", response_model=OnlineHomeResponse, summary="YouTube Music home")
-async def home() -> OnlineHomeResponse:
-    return await _limited_upstream(ytmusic_service.home())
+async def home(
+    region: Annotated[str | None, Query(pattern=r"^[A-Za-z]{2}$", description="Country for the regional chart and new releases.")] = None,
+) -> OnlineHomeResponse:
+    return await _limited_upstream(ytmusic_service.home(chart_region(region)))
+
+
+@router.get("/regions", response_model=list[dict[str, str]], summary="Countries with YouTube Music charts")
+def regions() -> list[dict[str, str]]:
+    return [{"code": code, "name": name} for code, name in sorted(CHART_REGIONS.items(), key=lambda item: item[1])]
 
 
 @router.get("/related/{video_id}", response_model=OnlineRelatedResponse, summary="YouTube Music related tracks")

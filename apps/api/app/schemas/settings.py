@@ -22,6 +22,7 @@ class SettingsSummary(BaseModel):
     artwork_cache_limit_mb: int
     theme_mode: ThemeMode
     accent_theme: AccentTheme
+    home_region: str
     version: str
     environment: str
     database_backend: Literal["SQLite"] = "SQLite"
@@ -42,3 +43,5 @@ class SettingsUpdateRequest(BaseModel):
     artwork_cache_limit_mb: int | None = Field(default=None, ge=64, le=2048)
     theme_mode: ThemeMode | None = None
     accent_theme: AccentTheme | None = None
+    # "auto" follows the browser's time zone; otherwise a country code for Home's regional rows.
+    home_region: str | None = Field(default=None, pattern=r"^(auto|[A-Z]{2})$")
