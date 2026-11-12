@@ -7,6 +7,7 @@ import type {
   LibraryAlbum,
   LibraryAlbumDetail,
   LibraryCounts,
+  LibraryTrack,
   LibraryArtistDetail,
   FavoriteToggleRequest,
   FavoritesResponse,
@@ -212,6 +213,11 @@ export function addSongsToPlaylist(playlistId: number, request: PlaylistAddSongs
   return apiPost<PlaylistDetail, PlaylistAddSongsRequest>(`/playlists/${playlistId}/songs`, request);
 }
 
+/** Liking a streamed song saves it to the library first. */
+export function toggleOnlineTrackFavorite(request: PlaylistAddOnlineTrackRequest) {
+  return apiPost<{ is_favorited: boolean; track_id: number }, PlaylistAddOnlineTrackRequest>("/favorites/online-track", request);
+}
+
 export function addOnlineTrackToPlaylist(playlistId: number, request: PlaylistAddOnlineTrackRequest) {
   return apiPost<PlaylistDetail, PlaylistAddOnlineTrackRequest>(`/playlists/${playlistId}/online-track`, request);
 }
@@ -331,6 +337,11 @@ export function listAllLibraryAlbums(query?: string, signal?: AbortSignal) {
   return collectAllPages(
     (limit, offset) => listLibraryAlbums(query, limit, offset, signal),
   );
+}
+
+/** Saved or liked songs that stream instead of being downloaded. */
+export function listSavedStreamingTracks(signal?: AbortSignal) {
+  return apiGet<LibraryTrack[]>("/library/tracks/saved", { signal });
 }
 
 export function getLibraryCounts(signal?: AbortSignal) {

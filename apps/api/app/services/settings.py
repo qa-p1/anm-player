@@ -1,12 +1,13 @@
 import json
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.models import Song, UserSettings
+from app.models import UserSettings
 from app.schemas.settings import SettingsSummary, SettingsUpdateRequest
+from app.services.library_songs import library_song_count
 
 
 DEFAULTS: dict[str, Any] = {
@@ -35,7 +36,7 @@ class SettingsService:
         values = {key: self.get_value(key, default) for key, default in DEFAULTS.items()}
         song_count = 0
         if self.session is not None:
-            song_count = int(self.session.scalar(select(func.count(Song.id))) or 0)
+            song_count = library_song_count(self.session)
         return SettingsSummary(
             **values,
             version=settings.app_version,

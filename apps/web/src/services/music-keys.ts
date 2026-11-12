@@ -12,6 +12,7 @@ export const musicKeys = {
   historyLog: (eventType: string = "all") => [...musicKeys.history(), "log", eventType] as const,
   library: () => [...musicKeys.all, "library"] as const,
   counts: () => [...musicKeys.library(), "counts"] as const,
+  savedTracks: () => [...musicKeys.library(), "saved-tracks"] as const,
   libraryAlbums: (limit: number | "all") => [...musicKeys.albums(), "library", limit] as const,
   librarySearch: (query: string) => [...musicKeys.library(), "search", query] as const,
   smartCollection: (id: string) => [...musicKeys.library(), "smart", id] as const,

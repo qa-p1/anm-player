@@ -12,7 +12,7 @@ from app.api.deps import (
     get_library_album_service,
     require_operator,
 )
-from app.models import Artist, LibraryAlbum, Playlist, Song
+from app.models import Artist, LibraryAlbum, LibraryTrack, Playlist, Song
 from app.schemas.library import (
     AlbumDownloadCreateRequest,
     AlbumDownloadJobResponse,
@@ -23,6 +23,7 @@ from app.schemas.library import (
     LibraryArtistDetailResponse,
     LibraryCountsResponse,
     LibraryRemoveResponse,
+    LibraryTrackResponse,
     LibrarySearchResponse,
     LibrarySyncResponse,
     LibraryTrackDownloadRemoveResponse,
@@ -33,6 +34,8 @@ from app.schemas.library import (
     TrackStatusResponse,
 )
 from app.services.library_albums import LibraryAlbumService
+from app.services.library_presenter import LibraryPresenter
+from app.services.library_songs import library_song_count, saved_streaming_tracks
 from app.services.library_scanner import LibraryScannerService
 from app.storage import storage_manager
 from app.storage.coordinator import storage_coordinator
@@ -40,10 +43,16 @@ from app.storage.coordinator import storage_coordinator
 router = APIRouter()
 
 
+@router.get("/tracks/saved", response_model=list[LibraryTrackResponse], summary="List saved songs that stream")
+def list_saved_streaming_tracks(session: DbSession) -> list[LibraryTrackResponse]:
+    tracks = session.scalars(saved_streaming_tracks().order_by(LibraryTrack.created_at.desc(), LibraryTrack.id.desc())).all()
+    return LibraryPresenter(session).tracks_to_response(tracks)
+
+
 @router.get("/counts", response_model=LibraryCountsResponse, summary="Count active library records")
 def library_counts(session: DbSession) -> LibraryCountsResponse:
     return LibraryCountsResponse(
-        songs=int(session.scalar(select(func.count(Song.id)).where(Song.is_downloaded.is_(True))) or 0),
+        songs=library_song_count(session),
         albums=int(
             session.scalar(
                 select(func.count(LibraryAlbum.id)).where(LibraryAlbum.is_in_library.is_(True))

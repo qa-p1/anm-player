@@ -3,6 +3,8 @@
 ## Unreleased
 
 - **Plays that really count**: A song counts as played after 30 seconds or half its length, and History shows one entry per listen.
+- **Like any song**: Heart a song you're only streaming to save it, and song menus now offer Go to artist and Go to album.
+- **Songs shows everything you saved**: The Songs page and counts include songs you saved or liked, not only downloads.
 - **Steadier recommendations**: Adding a suggested song slides it away without reshuffling the rest, and other versions of your songs are skipped.
 - **Cleaner Home**: Today's Pick no longer repeats Quick Picks, and chart titles drop "Official Music Video" clutter.
 - **Smoother resume**: Playback continues after a long pause instead of failing, and you can scrub right after reopening the app.

@@ -12,11 +12,14 @@ import {
   Radio,
   Share2,
   Info,
+  Disc3,
   Link as LinkIcon,
+  UserRound,
   Trash2,
   Sparkles,
 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useInRouterContext, useNavigate } from "react-router";
 import { useShallow } from "zustand/react/shallow";
 
 import { Button } from "@/components/ui/button";
@@ -45,6 +48,9 @@ import { queryClient } from "@/lib/query-client";
 import { cn } from "@/lib/utils";
 import { isRequestCancelled } from "@/services/api-client";
 import { getLibraryTrackStatuses, queueDownload } from "@/services/music-api";
+import { trackAlbumHref, trackArtistHref } from "@/utils/track-links";
+import { usePlayerFavorite } from "@/features/player/use-player-favorite";
+import { resolveAlbumPage, resolveArtistPage } from "@/features/navigation/resolve-music-page";
 import { usePlayerStore } from "@/stores/player-store";
 import { usePlaybackPreferencesStore } from "@/stores/playback-preferences-store";
 import { knownTrackDuration } from "@/stores/track-duration-store";
@@ -82,6 +88,7 @@ export function TrackActionsMenu({
 }: TrackActionsMenuProps) {
   const { addToQueue, playNext, playSong } = usePlayerStore(useShallow((state) => ({ addToQueue: state.addToQueue, playNext: state.playNext, playSong: state.playSong })));
   const [isOpen, setIsOpen] = useState(false);
+  const canShare = typeof navigator !== "undefined" && typeof navigator.share === "function";
   const [resolvedDownloaded, setResolvedDownloaded] = useState(isDownloaded ?? false);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showDetailsDialog, setShowDetailsDialog] = useState(false);
@@ -186,10 +193,6 @@ export function TrackActionsMenu({
   }
 
   async function handleShare() {
-    if (!navigator.share) {
-      await handleCopyLink();
-      return;
-    }
     try {
       await navigator.share({ title: track.title, text: track.artistName || undefined, url: trackShareUrl(track) });
       setIsOpen(false);
@@ -246,13 +249,13 @@ export function TrackActionsMenu({
             </DropdownMenuSubContent>
           </DropdownMenuSub>
 
-          {(onToggleFavorite || track.source === "youtube" || onGoToArtist || onGoToAlbum) && <DropdownMenuSeparator />}
-          {onToggleFavorite && (
+          <DropdownMenuSeparator />
+          {onToggleFavorite ? (
             <DropdownMenuItem onClick={onToggleFavorite}>
               <Heart className={cn("mr-2 h-4 w-4", isFavorited && "fill-current text-primary")} />
               {isFavorited ? "Remove from favorites" : "Add to favorites"}
             </DropdownMenuItem>
-          )}
+          ) : <FavoriteItem track={track} />}
           {track.source === "youtube" && !resolvedDownloaded && (
             <DropdownMenuItem onClick={handleDownload}>
               <Download className="mr-2 h-4 w-4" />
@@ -265,8 +268,12 @@ export function TrackActionsMenu({
               Downloaded
             </DropdownMenuItem>
           )}
-          {onGoToArtist && <DropdownMenuItem onClick={onGoToArtist}>Go to artist</DropdownMenuItem>}
-          {onGoToAlbum && <DropdownMenuItem onClick={onGoToAlbum}>Go to album</DropdownMenuItem>}
+          {onGoToArtist || onGoToAlbum ? (
+            <>
+              {onGoToArtist && <DropdownMenuItem onClick={onGoToArtist}><UserRound className="mr-2 h-4 w-4" />Go to artist</DropdownMenuItem>}
+              {onGoToAlbum && <DropdownMenuItem onClick={onGoToAlbum}><Disc3 className="mr-2 h-4 w-4" />Go to album</DropdownMenuItem>}
+            </>
+          ) : <GoToItems track={track} />}
           {onEnrich && (
             <DropdownMenuItem onClick={onEnrich}>
               <Sparkles className="mr-2 h-4 w-4" />
@@ -275,14 +282,18 @@ export function TrackActionsMenu({
           )}
 
           <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={handleCopyLink}>
-            <LinkIcon className="mr-2 h-4 w-4" />
-            Copy track link
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={handleShare}>
-            <Share2 className="mr-2 h-4 w-4" />
-            Share track
-          </DropdownMenuItem>
+          {/* Desktop browsers rarely have a share sheet, so one item copies the link there. */}
+          {canShare ? (
+            <DropdownMenuItem onClick={handleShare}>
+              <Share2 className="mr-2 h-4 w-4" />
+              Share
+            </DropdownMenuItem>
+          ) : (
+            <DropdownMenuItem onClick={handleCopyLink}>
+              <LinkIcon className="mr-2 h-4 w-4" />
+              Copy link
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem onClick={() => { setShowDetailsDialog(true); setIsOpen(false); }}>
             <Info className="mr-2 h-4 w-4" />
             Track details
@@ -348,6 +359,52 @@ export function TrackActionsMenu({
           <DialogFooter><Button variant="glass" onClick={handleCopyLink}><LinkIcon className="h-4 w-4" />Copy link</Button><Button onClick={() => setShowDetailsDialog(false)}>Done</Button></DialogFooter>
         </DialogContent>
       </Dialog>
+    </>
+  );
+}
+
+/** Mounted only while the menu is open, so long lists don't each watch favorites. */
+function FavoriteItem({ track }: { track: PlayerTrack }) {
+  const { isFavorited, isUpdating, toggleFavorite } = usePlayerFavorite(track);
+  return (
+    <DropdownMenuItem disabled={isUpdating} onClick={() => void toggleFavorite()}>
+      <Heart className={cn("mr-2 h-4 w-4", isFavorited && "fill-current text-primary")} />
+      {isFavorited ? "Remove from favorites" : "Add to favorites"}
+    </DropdownMenuItem>
+  );
+}
+
+function GoToItems({ track }: { track: PlayerTrack }) {
+  return useInRouterContext() ? <RoutedGoToItems track={track} /> : null;
+}
+
+function RoutedGoToItems({ track }: { track: PlayerTrack }) {
+  const navigate = useNavigate();
+  const artistHref = trackArtistHref(track);
+  const albumHref = trackAlbumHref(track);
+  async function open(href: string | null, resolve: () => Promise<string | null>, label: string) {
+    try {
+      const target = href ?? await resolve();
+      if (target) navigate(target);
+      else toast(`Couldn't find a page for “${label}”`, "error");
+    } catch {
+      toast(`Couldn't open “${label}” right now`, "error");
+    }
+  }
+  return (
+    <>
+      {(artistHref || track.artistName) && (
+        <DropdownMenuItem onClick={() => void open(artistHref, () => resolveArtistPage(track.artistName!), track.artistName ?? "this artist")}>
+          <UserRound className="mr-2 h-4 w-4" />
+          Go to artist
+        </DropdownMenuItem>
+      )}
+      {(albumHref || track.albumTitle) && (
+        <DropdownMenuItem onClick={() => void open(albumHref, () => resolveAlbumPage(track.albumTitle!, track.artistName), track.albumTitle ?? "this album")}>
+          <Disc3 className="mr-2 h-4 w-4" />
+          Go to album
+        </DropdownMenuItem>
+      )}
     </>
   );
 }

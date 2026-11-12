@@ -345,3 +345,38 @@ def test_one_row_per_listen_counts_its_time_and_outcome() -> None:
         repository = HistoryRepository(session)
         assert {entry.external_id for entry in repository.list_with_songs(event_type="skipped")} == {"b", "c"}
         assert [entry.external_id for entry in repository.list_with_songs(event_type="completed")] == ["a"]
+
+
+def test_liking_a_streamed_song_saves_and_toggles_it() -> None:
+    from app.api.v1.routes.favorites import toggle_online_track_favorite
+    from app.models import LibraryTrack
+    from app.schemas.music import PlaylistAddOnlineTrackRequest
+    from app.services.catalog import CatalogService
+
+    with make_session() as session:
+        service = CatalogService(session)
+        request = PlaylistAddOnlineTrackRequest(external_id="abc", title="Song", artist_name="Artist", duration_seconds=200)
+        liked = toggle_online_track_favorite(service, request)
+        assert liked["is_favorited"] is True
+        assert session.scalar(select(func.count(LibraryTrack.id))) == 1
+        assert service.list_favorites().library_tracks[0].external_id == "abc"
+        assert toggle_online_track_favorite(service, request) == {"is_favorited": False, "track_id": liked["track_id"]}
+        assert session.scalar(select(func.count(LibraryTrack.id))) == 1
+
+
+def test_songs_include_saved_and_liked_streaming_tracks() -> None:
+    from app.api.v1.routes.library import library_counts, list_saved_streaming_tracks
+    from app.models import Favorite, LibraryTrack
+
+    with make_session() as session:
+        def track(external_id: str, *, in_library: bool) -> LibraryTrack:
+            return LibraryTrack(source="youtube", external_id=external_id, title=external_id, position=0, is_in_library=in_library)
+
+        saved, liked, playlist_only = track("saved", in_library=True), track("liked", in_library=False), track("playlist", in_library=False)
+        session.add_all([saved, liked, playlist_only])
+        session.flush()
+        session.add(Favorite(library_track_id=liked.id))
+        session.commit()
+
+        assert {item.external_id for item in list_saved_streaming_tracks(session)} == {"saved", "liked"}
+        assert library_counts(session).songs == 2

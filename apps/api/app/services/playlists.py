@@ -579,31 +579,7 @@ class PlaylistService:
                 "Playlist not found", details={"playlist_id": playlist_id}
             )
 
-        track = self.playlists.session.scalars(
-            select(LibraryTrack).where(
-                LibraryTrack.source == "youtube",
-                LibraryTrack.external_id == request.external_id,
-            )
-        ).first()
-        if not track:
-            track = LibraryTrack(
-                source="youtube",
-                external_id=request.external_id,
-                title=request.title,
-                artist_name=request.artist_name,
-                artist_external_id=request.artist_external_id,
-                album_title=request.album_title,
-                duration_seconds=request.duration_seconds,
-                position=0,
-                source_url=request.source_url,
-                artwork_url=request.artwork_url,
-                explicit=request.explicit,
-                is_in_library=False,
-            )
-            self.playlists.session.add(track)
-            self.playlists.session.flush()
-        elif track.duration_seconds is None and request.duration_seconds:
-            track.duration_seconds = request.duration_seconds
+        track = upsert_online_track(self.playlists.session, request)
 
         existing_link = self.playlists.session.scalars(
             select(PlaylistLibraryTrack).where(
@@ -696,3 +672,33 @@ class PlaylistService:
             raise ConflictError(
                 "The playlist changed while the item was being removed. Refresh it and try again."
             ) from exc
+
+
+def upsert_online_track(session, request: PlaylistAddOnlineTrackRequest) -> LibraryTrack:
+    """The library row for a YouTube Music song, created the first time it's used."""
+    track = session.scalars(
+        select(LibraryTrack).where(
+            LibraryTrack.source == "youtube",
+            LibraryTrack.external_id == request.external_id,
+        )
+    ).first()
+    if not track:
+        track = LibraryTrack(
+            source="youtube",
+            external_id=request.external_id,
+            title=request.title,
+            artist_name=request.artist_name,
+            artist_external_id=request.artist_external_id,
+            album_title=request.album_title,
+            duration_seconds=request.duration_seconds,
+            position=0,
+            source_url=request.source_url,
+            artwork_url=request.artwork_url,
+            explicit=request.explicit,
+            is_in_library=False,
+        )
+        session.add(track)
+        session.flush()
+    elif track.duration_seconds is None and request.duration_seconds:
+        track.duration_seconds = request.duration_seconds
+    return track

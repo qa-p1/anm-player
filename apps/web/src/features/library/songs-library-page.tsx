@@ -6,6 +6,7 @@ import { useMemo, useState } from "react";
 import { pageTransition } from "@/animations/page-motion";
 import { CollectionActions } from "@/components/cards/collection-actions";
 import { SongCard } from "@/components/cards/song-card";
+import { TrackRow } from "@/components/cards/track-row";
 import { CollectionHero } from "@/components/collection/collection-hero";
 import { MosaicArtwork } from "@/components/collection/collection-parts";
 import { EmptyState } from "@/components/empty-states/empty-state";
@@ -16,12 +17,20 @@ import { Input } from "@/components/ui/input";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { useAllSongs, useSearchAllSongs } from "@/hooks/use-music-queries";
 import { cn } from "@/lib/utils";
-import { advancedSearchAllSongs } from "@/services/music-api";
+import { advancedSearchAllSongs, listSavedStreamingTracks } from "@/services/music-api";
 import { musicKeys } from "@/services/music-keys";
-import type { Song } from "@/types/api";
-import { songToPlayerTrack } from "@/types/player";
+import type { LibraryTrack, Song } from "@/types/api";
+import { libraryTrackToPlayerTrack, songToPlayerTrack } from "@/types/player";
 
 const EMPTY_SONGS: Song[] = [];
+const EMPTY_TRACKS: LibraryTrack[] = [];
+
+type SongEntry = { kind: "downloaded"; song: Song; added: string } | { kind: "streaming"; track: LibraryTrack; added: string };
+
+function matches(track: LibraryTrack, query: string) {
+  const needle = query.toLocaleLowerCase();
+  return [track.title, track.artist_name, track.album_title].some((value) => value?.toLocaleLowerCase().includes(needle));
+}
 
 export function SongsLibraryPage() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -44,12 +53,27 @@ export function SongsLibraryPage() {
       has_artwork: filters.hasArtwork, sort_by: filters.sortBy, sort_order: filters.sortOrder }, signal),
     enabled: hasFilters,
   });
+  // Saved songs that stream belong here too; file filters (year, artwork…) only apply to downloads.
+  const savedQuery = useQuery({ queryKey: musicKeys.savedTracks(), queryFn: ({ signal }) => listSavedStreamingTracks(signal), staleTime: 60_000 });
   const displaySongs = hasFilters ? filtered.data ?? EMPTY_SONGS : debouncedSearch ? searchedSongsData ?? EMPTY_SONGS : allSongsData ?? EMPTY_SONGS;
-  const loading = hasFilters ? filtered.isLoading : debouncedSearch ? isLoadingSearchSongs : isLoadingAllSongs;
+  const streamingTracks = useMemo(() => {
+    if (hasFilters) return EMPTY_TRACKS;
+    const saved = savedQuery.data ?? EMPTY_TRACKS;
+    return debouncedSearch ? saved.filter((track) => matches(track, debouncedSearch)) : saved;
+  }, [debouncedSearch, hasFilters, savedQuery.data]);
+  const entries = useMemo<SongEntry[]>(() => {
+    const all: SongEntry[] = [
+      ...displaySongs.map((song): SongEntry => ({ kind: "downloaded", song, added: song.created_at })),
+      ...streamingTracks.map((track): SongEntry => ({ kind: "streaming", track, added: track.created_at })),
+    ];
+    // Search and filter results keep their own ranking; the full list is newest first.
+    return debouncedSearch || hasFilters || streamingTracks.length === 0 ? all : all.sort((a, b) => b.added.localeCompare(a.added));
+  }, [debouncedSearch, displaySongs, hasFilters, streamingTracks]);
+  const loading = (hasFilters ? filtered.isLoading : debouncedSearch ? isLoadingSearchSongs : isLoadingAllSongs) || savedQuery.isLoading;
   const error = (hasFilters ? filtered.error : debouncedSearch ? searchError : allSongsError)?.message;
   const actionSongs = selectionMode ? displaySongs.filter((song) => selected.has(song.id)) : displaySongs;
-  const actionTracks = useMemo(() => actionSongs.map(songToPlayerTrack), [actionSongs]);
-  const displayTracks = useMemo(() => displaySongs.map(songToPlayerTrack), [displaySongs]);
+  const displayTracks = useMemo(() => entries.map((entry) => (entry.kind === "downloaded" ? songToPlayerTrack(entry.song) : libraryTrackToPlayerTrack(entry.track))), [entries]);
+  const actionTracks = useMemo(() => (selectionMode ? actionSongs.map(songToPlayerTrack) : displayTracks), [actionSongs, displayTracks, selectionMode]);
   const allVisibleSelected = displaySongs.length > 0 && displaySongs.every((song) => selected.has(song.id));
   const covers = useMemo(() => (allSongsData ?? EMPTY_SONGS).slice(0, 24).map((song) => songToPlayerTrack(song).artworkUrl), [allSongsData]);
 
@@ -90,14 +114,20 @@ export function SongsLibraryPage() {
 
       {loading ? (
         <div role="status" aria-label="Loading songs" className="space-y-1">{Array.from({ length: 10 }).map((_, index) => <div key={index} className="h-14 animate-pulse rounded-xl bg-white/[0.04]" />)}</div>
-      ) : displaySongs.length === 0 ? (
-        <EmptyState icon={Music2} title={searchQuery || hasFilters ? "No songs found" : "No songs yet"} description={searchQuery || hasFilters ? "Try another search or loosen the filters." : "Downloaded songs show up here."} />
+      ) : entries.length === 0 ? (
+        <EmptyState icon={Music2} title={searchQuery || hasFilters ? "No songs found" : "No songs yet"} description={searchQuery || hasFilters ? "Try another search or loosen the filters." : "Songs you save, like or download show up here."} />
       ) : (
         <section aria-label="Songs" className="rounded-[1.6rem] border border-white/[0.06] bg-card/30 p-2 sm:p-3">
-          {displaySongs.map((song, index) => (
-            <div key={song.id} className={cn("flex items-center gap-1 rounded-xl", selected.has(song.id) && "bg-primary/[0.08]")}>
-              {selectionMode && <label className="grid h-9 w-8 shrink-0 cursor-pointer place-items-center"><input type="checkbox" aria-label={`Select ${song.title}`} checked={selected.has(song.id)} onChange={() => toggle(song.id)} className="h-4 w-4 accent-primary" /></label>}
-              <SongCard song={song} playerContext={displayTracks} showArtist showAlbum variant="list" number={index + 1} className="min-w-0 flex-1" />
+          {entries.map((entry, index) => entry.kind === "downloaded" ? (
+            <div key={`song-${entry.song.id}`} className={cn("flex items-center gap-1 rounded-xl", selected.has(entry.song.id) && "bg-primary/[0.08]")}>
+              {selectionMode && <label className="grid h-9 w-8 shrink-0 cursor-pointer place-items-center"><input type="checkbox" aria-label={`Select ${entry.song.title}`} checked={selected.has(entry.song.id)} onChange={() => toggle(entry.song.id)} className="h-4 w-4 accent-primary" /></label>}
+              <SongCard song={entry.song} playerContext={displayTracks} showArtist showAlbum variant="list" number={index + 1} className="min-w-0 flex-1" />
+            </div>
+          ) : (
+            <div key={`track-${entry.track.id}`} className="flex items-center gap-1 rounded-xl">
+              {/* Selection acts on downloaded files; streamed songs keep their place without a box. */}
+              {selectionMode && <span aria-hidden="true" className="w-8 shrink-0" />}
+              <TrackRow track={displayTracks[index]} context={displayTracks} leading={<span className="w-7 text-center text-sm tabular-nums text-muted-foreground">{index + 1}</span>} className="min-w-0 flex-1" />
             </div>
           ))}
         </section>

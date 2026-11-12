@@ -96,14 +96,14 @@ it("saves a favorite and preserves its state when the mini-player reopens", asyn
   expect(screen.getByRole("button", { name: "Remove from favorites" })).toHaveAttribute("aria-pressed", "true");
 });
 
-it("disables seeking while duration is unknown and omits unsupported online favorites", () => {
+it("disables seeking while duration is unknown and lets streamed songs be liked", () => {
   usePlayerStore.setState({ duration: Infinity, currentTime: NaN, bufferedUntil: Infinity, currentSong: onlineItemToPlayerTrack({ source: "youtube", kind: "song", id: "video-id", title: "Online song", subtitle: null, artists: [], album: null, thumbnail: null, duration_seconds: null, explicit: false, playable: true, browse_id: null, playlist_id: null, endpoint: null, url: "https://music.youtube.com/watch?v=video-id" }) });
   mount();
   const seek = screen.getByRole("slider", { name: "Mini-player song progress" });
   expect(seek).toBeDisabled();
   expect(seek).toHaveValue("0");
   expect(seek).toHaveAttribute("aria-valuetext", "0:00 of 0:00");
-  expect(screen.queryByRole("button", { name: "Add to favorites" })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Add to favorites" })).toBeInTheDocument();
 });
 
 it("offers playback retry without expanding the card after an error", () => {
