@@ -311,6 +311,7 @@ class CatalogPresenter:
             event_type=entry.event_type,
             played_at=entry.played_at,
             position_seconds=entry.position_seconds,
+            outcome=entry.outcome,
         )
 
     @staticmethod

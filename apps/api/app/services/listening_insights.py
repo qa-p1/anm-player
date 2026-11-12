@@ -80,10 +80,11 @@ class ListeningInsightsService:
                     artist_counts[entry.artist_name][0] += 1
                 if entry.album_title:
                     album_counts[(entry.album_title, entry.artist_name)][0] += 1
-            elif entry.event_type == "completed":
+            outcome = entry.outcome if entry.event_type == "played" else entry.event_type
+            if outcome == "completed":
                 completed_plays += 1
                 accumulator.completed_count += 1
-            elif entry.event_type == "skipped":
+            elif outcome == "skipped":
                 skipped_plays += 1
                 accumulator.skipped_count += 1
 
@@ -158,9 +159,8 @@ class ListeningInsightsService:
     def _event_listening_seconds(entry: History) -> int:
         if entry.event_type == "completed":
             return max(0, entry.duration_seconds or entry.position_seconds or 0)
-        if entry.event_type == "skipped":
-            return max(0, entry.position_seconds or 0)
-        return 0
+        # Skips and listens store how long they actually played.
+        return max(0, entry.position_seconds or 0)
 
     @staticmethod
     def _utc_datetime(value: datetime) -> datetime:

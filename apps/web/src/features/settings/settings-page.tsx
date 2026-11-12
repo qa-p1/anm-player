@@ -255,10 +255,10 @@ export function SettingsPage() {
               <Segmented label="Audio format" value={settings?.download_audio_format ?? "mp3"} onChange={(value: AudioFormat) => save({ download_audio_format: value })} options={(["mp3", "m4a", "opus", "flac", "ogg"] as const).map((format) => ({ value: format, label: format.toUpperCase() }))} />
             } />
             <SettingRow label="Songs at once" description="How many songs download at the same time." control={
-              <Stepper label="Songs at once" value={settings?.max_concurrent_downloads ?? 8} min={1} max={8} onChange={(value) => save({ max_concurrent_downloads: value })} />
+              <Stepper label="Songs at once" value={settings?.max_concurrent_downloads ?? 3} min={1} max={8} onChange={(value) => save({ max_concurrent_downloads: value })} />
             } />
             <SettingRow label="Songs at once per album" control={
-              <Stepper label="Songs at once per album" value={settings?.album_download_max_parallel ?? 5} min={1} max={8} onChange={(value) => save({ album_download_max_parallel: value })} />
+              <Stepper label="Songs at once per album" value={settings?.album_download_max_parallel ?? 3} min={1} max={8} onChange={(value) => save({ album_download_max_parallel: value })} />
             } />
             <SettingRow label="Save artwork" description="Keep cover art with downloaded songs." control={<Switch label="Save artwork" checked={settings?.download_artwork ?? true} onChange={(value) => save({ download_artwork: value })} />} />
             <SettingRow label="Fetch lyrics" description="Get lyrics automatically after a song downloads." control={<Switch label="Fetch lyrics" checked={settings?.auto_fetch_lyrics ?? true} onChange={(value) => save({ auto_fetch_lyrics: value })} />} />
@@ -313,7 +313,7 @@ export function SettingsPage() {
           </SettingsGroup>
 
           <SettingsGroup id="about" title="About" icon={<Info />}>
-            <SettingRow label="ANM Player" description={`Version ${settings?.version ?? "…"} · ${(settings?.song_count ?? 0).toLocaleString()} songs in your library`} control={<div className="flex items-center gap-1"><AppUpdateControls /><CloseAppButton compact /></div>} />
+            <SettingRow label="ANM Player" description={`Version ${settings?.version ?? "…"} · ${(settings?.song_count ?? 0).toLocaleString()} ${settings?.song_count === 1 ? "song" : "songs"} in your library`} control={<div className="flex items-center gap-1"><AppUpdateControls /><CloseAppButton compact /></div>} />
           </SettingsGroup>
 
           <DangerZone dataRoot={storage?.data_root} />

@@ -180,6 +180,7 @@ export interface HistoryEntry {
   event_type: string;
   played_at: string;
   position_seconds: number | null;
+  outcome?: "completed" | "skipped" | null;
 }
 
 export interface HistoryCreateRequest {
@@ -194,6 +195,7 @@ export interface HistoryCreateRequest {
   source_url?: string | null;
   position_seconds?: number | null;
   event_type?: "played" | "skipped" | "completed";
+  outcome?: "completed" | "skipped" | null;
 }
 
 interface ListeningSummary {

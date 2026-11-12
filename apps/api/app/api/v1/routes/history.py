@@ -12,7 +12,7 @@ from app.api.deps import (
 )
 from app.core.exceptions import ResourceNotFoundError
 from app.models import History
-from app.schemas.music import HistoryCreateRequest, HistoryResponse
+from app.schemas.music import HistoryCreateRequest, HistoryResponse, HistoryUpdateRequest
 from app.services.catalog import CatalogService
 
 router = APIRouter()
@@ -53,6 +53,24 @@ def most_played_history(
     limit: LimitQuery = 50,
 ) -> list[HistoryResponse]:
     return service.get_most_played_history(limit=limit)
+
+
+@router.patch("/{history_id}", response_model=HistoryResponse, summary="Finish a listen")
+def update_history_entry(
+    session: DbSession,
+    service: Annotated[CatalogService, Depends(get_catalog_service)],
+    history_id: ResourceId,
+    request: HistoryUpdateRequest,
+) -> HistoryResponse:
+    entry = session.get(History, history_id)
+    if entry is None:
+        raise ResourceNotFoundError("History entry not found", details={"history_id": history_id})
+    if request.position_seconds is not None:
+        entry.position_seconds = max(entry.position_seconds or 0, request.position_seconds)
+    if request.outcome is not None and entry.event_type == "played":
+        entry.outcome = request.outcome
+    session.commit()
+    return service.responses.history_to_response(entry)
 
 
 @router.delete("/{history_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete a history entry")

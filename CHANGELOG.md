@@ -2,12 +2,17 @@
 
 ## Unreleased
 
+- **Plays that really count**: A song counts as played after 30 seconds or half its length, and History shows one entry per listen.
+- **Steadier recommendations**: Adding a suggested song slides it away without reshuffling the rest, and other versions of your songs are skipped.
+- **Cleaner Home**: Today's Pick no longer repeats Quick Picks, and chart titles drop "Official Music Video" clutter.
+- **Smoother resume**: Playback continues after a long pause instead of failing, and you can scrub right after reopening the app.
+- **Gentler downloads**: Three songs download at once by default, which is easier on slower connections.
 - **No more freezes on lyrics**: Looking up lyrics no longer stalls playback, pages and search while it waits.
 - **More lyrics found**: Lyrics are found even when album names differ, and missing ones are looked for again after a week.
 - **Complete artist pages**: Artists show every album, single and EP, not just the first row.
 - **Faster startup on big libraries**: Unchanged music files are no longer re-read on every launch.
 - **Quicker Settings**: The storage overview opens instantly instead of re-measuring every file each time.
-- **Small fixes**: Album lengths round correctly, counts say "1 Song", artist names no longer get squeezed on phones, and logs stop growing forever.
+- **Small fixes**: Singles no longer repeat their name, album lengths round correctly, counts say "1 Song", artist names no longer get squeezed on phones, and logs stop growing forever.
 
 ## 1.1.0 - 2026-11-12
 

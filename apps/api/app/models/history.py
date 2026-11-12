@@ -31,6 +31,8 @@ class History(TimestampMixin, Base):
     event_type: Mapped[str] = mapped_column(String(40), default="played", nullable=False)
     played_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC), nullable=False)
     position_seconds: Mapped[int | None] = mapped_column(Integer)
+    # A "played" row is one listen; how it ended is filled in afterwards.
+    outcome: Mapped[str | None] = mapped_column(String(16))
 
     song: Mapped["Song | None"] = relationship(back_populates="history_entries")
 

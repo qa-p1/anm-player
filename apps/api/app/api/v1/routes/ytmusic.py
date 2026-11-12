@@ -95,13 +95,33 @@ def stream(
         Header(alias="Range", max_length=100, pattern=r"^bytes=(?:\d+-\d*|-\d+)$"),
     ] = None,
 ) -> Response:
+    source = _resolve_source(session, video_id)
+    try:
+        return _source_response(source, range_header)
+    except _UpstreamUnavailable:
+        # Stream links expire after a few hours (e.g. resuming a long pause):
+        # fetch a fresh one once instead of failing playback.
+        source = _resolve_source(session, video_id)
+        try:
+            return _source_response(source, range_header)
+        except _UpstreamUnavailable as exc:
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+
+
+class _UpstreamUnavailable(Exception):
+    pass
+
+
+def _resolve_source(session, video_id: str):
     try:
         with _resolution_limit:
-            source = PlaybackSourceService(session).resolve_youtube(video_id)
+            return PlaybackSourceService(session).resolve_youtube(video_id)
     except Exception as exc:
         logger.exception("Could not resolve YouTube Music stream for video %s", video_id)
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Could not resolve audio stream") from exc
 
+
+def _source_response(source, range_header: str | None) -> Response:
     if source.path:
         return FileResponse(
             path=str(source.path),
@@ -124,13 +144,14 @@ def _proxy_playback_stream(playback: PlaybackData, range_header: str | None, *, 
         response = build_opener().open(request, timeout=30)
     except HTTPError as exc:
         logger.warning("Upstream stream request failed with HTTP %s", exc.code)
+        exc.close()
         # The cached URL may have been revoked; the next request re-resolves.
         ytmusic_service.invalidate_playback(playback.video_id)
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Upstream audio service rejected the request") from exc
+        raise _UpstreamUnavailable("Upstream audio service rejected the request") from exc
     except (OSError, URLError) as exc:
         logger.warning("Could not open upstream stream: %s", exc)
         ytmusic_service.invalidate_playback(playback.video_id)
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Could not open upstream audio stream") from exc
+        raise _UpstreamUnavailable("Could not open upstream audio stream") from exc
 
     headers = {"Cache-Control": "no-store", "Accept-Ranges": "bytes", "X-ANM-Player-Playback-Source": source_kind}
     for source, target in (

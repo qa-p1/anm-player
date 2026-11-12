@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => {
     subscriptions,
     mediaHandlers,
     addHistory: vi.fn().mockResolvedValue({}),
+    updateHistory: vi.fn().mockResolvedValue({}),
     getYouTubeRelated: vi.fn().mockResolvedValue({ seed_video_id: "first", items: [] }),
     toast: vi.fn(),
     invalidateQueries: vi.fn(),
@@ -67,7 +68,7 @@ const mocks = vi.hoisted(() => {
 });
 
 vi.mock("@/services/audio-service", () => ({ audioService: mocks.audioService }));
-vi.mock("@/services/music-api", () => ({ addHistory: mocks.addHistory, getYouTubeRelated: mocks.getYouTubeRelated }));
+vi.mock("@/services/music-api", () => ({ addHistory: mocks.addHistory, updateHistory: mocks.updateHistory, getYouTubeRelated: mocks.getYouTubeRelated }));
 vi.mock("@/components/ui/toast", () => ({ toast: mocks.toast }));
 vi.mock("@/lib/query-client", () => ({ queryClient: { invalidateQueries: mocks.invalidateQueries } }));
 
@@ -167,20 +168,27 @@ describe("useAudioPlayer", () => {
     });
   });
 
-  it("loads current-song changes and records each playback session once", async () => {
+  it("records a play once the song has really played for 30 seconds, then finishes that same entry", async () => {
+    mocks.addHistory.mockResolvedValue({ id: 7 });
     renderHook(() => useAudioPlayer());
     act(() => usePlayerStore.getState().playSong(first));
+    await waitFor(() => expect(mocks.audioService.play).toHaveBeenCalled());
+    act(() => mocks.listeners.get("playing")!());
+    const tick = (time: number) => act(() => {
+      mocks.audioService.getCurrentTime.mockReturnValue(time);
+      mocks.listeners.get("timeupdate")!();
+    });
 
-    await waitFor(() => expect(mocks.audioService.loadSong).toHaveBeenCalledWith(first, { forceReload: false }));
-    await waitFor(() => expect(mocks.addHistory).toHaveBeenCalledTimes(1));
+    for (let time = 0; time <= 29; time += 1) tick(time);
+    expect(mocks.addHistory).not.toHaveBeenCalled();
+    tick(45); // Seeking ahead isn't listening.
+    expect(mocks.addHistory).not.toHaveBeenCalled();
+    tick(46);
+    await waitFor(() => expect(mocks.addHistory).toHaveBeenCalledWith(expect.objectContaining({ event_type: "played", position_seconds: 30 })));
 
-    act(() => usePlayerStore.getState().setIsPlaying(false));
-    act(() => usePlayerStore.getState().setIsPlaying(true));
-    await Promise.resolve();
+    await act(async () => mocks.listeners.get("ended")!());
+    await waitFor(() => expect(mocks.updateHistory).toHaveBeenCalledWith(7, { position_seconds: 30, outcome: "completed" }));
     expect(mocks.addHistory).toHaveBeenCalledTimes(1);
-
-    act(() => usePlayerStore.getState().setCurrentSong(first));
-    await waitFor(() => expect(mocks.addHistory).toHaveBeenCalledTimes(2));
   });
 
   it("advances automatically and wires Media Session play, pause, and next", () => {
@@ -243,6 +251,13 @@ describe("useAudioPlayer", () => {
     act(() => mocks.mediaHandlers.seekto({ action: "seekto", seekTime: 31 }));
     expect(mocks.audioService.seek).toHaveBeenCalledWith(31);
 
+    act(() => mocks.listeners.get("playing")!());
+    for (let time = 0; time <= 12; time += 1) {
+      act(() => {
+        mocks.audioService.getCurrentTime.mockReturnValue(time);
+        mocks.listeners.get("timeupdate")!();
+      });
+    }
     act(() => {
       usePlayerStore.getState().setDuration(60);
       usePlayerStore.getState().setCurrentTime(12);
@@ -386,7 +401,7 @@ describe("useAudioPlayer", () => {
     await waitFor(() => expect(mocks.audioService.play).toHaveBeenCalledOnce());
     await act(async () => finishLoading());
     expect(mocks.audioService.play).toHaveBeenCalledOnce();
-    expect(mocks.addHistory).toHaveBeenCalledOnce();
-    expect(mocks.addHistory).toHaveBeenCalledWith(expect.objectContaining({ external_id: second.videoId }));
+    // Starting a song isn't a play yet; nothing is written until it's really heard.
+    expect(mocks.addHistory).not.toHaveBeenCalled();
   });
 });

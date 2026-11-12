@@ -216,6 +216,14 @@ class HistoryCreateRequest(BaseModel):
     source_url: str | None = Field(default=None, max_length=2048)
     position_seconds: int | None = Field(default=None, ge=0, le=86400)
     event_type: str = Field(default="played", pattern="^(played|skipped|completed)$")
+    outcome: str | None = Field(default=None, pattern="^(completed|skipped)$")
+
+
+class HistoryUpdateRequest(BaseModel):
+    """Finishes a listen: how far it got and how it ended."""
+
+    position_seconds: int | None = Field(default=None, ge=0, le=86400)
+    outcome: str | None = Field(default=None, pattern="^(completed|skipped)$")
 
 
 class HistoryResponse(ArtworkResponseModel):
@@ -233,6 +241,7 @@ class HistoryResponse(ArtworkResponseModel):
     event_type: str
     played_at: datetime
     position_seconds: int | None = None
+    outcome: str | None = None
 
 
 class DownloadJobResponse(BaseModel):

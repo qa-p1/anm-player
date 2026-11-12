@@ -875,7 +875,7 @@ class LibraryAlbumService:
             status=DownloadStatus.QUEUED,
             total_tracks=len(downloadable_tracks),
             max_parallel=max_parallel
-            or runtime.get_int("album_download_max_parallel", 5),
+            or runtime.get_int("album_download_max_parallel", 3),
         )
         self.session.add(album_job)
         self.session.flush()
@@ -1017,7 +1017,7 @@ class LibraryAlbumService:
         ]
         runtime = SettingsService(self.session)
         parallel = max(
-            1, min(max_parallel or runtime.get_int("album_download_max_parallel", 5), 8)
+            1, min(max_parallel or runtime.get_int("album_download_max_parallel", 3), 8)
         )
         album_job = AlbumDownloadJob(
             album_id=album.id,

@@ -33,7 +33,19 @@ it("recommends related songs for the playlist, never its own or unrelated librar
 
   fireEvent.click(screen.getByRole("button", { name: "Add Billie Jean to playlist" }));
   await waitFor(() => expect(playlistTracks.addPlayerTracksToPlaylist).toHaveBeenCalledWith(1, [expect.objectContaining({ title: "Billie Jean" })]));
-  expect(await screen.findByRole("button", { name: "Billie Jean added" })).toBeDisabled();
+  await waitFor(() => expect(screen.queryByText("Billie Jean")).not.toBeInTheDocument());
+  expect(screen.getByText("Africa")).toBeInTheDocument();
+  client.clear();
+});
+
+it("skips other versions of songs already in the playlist", async () => {
+  const inPlaylist = onlineItemToPlayerTrack(item("seed", "Get Lucky (feat. Pharrell Williams)", "Daft Punk"));
+  vi.mocked(api.getYouTubeRelated).mockResolvedValue({ seed_video_id: "seed", items: [item("edit", "Get Lucky (Radio Edit - feat. Pharrell Williams)", "Daft Punk"), item("b", "Instant Crush", "Daft Punk")] });
+  vi.mocked(api.listAllSongs).mockResolvedValue([]);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(<QueryClientProvider client={client}><MemoryRouter><PlaylistSuggestions playlistId={1} tracks={[inPlaylist]} /></MemoryRouter></QueryClientProvider>);
+  expect(await screen.findByText("Instant Crush")).toBeInTheDocument();
+  expect(screen.queryByText(/Radio Edit/)).not.toBeInTheDocument();
   client.clear();
 });
 

@@ -134,7 +134,7 @@ class DownloadWorker:
             return None
         with SessionLocal() as session:
             runtime = SettingsService(session)
-            maximum = runtime.get_int("max_concurrent_downloads", 8)
+            maximum = runtime.get_int("max_concurrent_downloads", 3)
             active = (
                 session.query(DownloadJob)
                 .filter(

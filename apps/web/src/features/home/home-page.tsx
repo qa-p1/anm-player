@@ -63,7 +63,7 @@ export function HomePage() {
   const hero = heroItems[heroIndex % Math.max(heroItems.length, 1)];
   const todayIds = useMemo(() => new Set(heroItems.map((item) => item.id)), [heroItems]);
   const quickPicks = useMemo(() => {
-    if (apiQuickPicks) return apiQuickPicks;
+    if (apiQuickPicks) return { ...apiQuickPicks, items: apiQuickPicks.items.filter((item) => !todayIds.has(item.id)) };
     const relatedItems = (related?.items ?? []).filter((item) => item.playable && !todayIds.has(item.id));
     const globalItems = (globalTrending?.items ?? []).slice(10, 18).filter((item) => item.playable && !todayIds.has(item.id));
     return sectionFromItems("quick-picks", "Quick Picks", relatedItems.length > 0 ? relatedItems : globalItems, "quick_grid");
@@ -251,8 +251,8 @@ function HeroCarousel({
                 {artworkUrl && <ArtworkImage src={artworkUrl} alt={hero.title} className="h-24 w-24 shrink-0 rounded-2xl object-cover shadow-glow" />}
                 <div className="min-w-0 flex-1" />
               </div>
-              <h2 className="max-w-3xl truncate text-3xl font-black tracking-normal sm:text-5xl lg:text-6xl">{hero.title}</h2>
-              <p className="mt-3 line-clamp-2 max-w-xl text-sm leading-6 text-muted-foreground sm:text-base">{hero.subtitle ?? "Fresh from YouTube Music."}</p>
+              <h2 className="line-clamp-2 max-w-3xl break-words text-3xl font-black tracking-normal sm:text-5xl lg:text-[3.25rem] lg:leading-[1.08]" title={hero.title}>{hero.title}</h2>
+              <p className="mt-3 line-clamp-2 max-w-xl text-sm leading-6 text-muted-foreground sm:text-base">{heroSubtitle(hero)}</p>
               <div className="mt-5 flex flex-wrap gap-2.5">
                 <Button onClick={onPlay}>
                   <Play className="h-4 w-4 fill-current" />
@@ -269,7 +269,7 @@ function HeroCarousel({
         </motion.div>
       </AnimatePresence>
       {items.length > 1 && (
-        <div className="absolute bottom-3 right-3 flex items-center gap-2">
+        <div className="absolute bottom-3 right-3 flex items-center gap-2 sm:bottom-6 md:right-[18.5rem] lg:right-[23.5rem]">
           <Button size="icon" variant="glass" aria-label="Previous pick" onClick={() => onActiveIndexChange((activeIndex - 1 + items.length) % items.length)}>
             <ChevronLeft className="h-4 w-4" />
           </Button>
@@ -280,6 +280,13 @@ function HeroCarousel({
       )}
     </section>
   );
+}
+
+/** The subtitle without the song's own title (singles repeat it as the album). */
+function heroSubtitle(hero: OnlineMusicItem) {
+  const title = hero.title.trim().toLocaleLowerCase();
+  const parts = (hero.subtitle ?? "").split(" • ").filter((part) => part.trim() && part.trim().toLocaleLowerCase() !== title);
+  return parts.length > 0 ? parts.join(" • ") : "Fresh from YouTube Music.";
 }
 
 function SongSection({ section, title, icon: Icon, ranked = false, limit = 10, downloadedTracks }: { section: OnlineHomeSection; title: string; icon?: typeof TrendingUp; ranked?: boolean; limit?: number; downloadedTracks: Record<string, boolean> }) {

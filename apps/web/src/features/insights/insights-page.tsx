@@ -307,7 +307,9 @@ function HistoryRow({ entry, onReplay, onRemove }: { entry: HistoryEntry; onRepl
   const title = entry.song?.title || entry.title || "Unknown track";
   const artwork = cachedArtworkUrl(entry.song?.artwork_path || entry.song?.artwork_url || entry.artwork_url);
   const track = historyEntryToPlayerTrack(entry);
-  const EventIcon = entry.event_type === "completed" ? CheckCircle2 : entry.event_type === "skipped" ? SkipForward : Play;
+  // A listen keeps "played" and records how it ended separately.
+  const ending = entry.event_type === "played" ? entry.outcome ?? "played" : entry.event_type;
+  const EventIcon = ending === "completed" ? CheckCircle2 : ending === "skipped" ? SkipForward : Play;
   const playedAt = parseServerDate(entry.played_at);
   return (
     <article className="group relative flex items-center gap-3 rounded-xl p-2 transition hover:bg-white/[0.05]">
@@ -324,7 +326,7 @@ function HistoryRow({ entry, onReplay, onRemove }: { entry: HistoryEntry; onRepl
             ? <TrackMetadata track={track} className="flex text-xs text-muted-foreground" linkClassName="pointer-events-auto" />
             : <span className="block truncate text-xs text-muted-foreground">{entry.song?.artist_name || entry.artist_name || "Unknown artist"}</span>}
         </span>
-        <span title={entry.event_type} className={cn("pointer-events-auto hidden shrink-0 sm:block", entry.event_type === "completed" ? "text-emerald-400" : entry.event_type === "skipped" ? "text-amber-400" : "text-muted-foreground")}><EventIcon aria-label={entry.event_type} className="h-3.5 w-3.5" /></span>
+        <span title={ending === "completed" ? "Played to the end" : ending === "skipped" ? "Skipped" : "Played"} className={cn("pointer-events-auto hidden shrink-0 sm:block", ending === "completed" ? "text-emerald-400" : ending === "skipped" ? "text-amber-400" : "text-muted-foreground")}><EventIcon aria-label={ending} className="h-3.5 w-3.5" /></span>
         <time dateTime={entry.played_at} className="w-16 shrink-0 text-right text-xs tabular-nums text-muted-foreground">{playedAt ? playedAt.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) : ""}</time>
       </div>
       <Button size="icon" variant="ghost" className="relative z-10 h-8 w-8 shrink-0 text-muted-foreground opacity-100 hover:text-red-400 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100" aria-label={`Remove ${title} from history`} onClick={onRemove}><Trash2 className="h-3.5 w-3.5" /></Button>

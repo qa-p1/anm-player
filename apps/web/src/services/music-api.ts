@@ -232,6 +232,10 @@ export function addHistory(request: HistoryCreateRequest) {
   return apiPost<HistoryEntry, HistoryCreateRequest>("/history", request);
 }
 
+export function updateHistory(historyId: number, request: { position_seconds?: number; outcome?: "completed" | "skipped" }) {
+  return apiPatch<HistoryEntry, typeof request>(`/history/${historyId}`, request);
+}
+
 export function getRecentlyPlayedHistory(limit = 50, signal?: AbortSignal) {
   return apiGet<HistoryEntry[]>(`/history/recently-played?limit=${limit}`, { signal });
 }

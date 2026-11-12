@@ -314,3 +314,34 @@ def test_days_and_hours_follow_the_listeners_time_zone() -> None:
     assert [day.date for day in local.daily if day.play_count] == [local_day]
     assert [bucket.hour for bucket in local.hourly if bucket.play_count] == [1]
     assert [bucket.hour for bucket in utc.hourly if bucket.play_count] == [20]
+
+
+def test_one_row_per_listen_counts_its_time_and_outcome() -> None:
+    from app.api.v1.routes.history import update_history_entry
+    from app.schemas.music import HistoryUpdateRequest
+    from app.services.catalog import CatalogService
+
+    now = datetime.now(UTC)
+    with make_session() as session:
+        finished = history_event(title="Song", artist="Artist", event_type="played", when=now, external_id="a", position=30)
+        skipped = history_event(title="Other", artist="Artist", event_type="played", when=now, external_id="b", position=30)
+        early_skip = history_event(title="Nope", artist="Artist", event_type="skipped", when=now, external_id="c", position=5)
+        session.add_all([finished, skipped, early_skip])
+        session.commit()
+
+        service = CatalogService(session)
+        response = update_history_entry(session, service, finished.id, HistoryUpdateRequest(position_seconds=180, outcome="completed"))
+        assert response.outcome == "completed"
+        update_history_entry(session, service, skipped.id, HistoryUpdateRequest(position_seconds=75, outcome="skipped"))
+        # A late, smaller position never shrinks the time already listened.
+        update_history_entry(session, service, skipped.id, HistoryUpdateRequest(position_seconds=40))
+
+        summary = ListeningInsightsService(session).get(days=7).summary
+        assert summary.total_plays == 2
+        assert summary.completed_plays == 1
+        assert summary.skipped_plays == 2
+        assert summary.listening_seconds == 180 + 75 + 5
+
+        repository = HistoryRepository(session)
+        assert {entry.external_id for entry in repository.list_with_songs(event_type="skipped")} == {"b", "c"}
+        assert [entry.external_id for entry in repository.list_with_songs(event_type="completed")] == ["a"]

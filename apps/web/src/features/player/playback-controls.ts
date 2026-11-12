@@ -25,13 +25,19 @@ export function nextTrack() {
 
 export function seekPlayback(time: number) {
   if (!Number.isFinite(time)) return;
-  const duration = audioService.getDuration();
+  const state = usePlayerStore.getState();
+  const loaded = audioService.getDuration();
+  const isLoaded = Number.isFinite(loaded) && loaded > 0;
+  // Before the song loads (e.g. right after reopening the app) the position is
+  // only remembered; loading resumes from it.
+  const duration = isLoaded ? loaded : state.currentSong?.durationSeconds ?? 0;
   if (!Number.isFinite(duration) || duration <= 0) return;
   const target = Math.max(0, Math.min(duration, time));
-  usePlayerStore.getState().setCurrentTime(target);
-  audioService.seek(target);
+  state.setCurrentTime(target);
+  if (isLoaded) audioService.seek(target);
 }
 
 export function seekByStep(direction: number) {
-  seekPlayback(audioService.getCurrentTime() + direction * usePlaybackPreferencesStore.getState().seekStepSeconds);
+  const loaded = audioService.getDuration() > 0;
+  seekPlayback((loaded ? audioService.getCurrentTime() : usePlayerStore.getState().currentTime) + direction * usePlaybackPreferencesStore.getState().seekStepSeconds);
 }

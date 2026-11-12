@@ -1,5 +1,6 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { Check, LoaderCircle, Pause, Play, Plus, RefreshCw } from "lucide-react";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { LoaderCircle, Pause, Play, Plus, RefreshCw } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 
@@ -33,6 +34,16 @@ function normalizeArtist(name: string | null | undefined) {
   return name?.trim().toLocaleLowerCase() || null;
 }
 
+/** "Get Lucky (Radio Edit - feat. …)" and "Get Lucky" are the same song for suggestions. */
+function versionKey(title: string, artist: string | null | undefined) {
+  const base = title.toLocaleLowerCase().replace(/\s*[([][^)\]]*[)\]]/g, "").replace(/\s+[-–—]\s+.*$/, "").replace(/\s+/g, " ").trim();
+  return `${base || title.toLocaleLowerCase()}|${normalizeArtist(artist) ?? ""}`;
+}
+
+function trackVersion(track: PlayerTrack) {
+  return versionKey(track.title, track.artistName);
+}
+
 function historySeeds(entries: HistoryEntry[]): Seed[] {
   return entries
     .filter((entry) => entry.source === "youtube" && entry.external_id)
@@ -54,15 +65,20 @@ export function PlaylistSuggestions({ playlistId, tracks }: { playlistId: number
   // Songs already shown are skipped on refresh; their radio feeds the next batch.
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const [extraSeeds, setExtraSeeds] = useState<Seed[]>([]);
-  const [added, setAdded] = useState<Set<string>>(new Set());
+  // Seeds stay put while songs are added from here, so the other suggestions don't reshuffle.
+  const [seedBasis, setSeedBasis] = useState<PlayerTrack[] | null>(null);
   const [pending, setPending] = useState<string | null>(null);
+  // Hides an added song at once instead of waiting for the playlist to refetch.
+  const [added, setAdded] = useState<Set<string>>(new Set());
+  const reduceMotion = useReducedMotion();
   const addTracks = useAddTracksToPlaylist();
   const { currentId, isPlaying } = usePlayerStore(useShallow((state) => ({ currentId: state.currentSong?.id ?? null, isPlaying: state.isPlaying })));
 
-  const playlistSeeds = useMemo(() => uniqueSeeds(tracks
+  const basis = seedBasis ?? tracks;
+  const playlistSeeds = useMemo(() => uniqueSeeds(basis
     .filter((track): track is Extract<PlayerTrack, { source: "youtube" }> => track.source === "youtube")
     .map((track) => ({ videoId: track.videoId, artist: track.artistName }))
-    .reverse()), [tracks]);
+    .reverse()), [basis]);
   const needsHistory = playlistSeeds.length === 0;
   const { data: mostPlayed = [] } = useMostPlayedHistory(10, { enabled: needsHistory });
   const { data: recent = [] } = useRecentlyPlayedHistory(20, { enabled: needsHistory });
@@ -90,13 +106,13 @@ export function PlaylistSuggestions({ playlistId, tracks }: { playlistId: number
 
   // Cheap enough (a few dozen related items) to rank on every render.
   function rankSuggestions() {
-    const existing = new Set(tracks.map(trackIdentity));
-    const seedIds = new Set(seeds.map((seed) => `yt:${seed.videoId}`));
-    const knownArtists = new Set([...tracks.map((track) => normalizeArtist(track.artistName)), ...seeds.map((seed) => normalizeArtist(seed.artist))].filter(Boolean));
+    const existing = new Set([...tracks.map(trackIdentity), ...seeds.map((seed) => `yt:${seed.videoId}`)]);
+    const existingVersions = new Set([...tracks.map(trackVersion), ...added]);
+    const knownArtists = new Set([...basis.map((track) => normalizeArtist(track.artistName)), ...seeds.map((seed) => normalizeArtist(seed.artist))].filter(Boolean));
     const ranked = new Map<string, { track: PlayerTrack; score: number }>();
     const consider = (track: PlayerTrack, score: number) => {
-      const key = trackIdentity(track);
-      if (!added.has(key) && (existing.has(key) || seedIds.has(key) || dismissed.has(key))) return;
+      const key = trackVersion(track);
+      if (existing.has(trackIdentity(track)) || existingVersions.has(key) || dismissed.has(key)) return;
       const artistBonus = knownArtists.has(normalizeArtist(track.artistName)) ? 0.75 : 0;
       const current = ranked.get(key);
       if (current) current.score += score;
@@ -115,7 +131,7 @@ export function PlaylistSuggestions({ playlistId, tracks }: { playlistId: number
   const visible = suggestions.slice(0, VISIBLE);
 
   function refresh() {
-    const shownKeys = visible.map(trackIdentity);
+    const shownKeys = visible.map(trackVersion);
     // Older recommendations from the playlist's own radio stay connected to it.
     const nextSeeds = visible
       .filter((track): track is Extract<PlayerTrack, { source: "youtube" }> => track.source === "youtube")
@@ -125,6 +141,7 @@ export function PlaylistSuggestions({ playlistId, tracks }: { playlistId: number
     setDismissed((current) => (remaining < VISIBLE && current.size > 0 && nextSeeds.length === 0 ? new Set() : new Set([...current, ...shownKeys])));
     if (remaining < VISIBLE * 2 && nextSeeds.length) setExtraSeeds((current) => uniqueSeeds([...current, ...nextSeeds]));
     setRound((value) => value + 1);
+    setSeedBasis(null);
   }
   const isLoading = relatedQueries.some((query) => query.isLoading);
   const isFetching = relatedQueries.some((query) => query.isFetching);
@@ -134,11 +151,12 @@ export function PlaylistSuggestions({ playlistId, tracks }: { playlistId: number
 
   async function add(track: PlayerTrack) {
     const key = trackIdentity(track);
-    if (pending || added.has(key)) return;
+    if (pending) return;
     setPending(key);
+    setSeedBasis((current) => current ?? tracks);
     try {
       await addTracks.mutateAsync({ playlistId, tracks: [track] });
-      setAdded((current) => new Set(current).add(key));
+      setAdded((current) => new Set(current).add(trackVersion(track)));
       toast(`Added “${track.title}”`, "success");
     } catch (error) {
       toast(error instanceof Error ? error.message : "Could not add the song", "error");
@@ -166,12 +184,19 @@ export function PlaylistSuggestions({ playlistId, tracks }: { playlistId: number
       <div className="rounded-[1.6rem] border border-white/[0.06] bg-card/30 p-2">
         {isLoading && visible.length === 0
           ? Array.from({ length: 4 }).map((_, index) => <div key={index} className="m-1 h-12 animate-pulse rounded-xl bg-white/[0.04]" />)
-          : visible.map((track) => {
+          : <AnimatePresence initial={false} mode="popLayout">{visible.map((track) => {
             const key = trackIdentity(track);
-            const isAdded = added.has(key);
             const isCurrent = currentId === track.id;
             return (
-              <article key={key} className={cn("group flex min-w-0 items-center gap-3 rounded-xl p-2 transition hover:bg-white/[0.06]", isCurrent && "bg-primary/[0.08]")}>
+              <motion.article
+                key={key}
+                layout={!reduceMotion}
+                initial={reduceMotion ? false : { opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={reduceMotion ? { opacity: 0 } : { opacity: 0, x: 24, transition: { duration: 0.18 } }}
+                transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+                className={cn("group flex min-w-0 items-center gap-3 rounded-xl p-2 transition-colors hover:bg-white/[0.06]", isCurrent && "bg-primary/[0.08]")}
+              >
                 <button type="button" onClick={() => preview(track)} aria-label={isCurrent && isPlaying ? `Pause ${track.title}` : `Play ${track.title}`} className="relative h-11 w-11 shrink-0 overflow-hidden rounded-lg bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                   <ArtworkImage src={track.artworkUrl} alt="" className="h-full w-full object-cover" />
                   <span className={cn("absolute inset-0 grid place-items-center bg-black/45 text-white transition", isCurrent ? "opacity-100" : "opacity-0 group-hover:opacity-100")}>
@@ -186,16 +211,16 @@ export function PlaylistSuggestions({ playlistId, tracks }: { playlistId: number
                 <button
                   type="button"
                   onClick={() => void add(track)}
-                  disabled={isAdded || pending !== null}
-                  aria-label={isAdded ? `${track.title} added` : `Add ${track.title} to playlist`}
-                  className={cn("inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border px-3.5 text-xs font-semibold transition", isAdded ? "border-emerald-400/30 bg-emerald-500/15 text-emerald-300" : "border-white/15 hover:scale-105 hover:border-white/30 hover:bg-white/10 disabled:opacity-50")}
+                  disabled={pending !== null}
+                  aria-label={`Add ${track.title} to playlist`}
+                  className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border border-white/15 px-3.5 text-xs font-semibold transition hover:scale-105 hover:border-white/30 hover:bg-white/10 disabled:opacity-50"
                 >
-                  {pending === key ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : isAdded ? <Check className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
-                  {isAdded ? "Added" : "Add"}
+                  {pending === key ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                  Add
                 </button>
-              </article>
+              </motion.article>
             );
-          })}
+          })}</AnimatePresence>}
       </div>
     </section>
   );

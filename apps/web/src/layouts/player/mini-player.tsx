@@ -28,7 +28,8 @@ export function MiniPlayer({ onOpen }: MiniPlayerProps) {
     currentSong: state.currentSong,
     isPlaying: state.isPlaying,
     currentTime: state.currentTime,
-    duration: state.duration,
+    // Until the audio loads, the song's known length keeps the time and scrubber usable.
+    duration: state.duration || state.currentSong?.durationSeconds || 0,
     playbackStatus: state.playbackStatus,
     bufferedUntil: state.bufferedUntil,
     shuffle: state.shuffle,

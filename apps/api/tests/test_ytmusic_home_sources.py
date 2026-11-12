@@ -209,25 +209,22 @@ def test_home_assembly_uses_the_supplied_chart_without_provider_home() -> None:
     assert response.sections[1].items[0].id == "global"
 
 
-def test_today_pick_prefers_provider_quick_picks_and_falls_back_to_global() -> None:
-    provider = HomePage(
-        chips=[],
-        sections=[
-            HomeSection(
-                title="Quick Picks",
-                label=None,
-                thumbnail=None,
-                endpoint=None,
-                items=[song("quick")],
-            )
-        ],
-    )
-    preferred = assemble_home(
-        provider, ("Global", "VLglobal", [song("global")]), None, None
-    )
-    fallback = assemble_home(None, ("Global", "VLglobal", [song("global")]), None, None)
-    assert preferred.sections[0].items[0].id == "quick"
-    assert fallback.sections[0].items[0].id == "global"
+def test_today_pick_never_repeats_quick_picks() -> None:
+    def provider(count: int) -> HomePage:
+        shelf = HomeSection(title="Quick Picks", label=None, thumbnail=None, endpoint=None, items=[song(f"quick{index}") for index in range(count)])
+        return HomePage(chips=[], sections=[shelf])
+
+    chart = ("Global", "VLglobal", [song("quick0"), song("global")])
+    long_shelf = assemble_home(provider(20), chart, None, None)
+    short_shelf = assemble_home(provider(3), chart, None, None)
+    no_provider = assemble_home(None, chart, None, None)
+
+    hero, quick = long_shelf.sections[0], long_shelf.sections[1]
+    assert [item.id for item in hero.items] == [f"quick{index}" for index in range(5)]
+    assert quick.items[0].id == "quick5"
+    assert {item.id for item in hero.items}.isdisjoint(item.id for item in quick.items)
+    assert [item.id for item in short_shelf.sections[0].items] == ["global"]
+    assert no_provider.sections[0].items[0].id == "quick0"
 
 
 def test_absent_provider_quick_picks_omits_quick_section() -> None:
@@ -471,3 +468,13 @@ def test_regional_albums_use_each_top_artists_newest_release_and_fall_back_to_ex
     service._artist_page_or_none = lambda artist_id: None
     monkeypatch.setattr(service_module, "extract_explore_albums", lambda raw: [album("explore")] if raw.get("explore") else [])
     assert [item.id for item in service._region_explore_sync("GB")] == ["explore"]
+
+
+def test_chart_titles_drop_video_clutter() -> None:
+    from app.services.ytmusic_service.presentation import clean_chart_title
+
+    assert clean_chart_title("Xamdam Sobirov - Peshta / Хамдам Собиров - Пешта / Video Klip", ["Xamdam Sobirov"]) == "Peshta"
+    assert clean_chart_title("Quédate Tonight - Jack Hit (Official Music Video)", ["Jack Hit"]) == "Quédate Tonight"
+    assert clean_chart_title("Clave Especial - MAÑA [Video Oficial]", ["CLAVE ESPECIAL"]) == "MAÑA"
+    assert clean_chart_title("Tu Mil Jaaye (From \"KING\")", ["Kumaar"]) == "Tu Mil Jaaye (From \"KING\")"
+    assert clean_chart_title("Arz Kiya Hai | Coke Studio Bharat", ["Anuv Jain"]) == "Arz Kiya Hai | Coke Studio Bharat"

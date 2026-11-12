@@ -6,7 +6,7 @@ import { useShallow } from "zustand/react/shallow";
 import { toast } from "@/components/ui/toast";
 import { queryClient } from "@/lib/query-client";
 import { audioService } from "@/services/audio-service";
-import { addHistory, getYouTubeRelated } from "@/services/music-api";
+import { addHistory, getYouTubeRelated, updateHistory } from "@/services/music-api";
 import { usePlaybackPreferencesStore } from "@/stores/playback-preferences-store";
 import { knownTrackDuration } from "@/stores/track-duration-store";
 import { usePlayerStore } from "@/stores/player-store";
@@ -16,7 +16,6 @@ import { onlineItemToPlayerTrack } from "@/types/player";
 
 export function useAudioPlayer() {
   const isSwitchingSourceRef = useRef(false);
-  const playedSessionRef = useRef<string | null>(null);
   const handledFailuresRef = useRef(new Set<string>());
   const defaultDocumentTitleRef = useRef(typeof document === "undefined" ? "ANM Player" : document.title || "ANM Player");
   // This hook runs at the application root. Select only what the effects
@@ -94,7 +93,6 @@ export function useAudioPlayer() {
         if (!isCurrentRequest()) return;
         audioService.restorePosition(usePlayerStore.getState().currentTime);
         await audioService.play();
-        if (isCurrentRequest()) recordPlayedHistory(currentSong, playbackRequestId, playedSessionRef);
       } catch (error) {
         if (!cancelled) handlePlaybackFailure(error, handledFailuresRef.current, {
           songId: currentSong.id,
@@ -177,6 +175,7 @@ export function useAudioPlayer() {
         } else {
           state.setCurrentTime(currentTime);
         }
+        if (state.isPlaying && state.currentSong) trackListening(state.currentSong, state.playbackRequestId, currentTime, audioService.getDuration());
         audioService.updateMediaSessionPosition();
       }),
       audioService.onLoadedMetadata(() => {
@@ -215,7 +214,6 @@ export function useAudioPlayer() {
         isSwitchingSourceRef.current = false;
         state.setPlaybackStatus("playing");
         audioService.updateMediaSessionPlaybackState(true);
-        if (state.currentSong) recordPlayedHistory(state.currentSong, state.playbackRequestId, playedSessionRef);
       }),
       audioService.onPause(() => {
         // load() queues pause events. By dispatch time the new source may
@@ -225,6 +223,7 @@ export function useAudioPlayer() {
         const failed = state.playbackStatus === "error";
         state.setIsPlaying(false);
         if (!failed) state.setPlaybackStatus(state.currentSong ? "paused" : "idle");
+        if (activeListen) syncListen(activeListen);
         audioService.updateMediaSessionPlaybackState(false);
       }),
       audioService.onRateChange(() => audioService.updateMediaSessionPosition()),
@@ -239,13 +238,7 @@ export function useAudioPlayer() {
     if (pendingHistoryEvents.length === 0) return;
     for (const event of pendingHistoryEvents) {
       usePlayerStore.getState().consumePendingHistoryEvent(event.id);
-      const payload = historyPayload(event.track);
-      if (!payload) continue;
-      void addHistory({
-        ...payload,
-        event_type: event.eventType,
-        position_seconds: event.positionSeconds,
-      }).then(invalidatePlaybackHistory).catch(logHistoryFailure);
+      finishListen(event.track, "skipped", event.positionSeconds);
     }
   }, [pendingHistoryEvents]);
 
@@ -335,16 +328,7 @@ export function useAudioPlayer() {
 async function handleTrackEnded(): Promise<void> {
   const state = usePlayerStore.getState();
   const completedSong = state.currentSong;
-  if (completedSong) {
-    const payload = historyPayload(completedSong);
-    if (payload) {
-      void addHistory({
-        ...payload,
-        event_type: "completed",
-        position_seconds: Math.floor(audioService.getDuration()),
-      }).then(invalidatePlaybackHistory).catch(logHistoryFailure);
-    }
-  }
+  if (completedSong) finishListen(completedSong, "completed", Math.floor(audioService.getDuration()));
 
   const preferences = usePlaybackPreferencesStore.getState();
   if (preferences.stopAfterCurrent || preferences.sleepTimerEndOfTrack) {
@@ -494,13 +478,70 @@ function invalidatePlaybackHistory() {
   return invalidateHistory(queryClient);
 }
 
-function recordPlayedHistory(song: PlayerTrack, playbackRequestId: number, playedSessionRef: { current: string | null }) {
-  const playbackSession = `${song.id}:${playbackRequestId}`;
-  if (playedSessionRef.current === playbackSession) return;
-  playedSessionRef.current = playbackSession;
-  const payload = historyPayload(song);
-  if (!payload) return;
-  void addHistory({ ...payload, event_type: "played" }).then(invalidatePlaybackHistory).catch(logHistoryFailure);
+/**
+ * One history row per listen. It is written once the song has really played
+ * for 30 seconds (or half of a short song), then finished with how it ended.
+ * Seeking doesn't count as listening.
+ */
+interface Listen {
+  key: string;
+  track: PlayerTrack;
+  seconds: number;
+  lastTime: number;
+  record: Promise<number | null> | null;
+}
+
+const LISTEN_SECONDS = 30;
+let activeListen: Listen | null = null;
+const openListens = new Map<string, Listen>();
+
+function trackListening(track: PlayerTrack, requestId: number, time: number, duration: number) {
+  const key = `${track.id}:${requestId}`;
+  if (activeListen?.key !== key) {
+    if (activeListen) syncListen(activeListen);
+    activeListen = { key, track, seconds: 0, lastTime: time, record: null };
+    openListens.set(track.id, activeListen);
+    if (openListens.size > 20) openListens.delete(openListens.keys().next().value!);
+    return;
+  }
+  const listen = activeListen;
+  const delta = time - listen.lastTime;
+  listen.lastTime = time;
+  if (delta > 0 && delta < 3) listen.seconds += delta;
+  const threshold = duration > 0 ? Math.min(LISTEN_SECONDS, duration / 2) : LISTEN_SECONDS;
+  if (!listen.record && listen.seconds >= threshold) {
+    listen.record = recordListen(track, { event_type: "played", position_seconds: Math.round(listen.seconds) });
+  }
+}
+
+function recordListen(track: PlayerTrack, details: Pick<HistoryCreateRequest, "event_type" | "outcome" | "position_seconds">): Promise<number | null> {
+  const payload = historyPayload(track);
+  if (!payload) return Promise.resolve(null);
+  return addHistory({ ...payload, ...details })
+    .then((entry) => { void invalidatePlaybackHistory(); return entry.id; })
+    .catch((error: unknown) => { logHistoryFailure(error); return null; });
+}
+
+function syncListen(listen: Listen, outcome?: "completed" | "skipped") {
+  if (!listen.record) return;
+  const seconds = Math.round(listen.seconds);
+  void listen.record
+    .then((id) => (id === null ? undefined : updateHistory(id, outcome ? { position_seconds: seconds, outcome } : { position_seconds: seconds }).then(invalidatePlaybackHistory)))
+    .catch(logHistoryFailure);
+}
+
+function finishListen(track: PlayerTrack, outcome: "completed" | "skipped", positionSeconds: number) {
+  const listen = openListens.get(track.id) ?? null;
+  openListens.delete(track.id);
+  if (listen && activeListen === listen) activeListen = null;
+  if (listen?.record) {
+    syncListen(listen, outcome);
+    return;
+  }
+  const seconds = Math.round(listen?.seconds ?? 0);
+  if (outcome === "completed") void recordListen(track, { event_type: "played", outcome, position_seconds: seconds || positionSeconds });
+  // Skipping a song you never heard isn't worth a history row.
+  else if (seconds >= 1) void recordListen(track, { event_type: "skipped", position_seconds: seconds });
 }
 
 function logHistoryFailure(error: unknown) {

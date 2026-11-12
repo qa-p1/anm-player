@@ -21,7 +21,8 @@ interface TrackMetadataProps {
 export function TrackMetadata({ track, fallbackArtist, className, linkClassName, onNavigate, hideAlbum = false }: TrackMetadataProps) {
   const artist = track.artistName || fallbackArtist || "Unknown Artist";
   const artistHref = trackArtistHref(track);
-  const album = hideAlbum ? null : track.albumTitle;
+  // Singles are usually named after the song; repeating the title adds nothing.
+  const album = hideAlbum || sameName(track.albumTitle, track.title) ? null : track.albumTitle;
   const albumHref = trackAlbumHref(track);
   const linkClasses = cn(
     "min-w-0 truncate transition hover:text-primary hover:underline hover:underline-offset-2",
@@ -102,4 +103,8 @@ function trackAlbumHref(track: PlayerTrack): string | null {
   }
   const albumId = track.rawItem.album?.id;
   return albumId ? `/albums/${encodeURIComponent(albumId)}` : null;
+}
+
+function sameName(album: string | null | undefined, title: string) {
+  return Boolean(album) && album!.trim().toLocaleLowerCase() === title.trim().toLocaleLowerCase();
 }

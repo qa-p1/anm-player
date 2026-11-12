@@ -357,6 +357,7 @@ class CatalogService:
             source_url=request.source_url or (song.source_url if song else None),
             event_type=request.event_type,
             position_seconds=request.position_seconds,
+            outcome=request.outcome if request.event_type == "played" else None,
         )
         self.history.add(history_entry)
         self.history.session.commit()

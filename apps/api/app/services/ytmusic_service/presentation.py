@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import replace
 from typing import Any
 
 from app.schemas.ytmusic import (
@@ -24,6 +25,41 @@ from app.services.ytmusic_service.parsing import (
 )
 
 
+HERO_SIZE = 5
+_BRACKETS = re.compile(r"\s*(\([^()]*\)|\[[^\[\]]*\]|「[^」]*」|【[^】]*】)")
+_VIDEO_WORDS = re.compile(r"official|video|vídeo|audio|lyric|visuali[sz]er|\bm/?v\b|\bclip\b|\b4k\b|\bhd\b", re.IGNORECASE)
+
+
+def clean_chart_title(title: str, artist_names: list[str]) -> str:
+    """Video charts carry titles like "Artist - Song (Official Music Video)"; keep the song name."""
+    artists = [name.casefold() for name in artist_names if name]
+
+    def is_artist(text: str) -> bool:
+        return text.strip().casefold() in artists
+
+    def strip_bracket(match: re.Match[str]) -> str:
+        inner = match.group(1)[1:-1]
+        return "" if _VIDEO_WORDS.search(inner) or is_artist(inner) else match.group(0)
+
+    cleaned = _BRACKETS.sub(strip_bracket, title).strip()
+    if " / " in cleaned:
+        cleaned = cleaned.split(" / ", 1)[0].strip()
+    parts = [part.strip() for part in re.split(r"\s+[-–—]\s+", cleaned) if part.strip()]
+    original_parts = list(parts)
+    if len(parts) > 1 and any(name in parts[0].casefold() for name in artists):
+        parts = parts[1:]
+    elif len(parts) > 1 and is_artist(parts[-1]):
+        parts = parts[:-1]
+    parts = [part for part in parts if not _VIDEO_WORDS.fullmatch(part) and not re.fullmatch(r"(?i)(official\s+)?(music\s+)?video(\s+klip)?|video\s+oficial", part)]
+    result = cleaned if parts == original_parts else " - ".join(parts).strip(" -")
+    return result or title
+
+
+def chart_item(item: YTItem) -> YTItem:
+    title = clean_chart_title(item.title, [artist.name for artist in item.artists])
+    return item if title == item.title else replace(item, title=title)
+
+
 def assemble_home(
     provider_home: HomePage | None,
     global_chart: tuple[str, str, list[YTItem]] | None,
@@ -36,16 +72,21 @@ def assemble_home(
     quick_shelf = find_provider_quick_picks(provider_sections)
     global_items = global_chart[2] if global_chart else []
 
-    today_items = playable_tracks(quick_shelf.items if quick_shelf else [])
-    if not today_items:
+    quick_items = playable_tracks(quick_shelf.items if quick_shelf else [])
+    # The hero never repeats Quick Picks: it takes the head of a long shelf, or another shelf.
+    if len(quick_items) >= HERO_SIZE + 8:
+        today_items, quick_items = quick_items[:HERO_SIZE], quick_items[HERO_SIZE:]
+    else:
+        quick_ids = {item.id for item in quick_items}
+        today_items = []
         for shelf in provider_sections:
             if shelf is quick_shelf:
                 continue
-            today_items = playable_tracks(shelf.items)
+            today_items = [item for item in playable_tracks(shelf.items) if item.id not in quick_ids]
             if today_items:
                 break
-    if not today_items:
-        today_items = global_items
+        if not today_items:
+            today_items = [item for item in global_items if item.id not in quick_ids]
 
     sections: list[OnlineHomeSection] = []
     if today_items:
@@ -55,16 +96,15 @@ def assemble_home(
                 title="Today's Pick",
                 subtitle="Ready to play",
                 layout="hero",
-                items=[item_to_schema(item) for item in today_items[:5]],
+                items=[item_to_schema(item) for item in today_items[:HERO_SIZE]],
             )
         )
-    quick_items = playable_tracks(quick_shelf.items if quick_shelf else [])
     if quick_items:
         sections.append(
             OnlineHomeSection(
                 id="quick-picks",
                 title="Quick Picks",
-                subtitle=quick_shelf.label,
+                subtitle=quick_shelf.label if quick_shelf else None,
                 layout="quick_grid",
                 items=[item_to_schema(item) for item in quick_items[:20]],
             )
@@ -76,7 +116,7 @@ def assemble_home(
                 title="Trending Globally",
                 subtitle=global_chart[0],
                 layout="song_list",
-                items=[item_to_schema(item) for item in global_items[:20]],
+                items=[item_to_schema(chart_item(item)) for item in global_items[:20]],
             )
         )
     if explore_albums:
@@ -95,7 +135,7 @@ def assemble_home(
                 title="Top Songs",
                 subtitle=region_chart[0],
                 layout="song_list",
-                items=[item_to_schema(item) for item in region_chart[2][:20]],
+                items=[item_to_schema(chart_item(item)) for item in region_chart[2][:20]],
             )
         )
     return OnlineHomeResponse(region=region, chips=[], sections=sections)

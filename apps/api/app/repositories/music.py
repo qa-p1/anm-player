@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from sqlalchemy import String, and_, case, cast, func, literal, select, text, update
+from sqlalchemy import String, and_, case, cast, func, literal, or_, select, text, update
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.core.enums import DownloadStage, DownloadStatus
@@ -371,7 +371,12 @@ class HistoryRepository(Repository[History]):
             joinedload(History.song).joinedload(Song.artist),
             joinedload(History.song).joinedload(Song.album),
         )
-        if event_type is not None:
+        if event_type in {"completed", "skipped"}:
+            # A listen that ended this way counts too, not only older single events.
+            statement = statement.where(
+                or_(History.event_type == event_type, and_(History.event_type == "played", History.outcome == event_type))
+            )
+        elif event_type is not None:
             statement = statement.where(History.event_type == event_type)
         statement = (
             statement.order_by(History.played_at.desc(), History.id.desc())
