@@ -41,7 +41,7 @@ const DropdownMenuSubContent = React.forwardRef<
       sideOffset={8}
       collisionPadding={20}
       className={cn(
-        "z-[310] max-h-[min(70vh,28rem)] min-w-[8rem] max-w-[calc(100vw-2rem)] overflow-y-auto rounded-md border border-white/20 bg-card/95 p-1 text-card-foreground shadow-2xl backdrop-blur-2xl data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
+        "z-[310] max-h-[min(70vh,28rem)] min-w-[8rem] max-w-[calc(100vw-2rem)] overflow-y-auto rounded-md border border-white/20 bg-card/95 p-1 text-card-foreground shadow-2xl backdrop-blur-2xl menu-surface",
         className,
       )}
       {...props}
@@ -60,7 +60,7 @@ const DropdownMenuContent = React.forwardRef<
       sideOffset={sideOffset}
       collisionPadding={12}
       className={cn(
-        "z-[300] max-h-[min(70vh,28rem)] min-w-[8rem] max-w-[calc(100vw-2rem)] overflow-y-auto rounded-md border border-white/20 bg-card/95 p-1 text-card-foreground shadow-2xl backdrop-blur-2xl data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
+        "z-[300] max-h-[min(70vh,28rem)] min-w-[8rem] max-w-[calc(100vw-2rem)] overflow-y-auto rounded-md border border-white/20 bg-card/95 p-1 text-card-foreground shadow-2xl backdrop-blur-2xl menu-surface",
         className,
       )}
       {...props}

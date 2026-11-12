@@ -216,7 +216,7 @@ export function TrackActionsMenu({
             <MoreHorizontal className={cn("h-5 w-5", iconClassName)} />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="track-actions-menu-content w-56" onClick={(event) => event.stopPropagation()}>
+        <DropdownMenuContent align="end" className="w-56" onClick={(event) => event.stopPropagation()}>
           <DropdownMenuItem onClick={handlePlayNext}>
             <PlayCircle className="mr-2 h-4 w-4" />
             Play next
