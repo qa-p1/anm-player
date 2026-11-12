@@ -21,6 +21,7 @@ import { toast } from "@/components/ui/toast";
 import { playAlbumById, playingAlbumKey } from "@/features/library/collection-playback";
 import { copyLink, useCollectionPlayState } from "@/features/library/use-collection-play-state";
 import { useToggleFavorite } from "@/hooks/use-music-queries";
+import { findOnlineArtistId } from "@/features/navigation/resolve-music-page";
 import { cn } from "@/lib/utils";
 import { cachedArtworkUrl } from "@/services/api-client";
 import { getArtist, getOnlineArtist } from "@/services/music-api";
@@ -53,9 +54,12 @@ export function ArtistDetailPage() {
   const isOnline = location.pathname.includes("/artists/online/");
   const numericId = Number(artistId);
   const localQuery = useQuery({ queryKey: musicKeys.artist(numericId), queryFn: ({ signal }) => getArtist(numericId, signal), enabled: !isOnline && Number.isSafeInteger(numericId) && numericId > 0 });
-  const onlineQuery = useQuery({ queryKey: musicKeys.onlineArtist(artistId ?? ""), queryFn: ({ signal }) => getOnlineArtist(artistId!, signal), enabled: isOnline && Boolean(artistId) });
   const localArtist = isOnline ? undefined : localQuery.data;
-  const onlineArtist = isOnline ? onlineQuery.data : undefined;
+  // A library artist also gets their YouTube Music page: photo, popular songs and every release.
+  const matchQuery = useQuery({ queryKey: ["resolve", "artist-exact", localArtist?.name ?? ""], queryFn: () => findOnlineArtistId(localArtist!.name), enabled: Boolean(localArtist?.name), staleTime: 60 * 60 * 1000, retry: false });
+  const onlineId = isOnline ? artistId : matchQuery.data ?? undefined;
+  const onlineQuery = useQuery({ queryKey: musicKeys.onlineArtist(onlineId ?? ""), queryFn: ({ signal }) => getOnlineArtist(onlineId!, signal), enabled: Boolean(onlineId) });
+  const onlineArtist = onlineQuery.data;
   const activeQuery = isOnline ? onlineQuery : localQuery;
   const isFavorited = localArtist?.is_favorited ?? false;
   const [showAllPopular, setShowAllPopular] = useState(false);
@@ -66,9 +70,9 @@ export function ArtistDetailPage() {
 
   const view = useMemo(() => buildView(localArtist, onlineArtist), [localArtist, onlineArtist]);
   const playerTracks = useMemo<PlayerTrack[]>(() => [
-    ...(localArtist?.top_songs.map(songToPlayerTrack) ?? []),
-    ...(onlineArtist?.top_tracks.map(libraryTrackToPlayerTrack) ?? []),
-  ], [localArtist, onlineArtist]);
+    ...(view?.localSongs.map(songToPlayerTrack) ?? []),
+    ...(view?.onlineTracks.map(libraryTrackToPlayerTrack) ?? []),
+  ], [view]);
   const playState = useCollectionPlayState(playerTracks, { kind: "artist", id: artistId ?? "" });
   const albums = useMemo(() => sortAlbums(view?.albums ?? [], discographySort), [view, discographySort]);
   const latest = useMemo(() => sortAlbums(view?.albums ?? [], "newest")[0] ?? null, [view]);
@@ -239,16 +243,18 @@ function LatestRelease({ album, isActive }: { album: AlbumView; isActive: boolea
 
 function buildView(localArtist: ArtistDetail | undefined, onlineArtist: LibraryArtistDetail | undefined) {
   if (onlineArtist) {
+    const onlineTitles = new Set(onlineArtist.top_tracks.map((track) => track.title.toLocaleLowerCase()));
     return {
       name: onlineArtist.name,
       artwork: onlineArtist.thumbnail_url,
       songCount: onlineArtist.track_count,
       albumCount: onlineArtist.album_count,
-      albums: onlineArtist.albums.map((album): AlbumView => ({
+      albums: withoutDuplicateReleases(onlineArtist.albums.map((album): AlbumView => ({
         key: album.public_id, title: album.title, year: album.year, href: album.canonical_url, publicId: album.public_id,
-        artwork: album.artwork_path || album.artwork_url, fallback: album.artwork_url, count: album.track_count, offline: album.download_state === "downloaded",
-      })),
-      localSongs: [],
+        artwork: album.artwork_path || album.artwork_url, fallback: album.artwork_url, count: album.track_count, offline: album.download_state === "downloaded" || album.downloaded_track_count > 0,
+      }))),
+      // Your own songs by this artist that aren't among their popular ones.
+      localSongs: (localArtist?.top_songs ?? []).filter((song) => !onlineTitles.has(song.title.toLocaleLowerCase())),
       onlineTracks: onlineArtist.top_tracks,
     };
   }
@@ -267,6 +273,17 @@ function buildView(localArtist: ArtistDetail | undefined, onlineArtist: LibraryA
     };
   }
   return null;
+}
+
+/** Your copy of an album and its YouTube Music release show once, as your copy. */
+function withoutDuplicateReleases(albums: AlbumView[]) {
+  const byRelease = new Map<string, AlbumView>();
+  for (const album of albums) {
+    const key = `${album.title.trim().toLocaleLowerCase()}|${album.year ?? ""}`;
+    const existing = byRelease.get(key);
+    if (!existing || (album.offline && !existing.offline)) byRelease.set(key, album);
+  }
+  return [...byRelease.values()];
 }
 
 function sortAlbums(albums: AlbumView[], sort: DiscographySort) {

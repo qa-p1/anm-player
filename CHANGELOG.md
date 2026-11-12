@@ -5,6 +5,7 @@
 - **Instant playback**: Songs start in about a second, almost at once if you hover first, and the next song is ready before yours ends.
 - **Half the data**: Streamed songs download once at full speed instead of twice, and replays come straight from the cache.
 - **Plays that really count**: A song counts as played after 30 seconds or half its length, and History shows one entry per listen.
+- **Real artist pages**: Artists in your library show their photo, popular songs and every release, next to your own songs.
 - **Full albums**: Albums you own a few songs from show the whole tracklist and year, with your songs marked Offline.
 - **One-click album downloads**: Downloading an album saves it to your library too, with no separate Add step.
 - **Original audio quality**: Downloads keep YouTube Music's own audio by default instead of re-encoding it to MP3.

@@ -29,6 +29,18 @@ export async function resolveArtistPage(name: string): Promise<string | null> {
   return id ? `/library/artists/online/${encodeURIComponent(id)}` : null;
 }
 
+/** The YouTube Music artist with exactly this name, or null when unsure. */
+export async function findOnlineArtistId(name: string): Promise<string | null> {
+  const artist = primaryArtist(name);
+  const response = await queryClient.fetchQuery({
+    queryKey: ["resolve", "artist", normalize(artist)],
+    queryFn: ({ signal }) => searchYouTubeMusic(artist, "artists", undefined, signal),
+    staleTime: ONE_HOUR,
+  });
+  const pick = response.items.find((item) => item.kind === "artist" && normalize(item.title) === normalize(artist));
+  return pick?.browse_id || pick?.id || null;
+}
+
 /** Finds the real album page for an album title (and optional artist name). */
 export async function resolveAlbumPage(album: string, artist?: string | null): Promise<string | null> {
   const artistName = artist ? primaryArtist(artist) : "";
