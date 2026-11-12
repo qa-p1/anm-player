@@ -251,8 +251,8 @@ export function SettingsPage() {
           </SettingsGroup>
 
           <SettingsGroup id="downloads" title="Downloads" icon={<Download />}>
-            <SettingRow label="Audio format" control={
-              <Segmented label="Audio format" value={settings?.download_audio_format ?? "mp3"} onChange={(value: AudioFormat) => save({ download_audio_format: value })} options={(["mp3", "m4a", "opus", "flac", "ogg"] as const).map((format) => ({ value: format, label: format.toUpperCase() }))} />
+            <SettingRow label="Audio format" description="Original keeps the audio exactly as YouTube Music sends it: best quality, nothing re-encoded." control={
+              <Segmented label="Audio format" value={settings?.download_audio_format ?? "original"} onChange={(value: AudioFormat) => save({ download_audio_format: value })} options={(["original", "mp3", "m4a", "opus", "flac", "ogg"] as const).map((format) => ({ value: format, label: format === "original" ? "Original" : format.toUpperCase() }))} />
             } />
             <SettingRow label="Songs at once" description="How many songs download at the same time." control={
               <Stepper label="Songs at once" value={settings?.max_concurrent_downloads ?? 3} min={1} max={8} onChange={(value) => save({ max_concurrent_downloads: value })} />

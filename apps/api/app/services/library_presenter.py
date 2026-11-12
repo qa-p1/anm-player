@@ -339,6 +339,38 @@ class LibraryPresenter:
             tracks=track_responses,
         )
 
+    def complete_with_preview(
+        self, response: UnifiedAlbumResponse, preview: OnlineAlbumPreview
+    ) -> UnifiedAlbumResponse:
+        """Show the whole release: songs you have stay as they are, the rest stream."""
+        from app.services.library_albums import title_key
+
+        owned = {title_key(track.title): track for track in response.tracks}
+        online = self.preview_unified_album(preview).tracks
+        if len(online) <= len(response.tracks):
+            return response.model_copy(update={"year": response.year or preview.year})
+        used: set[str] = set()
+        merged = []
+        for track in online:
+            key = title_key(track.title)
+            mine = owned.get(key)
+            if mine is not None and key not in used:
+                used.add(key)
+                merged.append(mine.model_copy(update={"track_number": track.track_number or mine.track_number}))
+            else:
+                merged.append(track)
+        merged.extend(track for key, track in owned.items() if key not in used)
+        return response.model_copy(update={
+            "year": response.year or preview.year,
+            "track_count": len(merged),
+            "duration_seconds": sum(track.duration_seconds or 0 for track in merged) or None,
+            "tracks": merged,
+            "state": response.state.model_copy(update={
+                "download": "partial" if response.state.downloaded_track_count else response.state.download,
+                "playable_track_count": sum(1 for track in merged if track.is_available),
+            }),
+        })
+
     def preview_unified_album(
         self, preview: OnlineAlbumPreview
     ) -> UnifiedAlbumResponse:
@@ -393,7 +425,7 @@ class LibraryPresenter:
                 can_add_to_library=True,
                 can_remove_from_library=False,
                 can_favorite=False,
-                can_download=False,
+                can_download=playable_count > 0,
                 can_cancel_download=False,
                 can_remove_download=False,
             ),

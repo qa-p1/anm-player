@@ -88,7 +88,7 @@ export function AlbumDetailPage() {
   }
 
   function handleDownload() {
-    void run("download", () => downloadUnifiedAlbum(albumId), "Album download queued");
+    void run("download", () => downloadUnifiedAlbum(albumId), album?.state.in_library ? "Album download queued" : "Album saved to your library and downloading");
   }
 
   function handleCancelDownload() {

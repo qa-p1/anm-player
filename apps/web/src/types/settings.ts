@@ -14,7 +14,7 @@ export interface StorageMigrationStatus {
   cleanup_warning: string | null;
 }
 
-export type AudioFormat = "mp3" | "m4a" | "flac" | "opus" | "ogg";
+export type AudioFormat = "original" | "mp3" | "m4a" | "flac" | "opus" | "ogg";
 export type StreamQuality = "low" | "auto" | "high";
 
 export interface SettingsSummary {

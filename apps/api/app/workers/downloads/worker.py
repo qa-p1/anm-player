@@ -45,6 +45,7 @@ from app.services.ytmusic_service import PlaybackData, ytmusic_service
 from app.storage import storage_manager
 from app.storage.coordinator import StorageMigrationError, storage_coordinator
 
+ORIGINAL_FORMAT = "original"
 logger = logging.getLogger(__name__)
 
 # yt-dlp calls progress hooks many times per second. Persist and broadcast an
@@ -287,7 +288,7 @@ class DownloadWorker:
             "postprocessors": [
                 {
                     "key": "FFmpegExtractAudio",
-                    "preferredcodec": audio_format,
+                    "preferredcodec": "best" if audio_format == ORIGINAL_FORMAT else audio_format,
                     "preferredquality": "0",
                 }
             ],
@@ -354,7 +355,10 @@ class DownloadWorker:
             ".m4a" if "audio/mp4" in mime_type or "mp4a" in mime_type else ".webm"
         )
         source_file = work_dir / f".{video_id}.source{source_suffix}"
-        output_file = work_dir / f"{video_id}.{audio_format}"
+        # "original" keeps YouTube's own audio (Opus or AAC) without re-encoding.
+        keep_original = audio_format == ORIGINAL_FORMAT
+        output_suffix = (".m4a" if source_suffix == ".m4a" else ".opus") if keep_original else f".{audio_format}"
+        output_file = work_dir / f"{video_id}{output_suffix}"
         source_file.unlink(missing_ok=True)
         output_file.unlink(missing_ok=True)
 
@@ -391,6 +395,7 @@ class DownloadWorker:
                     "-vn",
                     "-map_metadata",
                     "0",
+                    *(["-c:a", "copy"] if keep_original else []),
                     *(["-q:a", "0"] if audio_format == "mp3" else []),
                     str(output_file),
                 ],
@@ -641,7 +646,7 @@ class DownloadWorker:
                 artist=artist_name,
                 album=storage_album_name,
                 title=title,
-                extension=fresh_job.audio_format,
+                extension=output_file.suffix.lstrip(".").lower() or fresh_job.audio_format,
             )
             target_path.parent.mkdir(parents=True, exist_ok=True)
             if target_path.exists():

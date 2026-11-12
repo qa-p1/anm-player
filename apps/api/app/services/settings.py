@@ -12,7 +12,7 @@ from app.services.library_songs import library_song_count
 
 DEFAULTS: dict[str, Any] = {
     "startup_scan_enabled": True,
-    "download_audio_format": "mp3",
+    "download_audio_format": "original",
     "download_overwrite_existing": False,
     "max_concurrent_downloads": 3,
     "album_download_max_parallel": 3,

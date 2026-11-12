@@ -4,6 +4,7 @@ import asyncio
 import logging
 import os
 import re
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -16,6 +17,7 @@ from app.core.enums import DownloadStatus
 from app.core.exceptions import ConflictError, ResourceNotFoundError
 from app.core.youtube import youtube_video_id
 from app.models import (
+    Album,
     AlbumDownloadItem,
     AlbumDownloadJob,
     DownloadJob,
@@ -54,6 +56,15 @@ from app.services.settings import SettingsService
 from app.services.ytmusic_service import ytmusic_service
 
 logger = logging.getLogger(__name__)
+# Albums you partly own, matched to their YouTube Music release (album id -> expiry, browse id).
+_online_album_matches: dict[int, tuple[float, str | None]] = {}
+ONLINE_MATCH_TTL_SECONDS = 24 * 60 * 60
+
+
+def title_key(title: str | None) -> str:
+    """Compare titles without "(feat. …)", "[Remastered]" or case."""
+    base = re.sub(r"\s*[([][^)\]]*[)\]]", "", title or "")
+    return re.sub(r"\s+", " ", base).strip().casefold()
 # Older versions stored this when the provider header couldn't be parsed.
 PLACEHOLDER_ARTIST_NAMES = frozenset({"", "Artist"})
 
@@ -211,11 +222,57 @@ class LibraryAlbumService:
         )
         if album:
             await self._refresh_missing_album_durations([album])
-            return self.responses.stored_unified_album(
+            response = self.responses.stored_unified_album(
                 album, self._active_album_job(album.id)
             )
+            if album.source == "local":
+                preview = await self._matching_online_album(album)
+                if preview is not None:
+                    self._fill_album_year(album, preview.year)
+                    response = self.responses.complete_with_preview(response, preview)
+            return response
         preview = await self.preview_online_album(public_id)
         return self.responses.preview_unified_album(preview)
+
+    async def _matching_online_album(self, album: LibraryAlbum) -> OnlineAlbumPreview | None:
+        """The YouTube Music release of an album you only have some songs of."""
+        now = time.monotonic()
+        cached = _online_album_matches.get(album.id)
+        if cached and cached[0] > now:
+            browse_id = cached[1]
+        else:
+            browse_id = None
+            try:
+                results = await ytmusic_service.search(" ".join(filter(None, [album.title, album.artist_name])), filter_name="albums")
+                wanted_title = title_key(album.title)
+                wanted_artist = (album.artist_name or "").casefold()
+                for item in results.items:
+                    artists = " ".join(artist.name for artist in item.artists).casefold()
+                    if item.kind == "album" and title_key(item.title) == wanted_title and (not wanted_artist or wanted_artist in artists or artists in wanted_artist):
+                        browse_id = item.browse_id or item.id
+                        break
+            except Exception:
+                logger.info("Could not look up the online album for %s", album.title, exc_info=True)
+                return None
+            _online_album_matches[album.id] = (now + ONLINE_MATCH_TTL_SECONDS, browse_id)
+        if not browse_id:
+            return None
+        try:
+            return await self.preview_online_album(browse_id)
+        except Exception:
+            logger.info("Could not load the online album %s", browse_id, exc_info=True)
+            return None
+
+    def _fill_album_year(self, album: LibraryAlbum, year: int | None) -> None:
+        """Downloads often lack a year; the matched release knows it."""
+        if album.year or not year:
+            return
+        album.year = year
+        if album.local_album_id:
+            local = self.session.get(Album, album.local_album_id)
+            if local and not local.year:
+                local.year = year
+        self.session.commit()
 
     async def add_unified_album_to_library(
         self, public_id: str
@@ -271,12 +328,14 @@ class LibraryAlbumService:
     async def download_unified_album(
         self, public_id: str, *, max_parallel: int | None = None
     ) -> UnifiedAlbumResponse:
+        existing = self.session.scalars(
+            select(LibraryAlbum).where(LibraryAlbum.public_id == public_id)
+        ).first()
+        if existing is None or not existing.is_in_library:
+            # Downloading an album also keeps it: one click instead of Add, then Download.
+            added = await self.add_unified_album_to_library(public_id)
+            public_id = added.id
         album = self._get_library_album_by_public_id(public_id)
-        if not album.is_in_library:
-            raise ResourceNotFoundError(
-                "Album must be in the library before it can be downloaded",
-                details={"album_id": public_id},
-            )
         self.create_album_download(album.id, max_parallel=max_parallel)
         return await self.get_unified_album(public_id)
 
@@ -879,7 +938,7 @@ class LibraryAlbumService:
         )
         self.session.add(album_job)
         self.session.flush()
-        audio_format = runtime.get_str("download_audio_format", "mp3")
+        audio_format = runtime.get_str("download_audio_format", "original")
         overwrite_existing = runtime.get_bool("download_overwrite_existing", False)
         for track in downloadable_tracks:
             download = DownloadJob(
@@ -1028,7 +1087,7 @@ class LibraryAlbumService:
         self.session.add(album_job)
         self.session.flush()
 
-        audio_format = runtime.get_str("download_audio_format", "mp3")
+        audio_format = runtime.get_str("download_audio_format", "original")
         overwrite_existing = runtime.get_bool("download_overwrite_existing", False)
         for track in pending_tracks:
             download = DownloadJob(

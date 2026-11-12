@@ -172,3 +172,24 @@ def test_conversion_preserves_metadata_and_cleans_up_partial_files(worker, tmp_p
         with pytest.raises(RuntimeError, match="conversion failed"):
             worker._download_media_direct(1, "test-video", "mp3", tmp_path)
         assert list(tmp_path.iterdir()) == []
+
+
+def test_original_quality_keeps_youtube_audio_without_reencoding(worker, tmp_path, monkeypatch):
+    monkeypatch.setattr(worker_module.ytmusic_service, "playback", lambda *args, **kwargs: playback())
+    monkeypatch.setattr(worker_module.shutil, "which", lambda executable: "/usr/bin/ffmpeg")
+    commands = []
+
+    def stream(job_id, resolved, target):
+        target.write_bytes(b"opus audio")
+        return 10, 10
+
+    def remux(command, **kwargs):
+        commands.append(command)
+        Path(command[-1]).write_bytes(b"opus audio")
+        return SimpleNamespace(returncode=0, stderr="")
+
+    monkeypatch.setattr(worker, "_download_playback_stream", stream)
+    monkeypatch.setattr(worker_module.subprocess, "run", remux)
+    _, target = worker._download_media_direct(1, "test-video", "original", tmp_path)
+    assert target.suffix == ".opus"
+    assert ["-c:a", "copy"] == commands[0][commands[0].index("-c:a"):commands[0].index("-c:a") + 2]

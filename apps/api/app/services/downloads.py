@@ -156,7 +156,7 @@ class DownloadService:
             thumbnail_url=request.thumbnail_url,
             search_query=request.search_query,
             overwrite_existing=overwrite,
-            audio_format=runtime.get_str("download_audio_format", "mp3"),
+            audio_format=runtime.get_str("download_audio_format", "original"),
         )
         self.downloads.add(job)
         self.queue_items.add(QueueItem(download_job=job, status=DownloadStatus.QUEUED, item_type="download"))

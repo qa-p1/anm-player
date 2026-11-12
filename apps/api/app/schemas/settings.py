@@ -2,7 +2,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-AudioFormat = Literal["mp3", "m4a", "flac", "opus", "ogg"]
+AudioFormat = Literal["original", "mp3", "m4a", "flac", "opus", "ogg"]
 StreamQuality = Literal["low", "auto", "high"]
 ThemeMode = Literal["dark", "light", "system"]
 AccentTheme = Literal["rose", "teal", "amber", "violet"]

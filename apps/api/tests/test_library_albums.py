@@ -421,6 +421,7 @@ def test_unified_online_album_keeps_public_id_across_library_and_favorite_states
             service.set_unified_album_favorite("MPRE-unified", True)
         )
 
+    assert online.capabilities.can_download is True
     assert online.id == saved.id == favorited.id == "MPRE-unified"
     assert online.canonical_url == saved.canonical_url == "/albums/MPRE-unified"
     assert online.state.in_library is False
@@ -668,3 +669,62 @@ def test_library_search_returns_playable_tracks_without_physical_paths() -> None
     assert track_result.track.external_id == "video-id"
     assert track_result.track.duration_seconds == 200
     assert track_result.href == f"/albums/{album.public_id}"
+
+
+def test_downloading_an_online_album_saves_it_in_one_step(music_directory, monkeypatch) -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
+    preview = OnlineAlbumPreview(
+        external_id="MPRE-oneclick",
+        title="One Click",
+        artist_name="Artist",
+        tracks=[OnlineAlbumTrackPreview(external_id="video-oneclick", title="Track", artist_name="Artist", album_title="One Click", position=0, source_url="https://music.youtube.com/watch?v=video-oneclick")],
+    )
+    with Session() as session:
+        service = FakeLibraryAlbumService(session, {"MPRE-oneclick": preview})
+        started: list[int] = []
+        monkeypatch.setattr(service, "create_album_download", lambda album_id, max_parallel=None: started.append(album_id))
+        result = asyncio.run(service.download_unified_album("MPRE-oneclick"))
+
+    assert result.state.in_library is True
+    assert len(started) == 1
+
+
+def test_partly_owned_local_album_shows_the_full_release_and_year(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    from app.models import LibraryAlbum, LibraryTrack
+    from app.services import library_albums
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
+    release = OnlineAlbumPreview(
+        external_id="MPRE-ram",
+        title="Random Access Memories",
+        artist_name="Daft Punk",
+        year=2013,
+        tracks=[
+            OnlineAlbumTrackPreview(external_id=f"v{index}", title=title, artist_name="Daft Punk", album_title="Random Access Memories", position=index, track_number=index + 1)
+            for index, title in enumerate(["Give Life Back to Music", "Get Lucky (feat. Pharrell Williams)", "Contact"])
+        ],
+    )
+
+    async def search(query, filter_name="all"):
+        return SimpleNamespace(items=[SimpleNamespace(kind="album", title="Random Access Memories", browse_id="MPRE-ram", id="MPRE-ram", artists=[SimpleNamespace(name="Daft Punk")])])
+
+    monkeypatch.setattr(library_albums.ytmusic_service, "search", search)
+    library_albums._online_album_matches.clear()
+    with Session() as session:
+        album = LibraryAlbum(public_id="local_ram", source="local", external_id="1", title="Random Access Memories", artist_name="Daft Punk")
+        album.tracks.append(LibraryTrack(source="local", external_id="local-1", title="Get Lucky (feat. Pharrell Williams)", artist_name="Daft Punk", position=0))
+        session.add(album)
+        session.commit()
+        response = asyncio.run(FakeLibraryAlbumService(session, {"MPRE-ram": release}).get_unified_album("local_ram"))
+        assert album.year == 2013
+
+    assert response.year == 2013
+    assert [track.title for track in response.tracks] == ["Give Life Back to Music", "Get Lucky (feat. Pharrell Williams)", "Contact"]
+    assert [track.playback_source for track in response.tracks] == ["streaming", "unavailable", "streaming"]
+    assert response.tracks[1].id != "youtube:v1"
