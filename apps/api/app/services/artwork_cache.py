@@ -8,6 +8,7 @@ import logging
 import os
 import secrets
 import threading
+import time
 import warnings
 from io import BytesIO
 from pathlib import Path
@@ -24,6 +25,10 @@ logger = logging.getLogger(__name__)
 _url_locks = tuple(threading.Lock() for _ in range(64))
 _download_slots = threading.BoundedSemaphore(settings.artwork_max_concurrency)
 _eviction_lock = threading.Lock()
+# Eviction walks the whole cache folder, so run it at most this often.
+EVICTION_INTERVAL_SECONDS = 60.0
+_last_eviction = 0.0
+TRANSIENT_STATUS = {429, 500, 502, 503, 504}
 
 
 def _safe_url_host(url: str) -> str | None:
@@ -106,14 +111,14 @@ class ArtworkCacheService:
                 return cached
             await _acquire_cancel_safe(_download_slots)
             slot_acquired = True
-            content = await self._download(url)
+            content = await self._download_with_retry(url)
             if content is None:
                 return None
             await _run_thread_cancel_safe(self._publish_validated_image, content, url, optimize)
             medium_path = self.get_cache_path(url, "medium")
             if not medium_path.is_file():
                 return None
-            await _run_thread_cancel_safe(self._evict_cache)
+            await _run_thread_cancel_safe(self._evict_cache_if_due)
             return medium_path if medium_path.is_file() else None
         except Exception:
             logger.warning("failed to cache artwork", extra={"host": _safe_url_host(url)}, exc_info=True)
@@ -123,6 +128,21 @@ class ArtworkCacheService:
                 _download_slots.release()
             if lock_acquired:
                 lock.release()
+
+    async def _download_with_retry(self, url: str) -> bytes | None:
+        """One retry for network blips and provider hiccups; real misses are not retried."""
+        for attempt in range(2):
+            try:
+                return await self._download(url)
+            except (httpx.TimeoutException, httpx.NetworkError) as exc:
+                if attempt:
+                    raise
+                logger.debug("retrying artwork after a network error", extra={"host": _safe_url_host(url)}, exc_info=exc)
+            except httpx.HTTPStatusError as exc:
+                if attempt or exc.response.status_code not in TRANSIENT_STATUS:
+                    raise
+            await asyncio.sleep(0.5)
+        return None
 
     async def _download(self, url: str) -> bytes | None:
         timeout = httpx.Timeout(10.0, connect=3.0)
@@ -211,6 +231,14 @@ class ArtworkCacheService:
         except OSError:
             pass
         return cache_path
+
+    def _evict_cache_if_due(self) -> None:
+        global _last_eviction
+        now = time.monotonic()
+        if now - _last_eviction < EVICTION_INTERVAL_SECONDS:
+            return
+        _last_eviction = now
+        self._evict_cache()
 
     def _evict_cache(self) -> None:
         with _eviction_lock:

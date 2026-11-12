@@ -13,6 +13,7 @@ These arrive through the in-app update button.
 - Songs downloaded from a playlist, the song menu or search now show as offline everywhere they're saved, not only in the album they came from.
 - Download progress no longer jumps backwards as songs finish, and the queue uses one light poll instead of a live connection per song.
 - The Playlists page uses the same header as Albums and Artists.
+- Artwork caching: covers are kept by the browser for 30 days instead of being re-requested, a network blip is retried once instead of leaving a blank cover, failures are never cached, and cache clean-up runs at most once a minute instead of scanning the folder after every image.
 
 ## 1.0.0 - 2026-11-11
 

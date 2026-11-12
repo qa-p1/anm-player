@@ -200,3 +200,74 @@ def test_artwork_eviction_removes_oldest_file(tmp_path, monkeypatch) -> None:
     service._evict_cache()
 
     assert sum(path.is_file() for path in service.cache_dir.rglob("*.jpg")) == 1
+
+
+def test_network_blip_is_retried_once_but_real_misses_are_not(tmp_path, monkeypatch) -> None:
+    import httpx
+
+    service = ArtworkCacheService(tmp_path / "cache")
+    calls = []
+
+    async def flaky(url: str) -> bytes:
+        calls.append(url)
+        if len(calls) == 1:
+            raise httpx.ConnectTimeout("blip")
+        return _image_bytes()
+
+    real_sleep = asyncio.sleep
+    monkeypatch.setattr(artwork_module.asyncio, "sleep", lambda _seconds: real_sleep(0))
+    monkeypatch.setattr(service, "_download", flaky)
+    assert asyncio.run(service.download_and_cache("https://i.ytimg.com/flaky.jpg")) is not None
+    assert len(calls) == 2
+
+    missing_calls = []
+
+    async def missing(url: str) -> bytes:
+        missing_calls.append(url)
+        request = httpx.Request("GET", url)
+        raise httpx.HTTPStatusError("missing", request=request, response=httpx.Response(404, request=request))
+
+    monkeypatch.setattr(service, "_download", missing)
+    assert asyncio.run(service.download_and_cache("https://i.ytimg.com/missing.jpg")) is None
+    assert len(missing_calls) == 1
+
+
+def test_eviction_walks_the_cache_at_most_once_a_minute(tmp_path, monkeypatch) -> None:
+    service = ArtworkCacheService(tmp_path / "cache")
+    walks = []
+    monkeypatch.setattr(service, "_evict_cache", lambda: walks.append(1))
+    monkeypatch.setattr(artwork_module, "_last_eviction", 0.0)
+    clock = [1000.0]
+    monkeypatch.setattr(artwork_module.time, "monotonic", lambda: clock[0])
+    service._evict_cache_if_due()
+    service._evict_cache_if_due()
+    clock[0] += artwork_module.EVICTION_INTERVAL_SECONDS + 1
+    service._evict_cache_if_due()
+    assert len(walks) == 2
+
+
+def test_artwork_responses_are_browser_cacheable_but_misses_are_not(tmp_path, monkeypatch) -> None:
+    from fastapi.testclient import TestClient
+
+    import app.api.v1.routes.media as media
+    from app.main import app
+
+    cached = tmp_path / "art.jpg"
+    cached.write_bytes(_image_bytes())
+
+    class FakeCache:
+        def is_allowed_remote_url(self, url):
+            return True
+
+        async def download_and_cache(self, url):
+            return cached if "hit" in url else None
+
+    monkeypatch.setattr(media, "_artwork_cache", lambda: FakeCache())
+    client = TestClient(app, base_url="http://localhost")
+    hit = client.get("/api/v1/media/remote-artwork", params={"url": "https://i.ytimg.com/hit.jpg"})
+    miss = client.get("/api/v1/media/remote-artwork", params={"url": "https://i.ytimg.com/miss.jpg"})
+    client.close()
+    assert hit.status_code == 200
+    assert "max-age=2592000" in hit.headers["cache-control"] and "immutable" in hit.headers["cache-control"]
+    assert miss.status_code == 404
+    assert miss.headers["cache-control"] == "no-store"

@@ -22,6 +22,10 @@ from app.storage import storage_manager
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+# Cached artwork is addressed by a hash of its source, so its bytes never change.
+ARTWORK_CACHE_HEADERS = {"Cache-Control": "private, max-age=2592000, immutable"}
+# A miss may be a temporary network problem; never let the browser remember it.
+NO_STORE = {"Cache-Control": "no-store"}
 # New cache entries use SHA-256. Exact legacy MD5 names remain readable so
 # existing installations can rehydrate them and rewrite their database path.
 ARTWORK_FILENAME = re.compile(r"^(?:[0-9a-f]{32}|[0-9a-f]{64})\.jpg$")
@@ -92,9 +96,9 @@ async def remote_artwork(url: str = Query(min_length=1, max_length=4096)) -> Fil
 
     cached_path = await artwork_cache.download_and_cache(url)
     if not cached_path or not cached_path.is_file():
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Artwork not available")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Artwork not available", headers=NO_STORE)
 
-    return FileResponse(str(cached_path), media_type="image/jpeg")
+    return FileResponse(str(cached_path), media_type="image/jpeg", headers=ARTWORK_CACHE_HEADERS)
 
 
 @router.get("/artwork/cache/{size}/{filename}", summary="Serve cached artwork")
@@ -113,7 +117,7 @@ async def cached_artwork(session: DbSession, size: str, filename: str) -> FileRe
             legacy_target=artwork_path,
         )
         if recovered is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Artwork not found")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Artwork not found", headers=NO_STORE)
         artwork_path = recovered
     else:
         try:
@@ -121,7 +125,7 @@ async def cached_artwork(session: DbSession, size: str, filename: str) -> FileRe
         except OSError:
             pass
 
-    return FileResponse(str(artwork_path), media_type="image/jpeg")
+    return FileResponse(str(artwork_path), media_type="image/jpeg", headers=ARTWORK_CACHE_HEADERS)
 
 
 @router.get("/artwork/playlists/{filename}", summary="Serve an uploaded playlist cover")
@@ -146,9 +150,9 @@ async def downloaded_artwork(session: DbSession, filename: str) -> FileResponse:
             legacy_target=artwork_path,
         )
         if recovered is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Downloaded artwork not found")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Downloaded artwork not found", headers=NO_STORE)
         artwork_path = recovered
-    return FileResponse(str(artwork_path), media_type=mimetypes.guess_type(filename)[0] or "image/jpeg")
+    return FileResponse(str(artwork_path), media_type=mimetypes.guess_type(filename)[0] or "image/jpeg", headers=ARTWORK_CACHE_HEADERS)
 
 
 async def _recover_missing_artwork(
